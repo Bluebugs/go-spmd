@@ -1,0 +1,9 @@
+[submodule "go"]
+	path = go
+	url = https://github.com/golang/go.git
+[submodule "ispc"]
+	path = ispc
+	url = https://github.com/ispc/ispc.git
+[submodule "tinygo"]
+	path = tinygo
+	url = https://github.com/tinygo-org/tinygo.git
