@@ -1,6 +1,6 @@
 [submodule "go"]
 	path = go
-	url = https://github.com/golang/go.git
+	url = https://github.com/Bluebugs/go.git
 [submodule "ispc"]
 	path = ispc
 	url = https://github.com/ispc/ispc.git
