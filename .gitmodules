@@ -6,4 +6,4 @@
 	url = https://github.com/ispc/ispc.git
 [submodule "tinygo"]
 	path = tinygo
-	url = https://github.com/tinygo-org/tinygo.git
+	url = https://github.com/Bluebugs/tinygo.git
