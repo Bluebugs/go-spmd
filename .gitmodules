@@ -7,3 +7,6 @@
 [submodule "tinygo"]
 	path = tinygo
 	url = https://github.com/Bluebugs/tinygo.git
+[submodule "bluebugs.github.io"]
+	path = bluebugs.github.io
+	url = https://github.com/Bluebugs/bluebugs.github.io.git
