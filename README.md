@@ -347,4 +347,14 @@ This is a research project by Bluebugs. For questions or discussions:
 
 ---
 
+## A Note on Naming 🐹
+
+In the spirit of Go's creative terminology, we'd like to suggest that `go for` SPMD contexts could be whimsically referred to as **"gophers"** - just as `go func` gave birth to "goroutines."
+
+After all, if goroutines are individual gophers running around concurrently, then gophers would be synchronized squads of gophers marching in perfect SIMD formation!
+
+*(This terminology is purely for entertainment and should not be used in formal documentation to avoid confusion.)*
+
+---
+
 *This implementation is experimental and not intended for production use. It serves as a proof-of-concept for SPMD programming in Go.*
