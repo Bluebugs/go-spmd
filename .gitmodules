@@ -10,3 +10,6 @@
 [submodule "bluebugs.github.io"]
 	path = bluebugs.github.io
 	url = https://github.com/Bluebugs/bluebugs.github.io.git
+[submodule "go-llvm"]
+	path = go-llvm
+	url = https://github.com/tinygo-org/go-llvm.git
