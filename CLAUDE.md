@@ -459,7 +459,7 @@ for outerIteration := 0; outerIteration < 4; outerIteration += lanes {
 
 ### Academic Papers
 
-- **Predicated Static Single Assignment**: https://cseweb.ucsd.edu/~calder/papers/PACT-99-PSSA.pdf
+- **Predicated Static Single Assignment**: <https://cseweb.ucsd.edu/~calder/papers/PACT-99-PSSA.pdf>
   - Predicated SSA form for efficient control flow handling in SIMD architectures
   - Mask-based execution using predicates instead of control flow divergence
   - Relevant for SPMD mask propagation and conditional execution strategies
@@ -525,7 +525,7 @@ for outerIteration := 0; outerIteration < 4; outerIteration += lanes {
      - ✅ "Implement SIMD128 vector add instruction generation"
      - ❌ "🚀 Add cool SPMD features and fix some bugs ✨"
 
-4. Maintain a branch for each fork with all the commit properly lined up in them
+4. Maintain a `spmd` branch for each fork with all the commit properly lined up in them
 
 5. **Repository Consistency**: Apply these rules to ALL repositories
    - Main Go compiler changes (golang/go fork)
