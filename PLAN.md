@@ -1,0 +1,420 @@
+# SPMD Implementation Plan for Go + TinyGo
+
+**Version**: 1.0  
+**Last Updated**: 2025-01-28  
+**Status**: Implementation Planning Phase  
+
+## Project Overview
+
+This document provides a comprehensive, trackable implementation plan for adding Single Program Multiple Data (SPMD) support to Go via TinyGo. The implementation follows a two-stage approach: Go frontend generates SPMD-aware SSA, TinyGo backend converts to WebAssembly SIMD128 instructions.
+
+**Key Success Criterion**: ALL examples must compile to both SIMD and scalar WASM with identical behavior.
+
+## Implementation Architecture
+
+- **Go Frontend (Phase 1)**: SPMD syntax, type system, and SSA generation using standard opcodes
+- **TinyGo Backend (Phase 2)**: SSA-to-LLVM IR conversion with dual SIMD/scalar code generation
+- **Testing Strategy**: Test-driven development using 20+ existing examples as primary test cases
+- **Reference Patterns**: Follows ISPC/LLVM established SPMD implementation patterns
+
+## Phase 0: Test-Driven Development Foundation
+
+**Goal**: Establish comprehensive test infrastructure before any implementation begins.
+
+### 0.1 Parser Test Suite Setup
+- [ ] Create parser test infrastructure in `src/cmd/compile/internal/syntax/testdata/spmd/`
+- [ ] Copy all examples as parser test cases with expected pass/fail behavior
+- [ ] Implement `TestSPMDParser` with GOEXPERIMENT flag testing
+- [ ] Test cases for valid SPMD syntax (should pass when experiment enabled)
+- [ ] Test cases for invalid SPMD syntax (should fail appropriately)
+- [ ] Test cases for backward compatibility (should work when experiment disabled)
+- [ ] Verify all existing examples parse correctly when SPMD enabled
+- [ ] Verify existing examples fail gracefully when SPMD disabled
+
+### 0.2 Type Checker Test Suite Setup
+- [ ] Create type checker test infrastructure in `src/cmd/compile/internal/types2/testdata/spmd/`
+- [ ] Copy examples as type checker test cases with expected validation behavior
+- [ ] Implement `TestSPMDTypeChecking` with comprehensive error message validation
+- [ ] Test uniform/varying assignment rules enforcement
+- [ ] Test SPMD function restrictions (public API limitations)
+- [ ] Test control flow restrictions (`break` in `go for`, nested `go for`)
+- [ ] Test SIMD register capacity constraint validation
+- [ ] Test map key restrictions and type switch requirements
+- [ ] Test pointer operation validations with varying types
+- [ ] Test constrained varying type system rules
+
+### 0.3 SSA Generation Test Suite Setup
+- [ ] Create SSA test infrastructure in `src/cmd/compile/internal/ssagen/testdata/spmd/`
+- [ ] Implement `TestSPMDSSAGeneration` to verify correct opcodes generated
+- [ ] Test `go for` loops generate standard SSA (OpPhi, OpCall, OpVectorAdd, OpSelect)
+- [ ] Test uniform-to-varying broadcasts generate lanes.Broadcast calls
+- [ ] Test varying arithmetic generates vector operations
+- [ ] Test mask propagation through control flow generates OpAnd/OpOr/OpNot
+- [ ] Test SPMD function calls get mask-first parameter insertion
+- [ ] Test reduce operations generate appropriate builtin calls
+
+### 0.4 Integration Test Suite Setup
+- [ ] Create integration test infrastructure in `test/integration/spmd/`
+- [ ] Copy ALL examples as integration tests with dual-mode compilation
+- [ ] Implement automated test runner script for continuous validation
+- [ ] Test SIMD version compilation and SIMD instruction verification
+- [ ] Test scalar version compilation and absence of SIMD instructions
+- [ ] Test identical output verification between SIMD and scalar modes
+- [ ] Test illegal examples fail compilation appropriately
+- [ ] Test legacy compatibility examples work without experiment flag
+- [ ] Test wasmer-go runtime execution for both SIMD and scalar WASM
+- [ ] Test browser-side SIMD detection and loading capability
+
+### 0.5 TDD Workflow Documentation
+- [ ] Document test-first development cycle procedures
+- [ ] Create automated test runner commands for each phase
+- [ ] Establish regression testing procedures
+- [ ] Define test success criteria for each implementation milestone
+- [ ] Create continuous integration validation procedures
+
+## Phase 1: Go Frontend Implementation
+
+**Goal**: Extend Go compiler with SPMD syntax, type system, and SSA generation.
+
+### 1.1 GOEXPERIMENT Integration
+- [ ] Add `SPMD bool` field to `src/internal/goexperiment/flags.go`
+- [ ] Generate experimental build constraint files (`exp_spmd_on.go`, `exp_spmd_off.go`)
+- [ ] Verify GOEXPERIMENT flag properly gates all SPMD features
+- [ ] Test graceful degradation when experiment is disabled
+- [ ] Update Go build system to recognize SPMD experiment
+- [ ] Create clear error messages when SPMD features used without experiment
+
+### 1.2 Lexer Modifications
+- [ ] **TDD**: Implement context-sensitive keyword recognition in `src/cmd/compile/internal/syntax/tokens.go`
+- [ ] Add `uniform` and `varying` keyword recognition in type contexts only
+- [ ] Ensure keywords work as regular identifiers in non-type contexts
+- [ ] Implement lexer support for `go for` construct recognition
+- [ ] Test backward compatibility - existing code using `uniform`/`varying` as identifiers works
+- [ ] Verify proper error messages for malformed SPMD syntax
+- [ ] **Make parser tests pass**: Lexer correctly recognizes SPMD tokens
+
+### 1.3 Parser Extensions
+- [ ] **TDD**: Extend parser in `src/cmd/compile/internal/syntax/parser.go` for SPMD syntax
+- [ ] Add support for type qualifiers (`uniform int`, `varying float32`)
+- [ ] Implement `go for` SPMD loop construct parsing
+- [ ] Add support for constrained varying syntax (`varying[4] byte`, `varying[] T`)
+- [ ] Implement range grouping syntax (`range[4] data`)
+- [ ] Add AST nodes for SPMD constructs
+- [ ] Test nested SPMD construct detection and appropriate errors
+- [ ] Verify all example files parse correctly with SPMD syntax
+- [ ] **Make parser tests pass**: All valid SPMD syntax parses correctly
+
+### 1.4 Type System Implementation
+- [ ] **TDD**: Add SPMD types to `src/cmd/compile/internal/types2/types.go`
+- [ ] Implement `SPMDType` with Uniform/Varying qualifiers
+- [ ] Add constrained varying type support (`varying[n]` and `varying[]`)
+- [ ] Implement type compatibility rules for SPMD types
+- [ ] Add interface support for varying types with explicit type switches
+- [ ] Support pointer operations with varying types
+- [ ] Implement generic type constraints for lanes/reduce functions
+- [ ] **Make type checker tests pass**: Type system correctly validates SPMD code
+
+### 1.5 Type Checking Rules Implementation
+- [ ] **TDD**: Implement SPMD type checking in `src/cmd/compile/internal/types2/stmt.go`
+- [ ] Enforce assignment rules (varying-to-uniform prohibited, uniform-to-varying broadcasts)
+- [ ] Implement SPMD function detection (functions with varying parameters)
+- [ ] Add public API restrictions (no public SPMD functions except builtins)
+- [ ] Implement control flow restrictions (`break` in `go for`, nested `go for` prohibited)
+- [ ] Add SIMD register capacity constraint validation
+- [ ] Implement map key restrictions (no varying keys)
+- [ ] Add type switch validation for varying interface{} usage
+- [ ] Validate `lanes.Index()` context requirements (SPMD context only)
+- [ ] **Make type checker tests pass**: All SPMD type rules properly enforced
+
+### 1.6 SIMD Register Capacity Validation
+- [ ] Implement `checkSIMDRegisterCapacity` for `go for` loops
+- [ ] Add capacity constraint checking based on range element type and varying types used
+- [ ] Implement `checkSPMDFunctionCapacity` validation for SPMD functions
+- [ ] Calculate lane count constraints based on largest varying parameter type
+- [ ] Validate all varying types in function body fit capacity constraints
+- [ ] Record adjusted lane counts for code generation
+- [ ] Generate clear error messages for capacity violations
+- [ ] Test complex scenarios with mixed varying type sizes
+
+### 1.7 Go SSA Generation for SPMD
+- [ ] **TDD**: Extend SSA generation in `src/cmd/compile/internal/ssagen/ssa.go`
+- [ ] **Extend SSA opcodes to support predicated operations**: Modify Go's SSA IR to accept boolean mask predicates, transforming it into Predicated Static Single Assignment (PSSA)
+- [ ] Add predicate parameter to vector SSA operations (OpVectorAdd, OpVectorMul, OpVectorLoad, OpVectorStore)
+- [ ] Implement mask-aware SSA instruction generation for all varying operations
+- [ ] Implement `spmdForStmt` using predicated SSA opcodes (leveraging standard opcodes with mask predicates)
+- [ ] Generate mask tracking through OpPhi, OpAnd, OpOr, OpNot operations with predicate support
+- [ ] Implement automatic mask-first parameter insertion for SPMD function calls
+- [ ] Generate predicated vector operations using OpVectorAdd, OpVectorMul, etc. with mask predicates
+- [ ] Implement uniform-to-varying broadcasts via lanes.Broadcast calls with predicate handling
+- [ ] Add conditional masking with OpSelect for control flow using predicated operations
+- [ ] Generate reduce operation calls with proper mask handling through predicated SSA
+- [ ] Implement constrained varying handling with static array unrolling using predicated operations
+- [ ] **Make SSA tests pass**: Correct predicated SSA opcodes generated for all SPMD constructs
+
+### 1.8 Standard Library Extensions (lanes package)
+- [ ] Create `src/lanes/lanes.go` with build constraint `//go:build goexperiment.spmd`
+- [ ] Implement `Count[T any]() int` as compiler intrinsic
+- [ ] Implement `Index() varying int` with SPMD context requirement
+- [ ] Add `From[T any](slice []T) varying T` for data construction
+- [ ] Implement `Broadcast[T any](value uniform T, lane int) VaryingAny[T]`
+- [ ] Add `Rotate[T any](value VaryingAny[T], offset uniform int) VaryingAny[T]`
+- [ ] Implement `Swizzle[T any](value VaryingAny[T], indices VaryingInteger[int]) VaryingAny[T]`
+- [ ] Add bit shift operations `ShiftLeft`, `ShiftRight` for integer types
+- [ ] Implement `FromConstrained[T any](data varying[] T) ([]varying T, []varying bool)`
+- [ ] Add performance requirement: all operations must be automatically inlined
+
+### 1.9 Standard Library Extensions (reduce package) 
+- [ ] Create `src/reduce/reduce.go` with build constraint `//go:build goexperiment.spmd`
+- [ ] Define generic type constraints (VaryingBool, VaryingNumeric[T], VaryingInteger[T], etc.)
+- [ ] Implement `All(data VaryingBool) uniform bool` with varying[] support
+- [ ] Implement `Any(data VaryingBool) uniform bool` with varying[] support
+- [ ] Add `Add[T Numeric](data VaryingNumeric[T]) uniform T` with varying[] support
+- [ ] Implement `Max[T comparable]` and `Min[T comparable]` reductions
+- [ ] Add bitwise reductions `Or[T Integer]`, `And[T Integer]`, `Xor[T Integer]`
+- [ ] Implement `From[T NumericOrBool](varying T) []T` (numerical types and bool only)
+- [ ] Add lane analysis functions `FindFirstSet`, `Mask`
+- [ ] Use runtime type checking for varying[] vs varying T parameter handling
+- [ ] Add performance requirement: all operations must be automatically inlined
+
+### 1.10 Printf Integration for Varying Types
+- [ ] Extend `src/fmt/print.go` to detect varying types with `%v` verb
+- [ ] Automatically call `reduce.From()` for varying type display
+- [ ] Implement reflection support for varying types as uniform arrays
+- [ ] Limit PoC to numerical types and bool only
+- [ ] Test Printf output matches expected array representation
+- [ ] Ensure graceful fallback when experiment disabled
+
+### 1.11 Frontend Integration Testing
+- [ ] Verify all examples parse, type-check, and generate SSA correctly
+- [ ] Test experiment flag gating works properly across all frontend components
+- [ ] Validate error messages are clear and helpful
+- [ ] Confirm backward compatibility maintained
+- [ ] Test standard library extensions work with all example patterns
+- [ ] Verify SIMD register capacity constraints work for all examples
+
+## Phase 2: TinyGo Backend Implementation
+
+**Goal**: Convert Go SSA with SPMD constructs to LLVM IR and generate dual SIMD/scalar WASM.
+
+### 2.1 TinyGo SSA-to-LLVM Integration
+- [ ] **TDD**: Modify `src/compiler/compiler.go` to recognize SPMD SSA constructs
+- [ ] Implement detection of vector types in SSA instructions
+- [ ] Add SPMD function call detection (functions with varying parameters)
+- [ ] Implement mask parameter handling for SPMD function calls
+- [ ] Add vector type mapping to LLVM vector types (i32x4, f32x4 for WASM SIMD128)
+- [ ] **Make integration tests pass**: TinyGo correctly processes SPMD SSA
+
+### 2.2 Dual Mode Code Generation Infrastructure
+- [ ] Add `-simd=true/false` build flag to `src/main.go`
+- [ ] Implement `SIMDEnabled` configuration option in compileopts
+- [ ] Create dual code generation paths in compiler context
+- [ ] Add SIMD capability detection and configuration
+- [ ] Implement graceful fallback when SIMD disabled
+- [ ] Test build flag properly controls code generation mode
+
+### 2.3 SIMD Mode Implementation
+- [ ] **TDD**: Implement SIMD vector operations in `compileBinOp`
+- [ ] Generate LLVM vector instructions for varying arithmetic
+- [ ] Map Go SSA vector ops to LLVM vector intrinsics
+- [ ] Implement SPMD function calls with mask-first parameter
+- [ ] Add conditional execution via LLVM select instructions
+- [ ] Generate efficient mask propagation using LLVM vector operations
+- [ ] **Make integration tests pass**: SIMD WASM contains v128.* instructions
+
+### 2.4 Scalar Mode Implementation  
+- [ ] **TDD**: Implement scalar fallback code generation in `generateScalarVectorOp`
+- [ ] Generate element-wise scalar loops instead of vector operations
+- [ ] Implement traditional for loops for varying operations
+- [ ] Handle mask propagation through scalar conditional logic
+- [ ] Ensure identical behavior between SIMD and scalar modes
+- [ ] **Make integration tests pass**: Scalar WASM contains no SIMD instructions
+
+### 2.5 WebAssembly SIMD128 Code Generation
+- [ ] **TDD**: Implement WASM SIMD instruction mapping in `src/targets/wasm.go`
+- [ ] Generate `i32x4.add`, `i32x4.mul` for integer vector operations
+- [ ] Add `f32x4.add`, `f32x4.mul` for floating-point vector operations
+- [ ] Implement `v128.load`, `v128.store` for memory operations
+- [ ] Add `i32x4.extract_lane` for lane access operations
+- [ ] Generate `v128.and`, `v128.or`, `v128.not` for mask operations
+- [ ] Map LLVM vector intrinsics to WASM SIMD128 instructions
+- [ ] **Make integration tests pass**: Correct SIMD instructions generated
+
+### 2.6 Built-in Function Implementation
+- [ ] Implement `lanes.Count()` as compile-time constant based on target
+- [ ] Generate `lanes.Index()` as lane index vector creation
+- [ ] Implement `lanes.Broadcast()` as vector splat operations
+- [ ] Add `lanes.Rotate()` as vector shuffle operations
+- [ ] Implement `reduce.Add()` as horizontal reduction operations
+- [ ] Generate `reduce.All()` and `reduce.Any()` as vector reductions
+- [ ] Add efficient implementations for all lanes and reduce functions
+- [ ] Ensure automatic inlining of all built-in function calls
+
+### 2.7 Constrained Varying Implementation
+- [ ] Implement static array unrolling for `varying[n]` types
+- [ ] Generate multiple mask tracking for constrained varying operations
+- [ ] Add efficient handling when constraint matches SIMD width
+- [ ] Implement `lanes.FromConstrained()` as array decomposition
+- [ ] Generate appropriate loop unrolling for constraints larger than SIMD width
+- [ ] Handle `varying[]` universal constrained type processing
+
+### 2.8 Memory and Performance Optimization
+- [ ] Implement efficient vector memory layouts
+- [ ] Add LLVM optimization flags for SIMD code
+- [ ] Ensure mask operations don't inhibit vectorization
+- [ ] Implement efficient control flow handling for divergent lanes
+- [ ] Add dead lane elimination optimizations
+- [ ] Optimize function call overhead for SPMD functions
+
+### 2.9 Backend Integration Testing
+- [ ] Verify all examples compile to both SIMD and scalar WASM successfully
+- [ ] Test WASM files execute correctly in wasmer-go runtime
+- [ ] Validate SIMD instruction generation via wasm2wat inspection
+- [ ] Confirm scalar fallback produces identical results
+- [ ] Test performance differences between SIMD and scalar modes
+- [ ] Verify browser compatibility with generated WASM
+
+## Phase 3: Validation and Success Criteria
+
+**Goal**: Demonstrate complete SPMD implementation with all examples working in dual modes.
+
+### 3.1 Comprehensive Example Validation
+- [ ] **simple-sum**: Compiles and runs in both SIMD/scalar modes with identical output
+- [ ] **odd-even**: Conditional processing works correctly in both modes
+- [ ] **bit-counting**: Complex control flow handled properly
+- [ ] **array-counting**: Divergent control flow works correctly
+- [ ] **printf-verbs**: Printf integration displays varying values correctly
+- [ ] **hex-encode**: String processing algorithms work in both modes
+- [ ] **to-upper**: Character manipulation operations work correctly
+- [ ] **base64-decoder**: Complex cross-lane operations work (PoC goal)
+- [ ] **ipv4-parser**: Real-world parsing algorithm works (PoC goal)
+- [ ] **debug-varying**: Debugging and introspection features work
+- [ ] **goroutine-varying**: Goroutine launch with varying values works
+- [ ] **defer-varying**: Defer statements with varying capture work
+- [ ] **panic-recover-varying**: Error handling with varying types works
+- [ ] **map-restrictions**: Map restriction enforcement works correctly
+- [ ] **pointer-varying**: Pointer operations with varying types work
+- [ ] **type-switch-varying**: Type switches with varying interface{} work
+- [ ] **non-spmd-varying-return**: Non-SPMD functions returning varying work
+- [ ] **spmd-call-contexts**: SPMD functions callable from any context
+- [ ] **lanes-index-restrictions**: lanes.Index() context restrictions enforced
+- [ ] **varying-universal-constrained**: varying[] universal constrained syntax works
+- [ ] **union-type-generics**: Generic type constraints for reduce/lanes functions work
+
+### 3.2 Illegal Example Validation
+- [ ] **break-in-go-for.go**: Correctly fails compilation with clear error
+- [ ] **control-flow-outside-spmd.go**: Control flow restrictions enforced
+- [ ] **go-for-in-spmd-function.go**: SPMD function restrictions enforced  
+- [ ] **invalid-contexts.go**: Context validation works correctly
+- [ ] **invalid-lane-constraints.go**: Lane constraint validation works
+- [ ] **invalid-type-casting.go**: Type casting restrictions enforced
+- [ ] **malformed-syntax.go**: Syntax error handling works correctly
+- [ ] **nested-go-for.go**: Nesting restrictions enforced
+- [ ] **public-spmd-function.go**: Public API restrictions enforced
+- [ ] **varying-to-uniform.go**: Assignment rule restrictions enforced
+
+### 3.3 Legacy Compatibility Validation
+- [ ] All legacy examples compile without GOEXPERIMENT=spmd
+- [ ] Existing code using "uniform"/"varying" as identifiers works
+- [ ] No breaking changes to existing Go programs
+- [ ] Graceful degradation when experiment disabled
+- [ ] Clear error messages when SPMD features used without experiment
+
+### 3.4 Performance and Technical Validation
+- [ ] **SIMD Instruction Generation**: `wasm2wat` shows v128.* instructions in SIMD builds
+- [ ] **Scalar Fallback**: Scalar builds contain no SIMD instructions
+- [ ] **Identical Output**: Both modes produce bit-identical results for all examples
+- [ ] **Performance Measurement**: Measurable performance difference between modes
+- [ ] **Memory Efficiency**: SIMD code uses vectors efficiently without excessive memory
+- [ ] **Browser Compatibility**: SIMD detection and loading works in browsers
+- [ ] **Wasmer-go Integration**: Both WASM modes execute correctly in wasmer-go
+
+### 3.5 Browser Integration Validation
+- [ ] Create SIMD detection JavaScript code for runtime capability checking
+- [ ] Test automatic loading of SIMD vs scalar WASM based on browser support
+- [ ] Verify WASM SIMD128 feature detection works correctly
+- [ ] Implement fallback mechanism for browsers without SIMD support
+- [ ] Test WASM execution in multiple browser environments
+
+### 3.6 Documentation and User Experience
+- [ ] Update README.md with working examples and build instructions
+- [ ] Document GOEXPERIMENT=spmd usage and build procedures
+- [ ] Create clear error message documentation
+- [ ] Update CLAUDE.md with implementation status
+- [ ] Provide performance benchmarking guidance
+- [ ] Document browser integration procedures
+
+## Testing and Quality Assurance
+
+### Continuous Integration
+- [ ] Set up automated testing for all phases
+- [ ] Implement regression testing for each milestone
+- [ ] Add performance benchmarking in CI pipeline
+- [ ] Test matrix for different GOEXPERIMENT combinations
+- [ ] Validate backwards compatibility continuously
+
+### Error Handling
+- [ ] Comprehensive error message testing
+- [ ] Edge case validation for all SPMD constructs  
+- [ ] Memory safety validation for varying operations
+- [ ] Overflow and underflow testing for SIMD operations
+- [ ] Graceful handling of unsupported hardware features
+
+### Performance Validation
+- [ ] Benchmark all examples in both SIMD and scalar modes
+- [ ] Validate expected performance improvements from SIMD
+- [ ] Test memory usage efficiency
+- [ ] Profile compilation time impact
+- [ ] Measure runtime overhead of SPMD constructs
+
+## Implementation Guidelines
+
+### Development Workflow
+1. **Test First**: Write tests before implementation for each feature
+2. **Incremental**: Implement one checkbox at a time
+3. **Validation**: Run relevant test suite after each change
+4. **Integration**: Test full pipeline regularly
+5. **Documentation**: Update docs with each user-visible change
+
+### Code Quality Standards
+- **Atomic Commits**: One logical change per commit
+- **Clear Messages**: Descriptive commit messages without emojis
+- **Testing**: All changes must pass existing tests
+- **Reference**: Follow ISPC patterns for SPMD-specific code
+- **Compatibility**: Maintain backward compatibility
+
+### Success Metrics
+- **All Examples Work**: Every example compiles and runs correctly in both modes
+- **Performance**: Measurable SIMD performance improvements
+- **Compatibility**: No breaking changes to existing Go code
+- **Documentation**: Complete user and developer documentation
+- **Browser Ready**: Full browser integration with SIMD detection
+
+## Risks and Mitigation
+
+### Technical Risks
+- **LLVM Integration Complexity**: Mitigate with incremental testing and ISPC reference patterns
+- **SIMD Hardware Variance**: Focus on WASM SIMD128 as single, well-defined target
+- **Performance Overhead**: Profile and optimize each component incrementally
+- **Memory Safety**: Extensive testing with varying pointer operations
+
+### Project Risks  
+- **Scope Creep**: Strict adherence to PoC limitations and example-driven development
+- **Complexity Management**: Clear phase separation and test-driven development
+- **Integration Issues**: Regular full-pipeline testing and validation
+
+## Current Status
+
+- **Phase 0**: ⏳ Planning Complete, Implementation Not Started
+- **Phase 1**: ❌ Not Started
+- **Phase 2**: ❌ Not Started  
+- **Phase 3**: ❌ Not Started
+
+**Next Action**: Begin Phase 0 test infrastructure setup
+
+---
+
+**Total Estimated Tasks**: 200+ checkboxes  
+**Estimated Timeline**: 6-12 months for complete PoC implementation  
+**Success Criteria**: ALL examples compile to both SIMD and scalar WASM with identical behavior
+
+This plan serves as the definitive roadmap for SPMD implementation and should be updated as progress is made and new requirements are discovered.
