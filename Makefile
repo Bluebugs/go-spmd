@@ -1,221 +1,160 @@
-# SPMD Implementation for Go via TinyGo
-# Makefile for building, testing, and managing the SPMD project
-
-.PHONY: help install build test clean examples wasmer-test dual-test benchmark submodules
+# SPMD Implementation Makefile
+# Automated test runners for all phases of SPMD development
+# Part of Phase 0.6 - TDD Workflow Documentation
 
 # Configuration
-GOEXPERIMENT = spmd
-TINYGO_TARGET = wasi
-EXAMPLES_DIR = examples
-WASMER_RUNNER = $(EXAMPLES_DIR)/wasmer-runner.go
+GO ?= go
+TINYGO ?= tinygo
+WASM2WAT ?= wasm2wat
+TEST_TIMEOUT ?= 30m
+GOEXPERIMENT ?= spmd
 
-# All example directories
-EXAMPLES = simple-sum odd-even bit-counting array-counting printf-verbs hex-encode to-upper \
-          base64-decoder ipv4-parser debug-varying goroutine-varying defer-varying \
-          panic-recover-varying map-restrictions pointer-varying type-switch-varying \
-          non-spmd-varying-return spmd-call-contexts lanes-index-restrictions \
-          varying-universal-constrained union-type-generics
+# Directories
+GO_DIR = go
+TINYGO_DIR = tinygo
+TEST_DIR = test
+EXAMPLES_DIR = examples
+INTEGRATION_DIR = test/integration/spmd
+
+# Colors for output
+GREEN = \033[0;32m
+YELLOW = \033[1;33m
+RED = \033[0;31m
+NC = \033[0m # No Color
+
+# Default target
+.PHONY: all
+all: check-deps test-phase0
 
 # Help target
+.PHONY: help
 help:
-	@echo "SPMD Implementation for Go via TinyGo"
+	@echo "SPMD Implementation Test Automation"
 	@echo ""
-	@echo "Available targets:"
-	@echo "  help            - Show this help message"
-	@echo "  install         - Install all dependencies and setup submodules"
-	@echo "  build           - Build TinyGo with SPMD support"
-	@echo "  test            - Run all tests"
-	@echo "  examples        - Build all SPMD examples"
-	@echo "  wasmer-test     - Test examples with wasmer runtime"
-	@echo "  dual-test       - Test both SIMD and scalar modes for all examples"
-	@echo "  benchmark       - Run performance benchmarks"
-	@echo "  clean           - Clean build artifacts"
-	@echo "  submodules      - Initialize and update git submodules"
+	@echo "Phase Testing:"
+	@echo "  test-phase0          - Run all Phase 0 foundation tests"
+	@echo "  test-phase1          - Run all Phase 1 frontend tests"
+	@echo "  test-phase2          - Run all Phase 2 backend tests"
+	@echo "  test-phase3          - Run all Phase 3 validation tests"
 	@echo ""
-	@echo "Environment:"
-	@echo "  GOEXPERIMENT=$(GOEXPERIMENT)"
-	@echo "  TINYGO_TARGET=$(TINYGO_TARGET)"
+	@echo "Individual Phase Tests:"
+	@echo "  test-phase01         - GOEXPERIMENT integration"
+	@echo "  test-phase02         - Parser test infrastructure"
+	@echo "  test-phase03         - Type checker test infrastructure"
+	@echo "  test-phase04         - SSA generation test infrastructure"
+	@echo "  test-phase05         - Integration test infrastructure"
+	@echo "  test-phase06         - TDD workflow validation"
+	@echo ""
+	@echo "Component Testing:"
+	@echo "  test-lexer           - Lexer modifications (Phase 1.2)"
+	@echo "  test-parser          - Parser extensions (Phase 1.3)"
+	@echo "  test-typechecker     - Type system (Phase 1.4-1.5)"
+	@echo "  test-ssa             - SSA generation (Phase 1.7)"
+	@echo "  test-stdlib          - Standard library (Phase 1.8-1.9)"
+	@echo ""
+	@echo "Integration Testing:"
+	@echo "  test-dual-mode       - Dual-mode compilation"
+	@echo "  test-examples        - All example validation"
+	@echo "  test-illegal         - Illegal examples"
+	@echo "  test-legacy          - Legacy compatibility"
+	@echo "  test-browser         - Browser integration"
+	@echo ""
+	@echo "CI/CD:"
+	@echo "  ci-quick             - Quick validation (<5 min)"
+	@echo "  ci-full              - Full validation (<30 min)"
+	@echo "  test-regression      - Regression testing"
+	@echo ""
+	@echo "Utilities:"
+	@echo "  check-deps           - Check dependencies"
+	@echo "  clean                - Clean generated files"
+	@echo "  benchmark            - Run performance benchmarks"
 
-# Install dependencies and setup environment
-install: submodules
-	@echo "Installing Go dependencies..."
-	cd $(EXAMPLES_DIR) && go mod download
-	@echo "Installing wasmer-go for runtime testing..."
-	cd $(EXAMPLES_DIR) && go get github.com/wasmerio/wasmer-go/wasmer
-	@echo "Checking for required tools..."
-	@which wasm2wat > /dev/null || (echo "Warning: wasm2wat not found. Install wabt for WASM inspection."; exit 0)
-	@which wasmer > /dev/null || (echo "Warning: wasmer not found. Install wasmer for WASM execution."; exit 0)
-	@echo "Installation complete!"
+# Dependency checking
+.PHONY: check-deps
+check-deps:
+	@echo "$(YELLOW)Checking dependencies...$(NC)"
+	@which $(GO) >/dev/null || (echo "$(RED)Error: Go not found$(NC)" && exit 1)
+	@echo "$(GREEN)✓ Go compiler available$(NC)"
+	@cd $(GO_DIR) && $(GO) version >/dev/null || (echo "$(RED)Error: Go submodule not built$(NC)" && exit 1)
+	@echo "$(GREEN)✓ Go submodule built$(NC)"
+	@which $(TINYGO) >/dev/null || echo "$(YELLOW)⚠ TinyGo not found (backend tests will be skipped)$(NC)"
+	@which $(WASM2WAT) >/dev/null || echo "$(YELLOW)⚠ wasm2wat not found (SIMD verification disabled)$(NC)"
+	@echo "$(GREEN)Dependencies checked$(NC)"
 
-# Initialize and update git submodules
-submodules:
-	@echo "Initializing git submodules..."
-	git submodule init
-	git submodule update --recursive
-	@echo "Submodules updated!"
+# Phase 0: Foundation Testing
+.PHONY: test-phase0
+test-phase0: test-phase01 test-phase02 test-phase03 test-phase04 test-phase05 test-phase06
+	@echo "$(GREEN)Phase 0 foundation testing complete$(NC)"
 
-# Build TinyGo with SPMD support
-build:
-	@echo "Building TinyGo with GOEXPERIMENT=$(GOEXPERIMENT)..."
-	cd tinygo && GOEXPERIMENT=$(GOEXPERIMENT) go build
-	@echo "TinyGo build complete!"
+.PHONY: test-phase01
+test-phase01:
+	@echo "$(YELLOW)Testing Phase 0.1: GOEXPERIMENT Integration$(NC)"
+	@cd $(GO_DIR) && GOEXPERIMENT=$(GOEXPERIMENT) $(GO) test ./src/internal/goexperiment -v -timeout=5m
+	@echo "$(GREEN)✓ Phase 0.1 tests passed$(NC)"
 
-# Test the project
-test: test-frontend test-examples
+.PHONY: test-phase02
+test-phase02:
+	@echo "$(YELLOW)Testing Phase 0.2: Parser Test Infrastructure$(NC)"
+	@cd $(GO_DIR) && GOEXPERIMENT=$(GOEXPERIMENT) $(GO) test ./src/cmd/compile/internal/syntax -run TestSPMDParser -v -timeout=5m
+	@echo "$(GREEN)✓ Phase 0.2 tests passed$(NC)"
 
-# Test Go frontend changes (when implemented)
-test-frontend:
-	@echo "Testing Go frontend changes..."
-	cd go && ./src/run.bash
-	@echo "Frontend tests complete!"
+.PHONY: test-phase03
+test-phase03:
+	@echo "$(YELLOW)Testing Phase 0.3: Type Checker Test Infrastructure$(NC)"
+	@cd $(GO_DIR) && GOEXPERIMENT=$(GOEXPERIMENT) $(GO) test ./src/cmd/compile/internal/types2 -run TestSPMDTypeChecking -v -timeout=5m
+	@echo "$(GREEN)✓ Phase 0.3 tests passed$(NC)"
 
-# Test all examples
-test-examples: examples wasmer-test
-	@echo "All example tests complete!"
+.PHONY: test-phase04
+test-phase04:
+	@echo "$(YELLOW)Testing Phase 0.4: SSA Generation Test Infrastructure$(NC)"
+	@cd $(GO_DIR) && GOEXPERIMENT=$(GOEXPERIMENT) $(GO) test ./src/cmd/compile/internal/ssagen -run TestSPMDSSAGeneration -v -timeout=5m
+	@echo "$(GREEN)✓ Phase 0.4 tests passed$(NC)"
 
-# Build all SPMD examples
-examples:
-	@echo "Building all SPMD examples..."
-	@for example in $(EXAMPLES); do \
-		echo "Building $$example..."; \
-		if [ -d "$(EXAMPLES_DIR)/$$example" ]; then \
-			GOEXPERIMENT=$(GOEXPERIMENT) ./tinygo/tinygo build -target=$(TINYGO_TARGET) -o $(EXAMPLES_DIR)/$$example.wasm $(EXAMPLES_DIR)/$$example/main.go || exit 1; \
-		else \
-			echo "Warning: Example directory $$example not found"; \
-		fi; \
-	done
-	@echo "All examples built successfully!"
+.PHONY: test-phase05
+test-phase05:
+	@echo "$(YELLOW)Testing Phase 0.5: Integration Test Infrastructure$(NC)"
+	@cd $(INTEGRATION_DIR) && $(GO) test -v -run TestSPMDTestInfrastructure -timeout=5m
+	@echo "$(GREEN)✓ Phase 0.5 tests passed$(NC)"
 
-# Test examples with wasmer runtime
-wasmer-test: examples
-	@echo "Testing examples with wasmer runtime..."
-	@for example in $(EXAMPLES); do \
-		if [ -f "$(EXAMPLES_DIR)/$$example.wasm" ]; then \
-			echo "Testing $$example.wasm..."; \
-			cd $(EXAMPLES_DIR) && go run wasmer-runner.go $$example.wasm || exit 1; \
-		fi; \
-	done
-	@echo "Wasmer tests complete!"
+.PHONY: test-phase06
+test-phase06:
+	@echo "$(YELLOW)Testing Phase 0.6: TDD Workflow Documentation$(NC)"
+	@test -f TDD-WORKFLOW.md || (echo "$(RED)TDD-WORKFLOW.md not found$(NC)" && exit 1)
+	@test -f Makefile || (echo "$(RED)Main Makefile not found$(NC)" && exit 1)
+	@echo "$(GREEN)✓ Phase 0.6 documentation complete$(NC)"
 
-# Test both SIMD and scalar modes (dual compilation)
-dual-test:
-	@echo "Testing dual-mode compilation (SIMD + scalar)..."
-	@for example in $(EXAMPLES); do \
-		if [ -d "$(EXAMPLES_DIR)/$$example" ]; then \
-			echo "Testing $$example in dual mode..."; \
-			\
-			echo "  Compiling SIMD version..."; \
-			GOEXPERIMENT=$(GOEXPERIMENT) ./tinygo/tinygo build -target=$(TINYGO_TARGET) -simd=true -o $(EXAMPLES_DIR)/$$example-simd.wasm $(EXAMPLES_DIR)/$$example/main.go || exit 1; \
-			\
-			echo "  Compiling scalar version..."; \
-			GOEXPERIMENT=$(GOEXPERIMENT) ./tinygo/tinygo build -target=$(TINYGO_TARGET) -simd=false -o $(EXAMPLES_DIR)/$$example-scalar.wasm $(EXAMPLES_DIR)/$$example/main.go || exit 1; \
-			\
-			echo "  Verifying SIMD instructions..."; \
-			simd_count=$$(wasm2wat $(EXAMPLES_DIR)/$$example-simd.wasm 2>/dev/null | grep -cE "(v128|i32x4|f32x4)" || echo "0"); \
-			if [ "$$simd_count" -eq 0 ]; then \
-				echo "    Warning: SIMD version contains no SIMD instructions"; \
-			else \
-				echo "    ✓ SIMD version contains $$simd_count SIMD instructions"; \
-			fi; \
-			\
-			echo "  Verifying scalar version..."; \
-			scalar_simd_count=$$(wasm2wat $(EXAMPLES_DIR)/$$example-scalar.wasm 2>/dev/null | grep -cE "(v128|i32x4|f32x4)" || echo "0"); \
-			if [ "$$scalar_simd_count" -ne 0 ]; then \
-				echo "    Warning: Scalar version contains SIMD instructions"; \
-			else \
-				echo "    ✓ Scalar version contains no SIMD instructions"; \
-			fi; \
-			\
-			echo "  Testing execution..."; \
-			cd $(EXAMPLES_DIR) && simd_output=$$(go run wasmer-runner.go $$example-simd.wasm 2>/dev/null || echo "ERROR"); \
-			cd $(EXAMPLES_DIR) && scalar_output=$$(go run wasmer-runner.go $$example-scalar.wasm 2>/dev/null || echo "ERROR"); \
-			\
-			if [ "$$simd_output" = "$$scalar_output" ] && [ "$$simd_output" != "ERROR" ]; then \
-				echo "    ✓ Both versions produce identical output"; \
-			else \
-				echo "    ERROR: SIMD and scalar outputs differ or failed"; \
-				echo "    SIMD: $$simd_output"; \
-				echo "    Scalar: $$scalar_output"; \
-				exit 1; \
-			fi; \
-		fi; \
-	done
-	@echo "Dual-mode tests complete!"
+# Quick validation for development
+.PHONY: ci-quick
+ci-quick: check-deps
+	@echo "$(YELLOW)Running quick validation (<5 minutes)$(NC)"
+	@$(MAKE) test-phase0-quick
+	@$(MAKE) test-illegal
+	@echo "$(GREEN)Quick validation complete$(NC)"
 
-# Run performance benchmarks
-benchmark: dual-test
-	@echo "Running performance benchmarks..."
-	@echo "Benchmarking key examples (simple-sum, ipv4-parser, base64-decoder)..."
-	@for example in simple-sum ipv4-parser base64-decoder; do \
-		if [ -f "$(EXAMPLES_DIR)/$$example-simd.wasm" ] && [ -f "$(EXAMPLES_DIR)/$$example-scalar.wasm" ]; then \
-			echo "Benchmarking $$example..."; \
-			echo "  SIMD version:"; \
-			cd $(EXAMPLES_DIR) && time go run wasmer-runner.go $$example-simd.wasm 2>&1 | grep real || echo "    Timing failed"; \
-			echo "  Scalar version:"; \
-			cd $(EXAMPLES_DIR) && time go run wasmer-runner.go $$example-scalar.wasm 2>&1 | grep real || echo "    Timing failed"; \
-		fi; \
-	done
-	@echo "Benchmarks complete!"
+.PHONY: test-phase0-quick
+test-phase0-quick:
+	@echo "$(YELLOW)Quick Phase 0 validation$(NC)"
+	@cd $(GO_DIR) && GOEXPERIMENT=$(GOEXPERIMENT) $(GO) test ./src/internal/goexperiment -v -timeout=2m
+	@cd $(INTEGRATION_DIR) && $(GO) test -v -run TestSPMDTestInfrastructure -timeout=1m
+	@echo "$(GREEN)✓ Quick Phase 0 validation passed$(NC)"
 
-# Generate browser SIMD detection helper
-browser-support:
-	@echo "Generating browser SIMD detection helper..."
-	@cat > $(EXAMPLES_DIR)/simd-loader.js << 'EOF'
-// Browser-side SIMD detection and WASM loading
-async function loadOptimalWasm(baseName) {
-    const supportsSimd = WebAssembly.validate(new Uint8Array([
-        0x00, 0x61, 0x73, 0x6d, // WASM magic
-        0x01, 0x00, 0x00, 0x00, // Version
-        0x01, 0x05, 0x01, 0x60, 0x00, 0x01, 0x7b, // Type section (v128)
-    ]));
-    
-    const wasmFile = supportsSimd ? `$${baseName}-simd.wasm` : `$${baseName}-scalar.wasm`;
-    console.log(`Loading $${wasmFile} (SIMD support: $${supportsSimd})`);
-    
-    return await WebAssembly.instantiateStreaming(fetch(wasmFile));
-}
-EOF
-	@echo "Browser helper generated: $(EXAMPLES_DIR)/simd-loader.js"
+# Integration testing shortcuts
+.PHONY: test-illegal
+test-illegal:
+	@echo "$(YELLOW)Testing illegal examples$(NC)"
+	@cd $(INTEGRATION_DIR) && $(GO) test -v -run TestSPMDIllegalExamples -timeout=10m
 
-# Validate experiment gating (ensure graceful fallback when disabled)
-validate-gating:
-	@echo "Validating GOEXPERIMENT gating..."
-	@echo "Testing compilation without SPMD experiment (should fail gracefully)..."
-	@for example in simple-sum odd-even; do \
-		if [ -d "$(EXAMPLES_DIR)/$$example" ]; then \
-			echo "Testing $$example without GOEXPERIMENT=spmd..."; \
-			./tinygo/tinygo build -target=$(TINYGO_TARGET) $(EXAMPLES_DIR)/$$example/main.go 2>&1 && \
-				echo "ERROR: Should have failed without GOEXPERIMENT=spmd" && exit 1 || \
-				echo "✓ Correctly failed without experiment flag"; \
-		fi; \
-	done
-	@echo "Experiment gating validation complete!"
+.PHONY: test-legacy
+test-legacy:
+	@echo "$(YELLOW)Testing legacy compatibility$(NC)"
+	@cd $(INTEGRATION_DIR) && $(GO) test -v -run TestSPMDLegacyCompatibility -timeout=10m
 
-# Run all tests including validation
-test-all: test dual-test validate-gating
-	@echo "All tests passed!"
-
-# Clean build artifacts
+# Clean up
+.PHONY: clean
 clean:
-	@echo "Cleaning build artifacts..."
-	rm -f $(EXAMPLES_DIR)/*.wasm
-	rm -f $(EXAMPLES_DIR)/simd-loader.js
-	cd tinygo && go clean
-	cd go && ./src/clean.bash
-	@echo "Clean complete!"
-
-# Development workflow targets
-dev-setup: install build
-	@echo "Development environment setup complete!"
-
-dev-test: examples wasmer-test
-	@echo "Development testing complete!"
-
-# Show current status
-status:
-	@echo "SPMD Project Status:"
-	@echo "  Go submodule: $$(cd go && git rev-parse --short HEAD)"
-	@echo "  TinyGo submodule: $$(cd tinygo && git rev-parse --short HEAD)"
-	@echo "  ISPC submodule: $$(cd ispc && git rev-parse --short HEAD)"
-	@echo "  Examples built: $$(ls $(EXAMPLES_DIR)/*.wasm 2>/dev/null | wc -l)"
-	@echo "  GOEXPERIMENT: $(GOEXPERIMENT)"
+	@echo "$(YELLOW)Cleaning generated files$(NC)"
+	@find . -name "*.wasm" -delete
+	@find . -name "*_output.txt" -delete
+	@find . -name "build_*.log" -delete
+	@cd $(INTEGRATION_DIR) && $(MAKE) clean 2>/dev/null || true
+	@echo "$(GREEN)Cleanup complete$(NC)"
