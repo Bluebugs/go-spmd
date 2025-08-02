@@ -214,6 +214,14 @@ make test-no-regressions
 - 🎯 Mask propagation uses OpAnd, OpOr, OpNot
 - 🎯 All 151 expected SSA opcodes generated correctly
 
+**Phase 1.8-1.9: Standard Library Implementation 🔴 CRITICAL PoC DEPENDENCY**
+- 🎯 `lanes` package fully implemented with all required functions
+- 🎯 `reduce` package fully implemented with all required functions
+- 🎯 All integration tests can successfully compile SPMD examples
+- 🎯 Dual-mode compilation validation becomes possible
+
+**⚠️ CRITICAL MILESTONE**: Phase 1.8-1.9 completion enables PoC validation. All integration tests, examples, and dual-mode compilation depend on standard library availability.
+
 ### Phase 2: Backend Success Criteria
 
 **Phase 2.1-2.2: TinyGo Integration**
@@ -413,6 +421,49 @@ export WASM_RUNTIME=wasmer
    make update-test-docs
    make validate-examples
    ```
+
+## Critical Dependencies and Adaptations
+
+### Phase 1.8-1.9 Standard Library Dependency
+
+**🔴 CRITICAL**: The PoC validation strategy requires adaptation once Phase 1.8-1.9 is implemented.
+
+#### Current State (Phase 0 Complete)
+- ✅ Test infrastructure ready and validated
+- ✅ Integration tests copied but **cannot compile** yet
+- ✅ Examples reference `lanes` and `reduce` packages that don't exist
+- ✅ Dual-mode testing framework ready but **cannot execute** yet
+
+#### Required Adaptations After Phase 1.8-1.9
+1. **Update Integration Test Module**:
+   ```bash
+   # Update go.mod to reference actual standard library paths
+   cd test/integration/spmd
+   # Fix import paths in all examples
+   # Enable actual compilation testing
+   ```
+
+2. **Enable Real Dual-Mode Testing**:
+   ```bash
+   # These commands become functional after Phase 1.8-1.9
+   make test-examples        # Now compiles successfully
+   make test-dual-mode       # Now generates real SIMD vs scalar WASM
+   make test-performance     # Now measures actual performance difference
+   ```
+
+3. **Activate Full PoC Validation**:
+   ```bash
+   # Complete PoC validation becomes possible
+   make test-all-examples    # All 22+ examples compile and run
+   make verify-simd-instructions  # Real SIMD instruction verification
+   make test-browser-integration  # Actual dual-mode browser testing
+   ```
+
+#### Timeline Impact
+- **Phase 1.1-1.7**: Test infrastructure validates syntax and SSA generation
+- **Phase 1.8-1.9**: **CRITICAL MILESTONE** - Enables full PoC validation
+- **Phase 2**: Backend implementation with functional test validation
+- **Phase 3**: Complete PoC success criteria validation
 
 ## Test Development Guidelines
 

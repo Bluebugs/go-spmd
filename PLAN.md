@@ -161,7 +161,7 @@ This document provides a comprehensive, trackable implementation plan for adding
 - [ ] Implement constrained varying handling with static array unrolling using predicated operations
 - [ ] **Make SSA tests pass**: Correct predicated SSA opcodes generated for all SPMD constructs
 
-### 1.8 Standard Library Extensions (lanes package)
+### 1.8 Standard Library Extensions (lanes package) 🔴 **CRITICAL PoC DEPENDENCY**
 - [ ] Create `src/lanes/lanes.go` with build constraint `//go:build goexperiment.spmd`
 - [ ] Implement `Count[T any]() int` as compiler intrinsic
 - [ ] Implement `Index() varying int` with SPMD context requirement
@@ -173,7 +173,9 @@ This document provides a comprehensive, trackable implementation plan for adding
 - [ ] Implement `FromConstrained[T any](data varying[] T) ([]varying T, []varying bool)`
 - [ ] Add performance requirement: all operations must be automatically inlined
 
-### 1.9 Standard Library Extensions (reduce package) 
+**⚠️ CRITICAL DEPENDENCY**: Phase 1.8 completion is required before PoC validation can begin. All integration tests, examples, and dual-mode compilation depend on `lanes` package availability.
+
+### 1.9 Standard Library Extensions (reduce package) 🔴 **CRITICAL PoC DEPENDENCY**
 - [ ] Create `src/reduce/reduce.go` with build constraint `//go:build goexperiment.spmd`
 - [ ] Define generic type constraints (VaryingBool, VaryingNumeric[T], VaryingInteger[T], etc.)
 - [ ] Implement `All(data VaryingBool) uniform bool` with varying[] support
@@ -185,6 +187,8 @@ This document provides a comprehensive, trackable implementation plan for adding
 - [ ] Add lane analysis functions `FindFirstSet`, `Mask`
 - [ ] Use runtime type checking for varying[] vs varying T parameter handling
 - [ ] Add performance requirement: all operations must be automatically inlined
+
+**⚠️ CRITICAL DEPENDENCY**: Phase 1.9 completion is required before PoC validation can begin. All integration tests, examples, and dual-mode compilation depend on `reduce` package availability.
 
 ### 1.10 Printf Integration for Varying Types
 - [ ] Extend `src/fmt/print.go` to detect varying types with `%v` verb
@@ -526,6 +530,19 @@ This document provides a comprehensive, trackable implementation plan for adding
 
 **Total Estimated Tasks**: 200+ checkboxes  
 **Estimated Timeline**: 6-12 months for complete PoC implementation  
+
+## PoC Success Criteria
+
+**🔴 CRITICAL PREREQUISITE**: PoC validation can only begin after Phase 1.8-1.9 (Standard Library) completion.
+
 **Success Criteria**: ALL examples compile to both SIMD and scalar WASM with identical behavior
+
+### Validation Dependencies
+1. **Phase 1.8-1.9 REQUIRED**: `lanes` and `reduce` packages must be fully implemented
+2. **Integration Tests**: Can only validate dual-mode compilation after standard library availability
+3. **Example Execution**: All 22+ examples depend on standard library functions
+4. **Performance Benchmarking**: Meaningful only with actual SIMD vs scalar code generation
+
+**⚠️ DEPENDENCY CHAIN**: Phase 0 ✅ → Phase 1.1-1.7 → **Phase 1.8-1.9 (CRITICAL)** → Phase 2 → Phase 3 PoC Validation
 
 This plan serves as the definitive roadmap for SPMD implementation and should be updated as progress is made and new requirements are discovered.
