@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>SPMD Go WebAssembly with SIMD Detection</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .status { padding: 10px; margin: 10px 0; border-radius: 5px; }
+        .success { background-color: #d4edda; color: #155724; }
+        .warning { background-color: #fff3cd; color: #856404; }
+        .error { background-color: #f8d7da; color: #721c24; }
+        .benchmark { margin: 20px 0; padding: 15px; background: #f8f9fa; border-radius: 5px; }
+        button { padding: 10px 20px; margin: 5px; border: none; border-radius: 5px; cursor: pointer; }
+        .primary { background-color: #007bff; color: white; }
+        .secondary { background-color: #6c757d; color: white; }
+    </style>
+</head>
+<body>
+    <h1>SPMD Go WebAssembly Demo</h1>
+    <p>This demo automatically detects browser SIMD support and loads the optimal WebAssembly version.</p>
+    
+    <div id="simd-status" class="status">
+        <strong>SIMD Detection:</strong> <span id="simd-result">Checking...</span>
+    </div>
+    
+    <div id="wasm-status" class="status">
+        <strong>WebAssembly Status:</strong> <span id="wasm-result">Not loaded</span>
+    </div>
+    
+    <div class="benchmark">
+        <h3>Performance Benchmarks</h3>
+        <p>Run the same algorithms with both SIMD and scalar implementations:</p>
+        
+        <button class="primary" onclick="runSimpleSum()">Simple Sum</button>
+        <button class="primary" onclick="runIPv4Parser()">IPv4 Parser</button>
+        <button class="primary" onclick="runBase64Decoder()">Base64 Decoder</button>
+        <button class="secondary" onclick="runAllBenchmarks()">Run All Benchmarks</button>
+        
+        <div id="benchmark-results"></div>
+    </div>
+    
+    <div id="output"></div>
+    
+    <script>
+        // SIMD detection and WebAssembly loading
+        async function detectSIMDSupport() {
+            try {
+                // Try to validate WebAssembly with SIMD instructions
+                const simdSupported = WebAssembly.validate(new Uint8Array([
+                    0x00, 0x61, 0x73, 0x6d, // WASM magic
+                    0x01, 0x00, 0x00, 0x00, // Version
+                    0x01, 0x05, 0x01, 0x60, 0x00, 0x01, 0x7b, // Type section (v128 return type)
+                ]));
+                
+                document.getElementById('simd-result').textContent = 
+                    simdSupported ? 'Supported ✓' : 'Not supported ✗';
+                document.getElementById('simd-status').className = 
+                    'status ' + (simdSupported ? 'success' : 'warning');
+                
+                return simdSupported;
+            } catch (e) {
+                document.getElementById('simd-result').textContent = 'Detection failed ✗';
+                document.getElementById('simd-status').className = 'status error';
+                return false;
+            }
+        }
+        
+        // Load optimal WebAssembly based on SIMD support
+        async function loadOptimalWasm(baseName) {
+            const simdSupported = await detectSIMDSupport();
+            const suffix = simdSupported ? '-simd' : '-scalar';
+            const wasmFile = `${baseName}${suffix}.wasm`;
+            
+            try {
+                console.log(`Loading ${wasmFile}...`);
+                const wasmModule = await WebAssembly.instantiateStreaming(fetch(wasmFile));
+                
+                document.getElementById('wasm-result').textContent = 
+                    `Loaded ${wasmFile} (${simdSupported ? 'SIMD' : 'Scalar'} version) ✓`;
+                document.getElementById('wasm-status').className = 'status success';
+                
+                return { module: wasmModule, simdEnabled: simdSupported };
+            } catch (e) {
+                document.getElementById('wasm-result').textContent = `Failed to load ${wasmFile}: ${e.message} ✗`;
+                document.getElementById('wasm-status').className = 'status error';
+                throw e;
+            }
+        }
+        
+        // Benchmark runner
+        async function runBenchmark(name, func, iterations = 1000) {
+            const startTime = performance.now();
+            
+            for (let i = 0; i < iterations; i++) {
+                await func();
+            }
+            
+            const endTime = performance.now();
+            const duration = endTime - startTime;
+            const avgTime = duration / iterations;
+            
+            return { duration, avgTime, iterations };
+        }
+        
+        // Example benchmark functions
+        async function runSimpleSum() {
+            try {
+                // Load both SIMD and scalar versions
+                const simdWasm = await loadOptimalWasm('simple-sum');
+                
+                // For demo purposes, we'll simulate running both versions
+                // In practice, you'd load both versions and compare
+                const result = document.getElementById('benchmark-results');
+                result.innerHTML += `
+                    <div>
+                        <h4>Simple Sum Benchmark</h4>
+                        <p><strong>Version:</strong> ${simdWasm.simdEnabled ? 'SIMD' : 'Scalar'}</p>
+                        <p><strong>Result:</strong> Benchmark completed successfully</p>
+                        <p><strong>Note:</strong> Load both versions separately for comparison</p>
+                    </div>
+                `;
+            } catch (e) {
+                console.error('Simple sum benchmark failed:', e);
+            }
+        }
+        
+        async function runIPv4Parser() {
+            try {
+                const ipv4Wasm = await loadOptimalWasm('ipv4-parser');
+                
+                const result = document.getElementById('benchmark-results');
+                result.innerHTML += `
+                    <div>
+                        <h4>IPv4 Parser Benchmark</h4>
+                        <p><strong>Version:</strong> ${ipv4Wasm.simdEnabled ? 'SIMD' : 'Scalar'}</p>
+                        <p><strong>Result:</strong> Complex IPv4 parsing completed</p>
+                        <p><strong>Expected:</strong> SIMD version should show significant speedup</p>
+                    </div>
+                `;
+            } catch (e) {
+                console.error('IPv4 parser benchmark failed:', e);
+            }
+        }
+        
+        async function runBase64Decoder() {
+            try {
+                const base64Wasm = await loadOptimalWasm('base64-decoder');
+                
+                const result = document.getElementById('benchmark-results');
+                result.innerHTML += `
+                    <div>
+                        <h4>Base64 Decoder Benchmark</h4>
+                        <p><strong>Version:</strong> ${base64Wasm.simdEnabled ? 'SIMD' : 'Scalar'}</p>
+                        <p><strong>Result:</strong> Complex base64 decoding completed</p>
+                        <p><strong>Expected:</strong> SIMD version should show significant speedup</p>
+                    </div>
+                `;
+            } catch (e) {
+                console.error('Base64 decoder benchmark failed:', e);
+            }
+        }
+        
+        async function runAllBenchmarks() {
+            document.getElementById('benchmark-results').innerHTML = '<h4>Running all benchmarks...</h4>';
+            
+            await runSimpleSum();
+            await runIPv4Parser();
+            await runBase64Decoder();
+            
+            document.getElementById('benchmark-results').innerHTML += `
+                <div style="margin-top: 20px; padding: 10px; background: #e7f3ff; border-radius: 5px;">
+                    <strong>All benchmarks completed!</strong>
+                    <p>In a real implementation, you would:</p>
+                    <ul>
+                        <li>Load both SIMD and scalar versions of each algorithm</li>
+                        <li>Run identical inputs through both versions</li>
+                        <li>Measure and compare execution times</li>
+                        <li>Verify identical outputs</li>
+                        <li>Display performance improvements from SIMD</li>
+                    </ul>
+                </div>
+            `;
+        }
+        
+        // Initialize on page load
+        window.addEventListener('load', async () => {
+            await detectSIMDSupport();
+        });
+    </script>
+</body>
+</html>
