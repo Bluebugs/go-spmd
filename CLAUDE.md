@@ -214,6 +214,62 @@ result := process(data)
 7. **SPMD Function Restriction**: Functions with varying parameters cannot contain `go for` loops (compile error)
 8. **Public API Restriction**: Only private functions can have varying parameters (except builtin lanes/reduce functions)
 
+### Break Statement Enforcement Strategy
+
+The `break` statement restriction in `go for` loops is enforced during **type checking** phase in `/src/cmd/compile/internal/types2/stmt.go`:
+
+#### Implementation Location: Type Checker
+
+```go
+// Add new SPMD context flag to existing stmtContext flags
+const (
+    breakOk stmtContext = 1 << iota
+    continueOk
+    fallthroughOk
+    inSPMDFor                        // inside SPMD go for loop - NEW
+    finalSwitchCase
+    inTypeSwitch
+)
+
+// Modify existing break validation in BranchStmt case (around line 554)
+case syntax.Break:
+    if ctxt&inSPMDFor != 0 {
+        check.error(s, InvalidSPMDBreak, "break statement not allowed in SPMD for loop")
+    } else if ctxt&breakOk == 0 {
+        check.error(s, MisplacedBreak, "break not in for, switch, or select statement")
+    }
+
+// Set context when processing SPMD ForStmt (around line 667)
+if s.IsSpmd {  // ForStmt needs IsSpmd field from parser
+    inner |= continueOk | inSPMDFor  // allow continue, forbid break
+} else {
+    inner |= breakOk | continueOk    // regular for loop
+}
+```
+
+#### Why Type Checking vs Parsing
+
+- **Context Awareness**: Type checker tracks statement context and nested scopes
+- **Labeled Breaks**: Handles `break label` where label targets SPMD loop
+- **Nested Validation**: Correctly forbids breaks in switch/if inside SPMD loops
+- **Consistent Pattern**: All control flow restrictions are enforced in type checker
+
+#### Prerequisites
+
+1. **Parser Changes**: `ForStmt` needs `IsSpmd` field to distinguish `go for` from regular `for`
+2. **Syntax Recognition**: Parser must recognize `go for` syntax and set SPMD flag
+3. **Error Definition**: Add `InvalidSPMDBreak` to error types in `internal/types/errors`
+
+#### Test Coverage
+
+Break restrictions must be validated for:
+
+- Direct breaks in `go for` loops
+- Breaks in switch statements inside `go for` loops
+- Labeled breaks targeting `go for` loops
+- Breaks in any nested control structure within `go for` loops
+- Continue statements remain legal in `go for` loops
+
 ### Function Semantics
 
 1. Functions with varying parameters are "SPMD functions"
