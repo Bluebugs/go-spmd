@@ -110,7 +110,7 @@ This document provides a comprehensive, trackable implementation plan for adding
 - [ ] Add support for constrained varying syntax (`varying[4] byte`, `varying[] T`)
 - [ ] Implement range grouping syntax (`range[4] data`)
 - [ ] Add AST nodes for SPMD constructs
-- [ ] Test nested SPMD construct detection and appropriate errors
+- [ ] Test nested SPMD construct detection (for type checking phase validation)
 - [ ] Verify all example files parse correctly with SPMD syntax
 - [ ] **Make parser tests pass**: All valid SPMD syntax parses correctly
 
@@ -129,7 +129,7 @@ This document provides a comprehensive, trackable implementation plan for adding
 - [ ] Enforce assignment rules (varying-to-uniform prohibited, uniform-to-varying broadcasts)
 - [ ] Implement SPMD function detection (functions with varying parameters)
 - [ ] Add public API restrictions (no public SPMD functions except builtins)
-- [ ] Implement control flow restrictions (`break` in `go for`, nested `go for` prohibited)
+- [ ] Implement control flow restrictions in type checking phase (`break` in `go for`, nested `go for` prohibited)
 - [ ] Add SIMD register capacity constraint validation
 - [ ] Implement map key restrictions (no varying keys)
 - [ ] Add type switch validation for varying interface{} usage
@@ -322,7 +322,7 @@ This document provides a comprehensive, trackable implementation plan for adding
 - [ ] **invalid-lane-constraints.go**: Lane constraint validation works
 - [ ] **invalid-type-casting.go**: Type casting restrictions enforced
 - [ ] **malformed-syntax.go**: Syntax error handling works correctly
-- [ ] **nested-go-for.go**: Nesting restrictions enforced
+- [ ] **nested-go-for.go**: Nesting restrictions enforced (type checking phase error)
 - [ ] **public-spmd-function.go**: Public API restrictions enforced
 - [ ] **varying-to-uniform.go**: Assignment rule restrictions enforced
 

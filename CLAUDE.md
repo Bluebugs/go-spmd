@@ -210,13 +210,13 @@ result := process(data)
 3. **Control Flow**: All control flow (if/for/switch) can use varying conditions via masking in SPMD context
 4. **Select Support**: `select` statements can use channels carrying varying values
 5. **Break Restriction**: `break` statements are not allowed in `go for` loops (compile error)
-6. **Nesting Restriction**: `go for` loops cannot be nested within other `go for` loops (prohibited for now)
+6. **Nesting Restriction**: `go for` loops cannot be nested within other `go for` loops (enforced in type checking phase)
 7. **SPMD Function Restriction**: Functions with varying parameters cannot contain `go for` loops (compile error)
 8. **Public API Restriction**: Only private functions can have varying parameters (except builtin lanes/reduce functions)
 
-### Break Statement Enforcement Strategy
+### SPMD Control Flow Restrictions Enforcement Strategy
 
-The `break` statement restriction in `go for` loops is enforced during **type checking** phase in `/src/cmd/compile/internal/types2/stmt.go`:
+Both `break` statement restrictions and nested `go for` loop restrictions are enforced during the **type checking** phase in `/src/cmd/compile/internal/types2/stmt.go`:
 
 #### Implementation Location: Type Checker
 
@@ -241,7 +241,11 @@ case syntax.Break:
 
 // Set context when processing SPMD ForStmt (around line 667)
 if s.IsSpmd {  // ForStmt needs IsSpmd field from parser
-    inner |= continueOk | inSPMDFor  // allow continue, forbid break
+    // Check for nested go for loops
+    if ctxt&inSPMDFor != 0 {
+        check.error(s, InvalidNestedSPMDFor, "nested go for loops not allowed")
+    }
+    inner |= continueOk | inSPMDFor  // allow continue, forbid break, track SPMD context
 } else {
     inner |= breakOk | continueOk    // regular for loop
 }
@@ -251,24 +255,33 @@ if s.IsSpmd {  // ForStmt needs IsSpmd field from parser
 
 - **Context Awareness**: Type checker tracks statement context and nested scopes
 - **Labeled Breaks**: Handles `break label` where label targets SPMD loop
-- **Nested Validation**: Correctly forbids breaks in switch/if inside SPMD loops
+- **Nested Validation**: Correctly forbids breaks in switch/if inside SPMD loops and nested `go for` loops
 - **Consistent Pattern**: All control flow restrictions are enforced in type checker
 
 #### Prerequisites
 
 1. **Parser Changes**: `ForStmt` needs `IsSpmd` field to distinguish `go for` from regular `for`
 2. **Syntax Recognition**: Parser must recognize `go for` syntax and set SPMD flag
-3. **Error Definition**: Add `InvalidSPMDBreak` to error types in `internal/types/errors`
+3. **Error Definitions**: Add `InvalidSPMDBreak` and `InvalidNestedSPMDFor` to error types in `internal/types/errors`
 
 #### Test Coverage
 
-Break restrictions must be validated for:
+SPMD control flow restrictions must be validated for:
 
-- Direct breaks in `go for` loops
-- Breaks in switch statements inside `go for` loops
-- Labeled breaks targeting `go for` loops
-- Breaks in any nested control structure within `go for` loops
-- Continue statements remain legal in `go for` loops
+- **Break Restrictions**:
+  - Direct breaks in `go for` loops
+  - Breaks in switch statements inside `go for` loops
+  - Labeled breaks targeting `go for` loops
+  - Breaks in any nested control structure within `go for` loops
+  - Continue statements remain legal in `go for` loops
+
+- **Nesting Restrictions**:
+  - Direct nested `go for` loops
+  - `go for` loops inside regular for loops (should be allowed)
+  - Regular for loops inside `go for` loops (should be allowed)
+  - Complex nesting patterns with mixed control flow
+
+**Test Location**: All SPMD control flow restriction tests should be in `/src/cmd/compile/internal/types2/testdata/spmd/` since these are semantic (type checking) errors, not syntax errors.
 
 ### Function Semantics
 
