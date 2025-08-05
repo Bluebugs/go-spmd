@@ -209,35 +209,79 @@ result := process(data)
 2. **Implicit Broadcast**: Uniform values when needed are automatically broadcast, but preserved for as long as possible as uniform
 3. **Control Flow**: All control flow (if/for/switch) can use varying conditions via masking in SPMD context
 4. **Select Support**: `select` statements can use channels carrying varying values
-5. **Break Restriction**: `break` statements are not allowed in `go for` loops (compile error)
+5. **Return/Break Control Flow Rules**: `return` and `break` statements in `go for` loops follow ISPC's proven approach with mask alteration tracking:
+   - **Uniform Conditions**: Return/break statements are **allowed** when all enclosing `if` statements within the `go for` loop have uniform conditions AND no mask alteration has occurred
+   - **Varying Conditions**: Return/break statements are **forbidden** when any enclosing `if` statement has a varying condition
+   - **Mask Alteration**: Return/break statements are **forbidden** after any `continue` statement in a varying context, even if subsequent conditions are uniform
+   - **Rationale**: Continue statements in varying contexts alter the execution mask, making subsequent uniform conditions affect only a subset of lanes
+   - **Continue**: Always allowed in `go for` loops regardless of condition type or mask alteration state
 6. **Nesting Restriction**: `go for` loops cannot be nested within other `go for` loops (enforced in type checking phase)
 7. **SPMD Function Restriction**: Functions with varying parameters cannot contain `go for` loops (compile error)
 8. **Public API Restriction**: Only private functions can have varying parameters (except builtin lanes/reduce functions)
 
 ### SPMD Control Flow Restrictions Enforcement Strategy
 
-Both `break` statement restrictions and nested `go for` loop restrictions are enforced during the **type checking** phase in `/src/cmd/compile/internal/types2/stmt.go`:
+Return/break statement restrictions (following ISPC's approach) and nested `go for` loop restrictions are enforced during the **type checking** phase in `/src/cmd/compile/internal/types2/stmt.go`. The implementation tracks varying control flow depth to determine if return/break statements are allowed.
 
 #### Implementation Location: Type Checker
 
 ```go
-// Add new SPMD context flag to existing stmtContext flags
+// Add new SPMD context flags to existing stmtContext flags
 const (
     breakOk stmtContext = 1 << iota
     continueOk
     fallthroughOk
     inSPMDFor                        // inside SPMD go for loop - NEW
+    varyingControlFlow               // inside varying if statement - NEW
     finalSwitchCase
     inTypeSwitch
 )
 
-// Modify existing break validation in BranchStmt case (around line 554)
+// Track varying control flow depth for SPMD loops (following ISPC approach)
+type SPMDControlFlowInfo struct {
+    inSPMDLoop        bool
+    varyingDepth      int  // depth of nested varying if statements
+    maskAltered       bool // true if any continue in varying context has occurred
+}
+
+// Modify existing break/return validation in BranchStmt case (around line 554)
 case syntax.Break:
-    if ctxt&inSPMDFor != 0 {
-        check.error(s, InvalidSPMDBreak, "break statement not allowed in SPMD for loop")
+    if ctxt&inSPMDFor != 0 && (check.spmdInfo.varyingDepth > 0 || check.spmdInfo.maskAltered) {
+        if check.spmdInfo.maskAltered {
+            check.error(s, InvalidSPMDBreak, "break statement not allowed after continue in varying context in SPMD for loop")
+        } else {
+            check.error(s, InvalidSPMDBreak, "break statement not allowed under varying conditions in SPMD for loop")
+        }
     } else if ctxt&breakOk == 0 {
         check.error(s, MisplacedBreak, "break not in for, switch, or select statement")
     }
+
+case syntax.Return:
+    if ctxt&inSPMDFor != 0 && (check.spmdInfo.varyingDepth > 0 || check.spmdInfo.maskAltered) {
+        if check.spmdInfo.maskAltered {
+            check.error(s, InvalidSPMDReturn, "return statement not allowed after continue in varying context in SPMD for loop")
+        } else {
+            check.error(s, InvalidSPMDReturn, "return statement not allowed under varying conditions in SPMD for loop")
+        }
+    }
+
+case syntax.Continue:
+    // Track mask alteration when continue occurs in varying context
+    if ctxt&inSPMDFor != 0 && check.spmdInfo.varyingDepth > 0 {
+        check.spmdInfo.maskAltered = true
+    }
+
+// Track varying control flow in if statements
+func (check *Checker) processIfStatement(stmt *syntax.IfStmt, ctxt stmtContext) {
+    if ctxt&inSPMDFor != 0 {
+        testType := stmt.Cond.GetType()
+        if testType != nil && testType.IsVaryingType() {
+            check.spmdInfo.varyingDepth++
+            defer func() { check.spmdInfo.varyingDepth-- }()
+        }
+    }
+    // Continue with normal if statement processing...
+}
 
 // Set context when processing SPMD ForStmt (around line 667)
 if s.IsSpmd {  // ForStmt needs IsSpmd field from parser
@@ -245,7 +289,8 @@ if s.IsSpmd {  // ForStmt needs IsSpmd field from parser
     if ctxt&inSPMDFor != 0 {
         check.error(s, InvalidNestedSPMDFor, "nested go for loops not allowed")
     }
-    inner |= continueOk | inSPMDFor  // allow continue, forbid break, track SPMD context
+    inner |= continueOk | inSPMDFor  // allow continue, track SPMD context
+    // Note: breakOk is conditionally set based on varying control flow depth
 } else {
     inner |= breakOk | continueOk    // regular for loop
 }
@@ -262,23 +307,38 @@ if s.IsSpmd {  // ForStmt needs IsSpmd field from parser
 
 1. **Parser Changes**: `ForStmt` needs `IsSpmd` field to distinguish `go for` from regular `for`
 2. **Syntax Recognition**: Parser must recognize `go for` syntax and set SPMD flag
-3. **Error Definitions**: Add `InvalidSPMDBreak` and `InvalidNestedSPMDFor` to error types in `internal/types/errors`
+3. **Error Definitions**: Add `InvalidSPMDBreak`, `InvalidSPMDReturn`, and `InvalidNestedSPMDFor` to error types in `internal/types/errors`
 
 #### Test Coverage
 
 SPMD control flow restrictions must be validated for:
 
-- **Break Restrictions**:
-  - Direct breaks in `go for` loops
-  - Breaks in switch statements inside `go for` loops
-  - Labeled breaks targeting `go for` loops
-  - Breaks in any nested control structure within `go for` loops
-  - Continue statements remain legal in `go for` loops
+- **Return/Break Control Flow Rules** (following ISPC approach with mask alteration):
+  - **Allowed Cases**: Return/break statements in `go for` loops under uniform conditions only, with no prior mask alteration
+  - **Forbidden Cases**: Return/break statements under varying conditions (any enclosing varying if)
+  - **Mask Alteration Cases**: Return/break statements forbidden after continue in varying context, even under subsequent uniform conditions
+  - **Continue**: Always allowed in `go for` loops regardless of condition type or mask alteration state
+  - **Mixed Nesting**: Complex combinations of uniform and varying conditions with mask alteration tracking
+
+- **Uniform Condition Examples** (allowed):
+  - Direct return/break in `go for` without any conditions
+  - Return/break under `if uniformVar` conditions
+  - Return/break under `if uniformFunc()` conditions
+
+- **Varying Condition Examples** (forbidden):
+  - Return/break under `if varyingVar` conditions
+  - Return/break nested inside varying if statements
+  - Return/break where any enclosing if has varying condition
+
+- **Mask Alteration Examples** (forbidden):
+  - Continue in varying context followed by return/break under uniform condition
+  - Mixed: `if varying { continue }; if uniform { return }` - return forbidden due to prior mask alteration
+  - Complex: varying condition → continue → uniform condition → return/break (forbidden)
 
 - **Nesting Restrictions**:
-  - Direct nested `go for` loops
-  - `go for` loops inside regular for loops (should be allowed)
-  - Regular for loops inside `go for` loops (should be allowed)
+  - Direct nested `go for` loops (forbidden)
+  - `go for` loops inside regular for loops (allowed)
+  - Regular for loops inside `go for` loops (allowed)
   - Complex nesting patterns with mixed control flow
 
 **Test Location**: All SPMD control flow restriction tests should be in `/src/cmd/compile/internal/types2/testdata/spmd/` since these are semantic (type checking) errors, not syntax errors.
@@ -384,13 +444,21 @@ for iteration := 0; iteration < 10; iteration++ { // iteration is an uniform and
 #### SPMD `go for` Loop Masking
 
 ```go
-// Original SPMD code - note: break statements not allowed in go for loops
+// Original SPMD code - return/break allowed when all lanes active
 var data [16]int
+var threshold uniform int
 go for i := range 16 { // i is a varying with different value in each lane
-    if data[i] > threshold { // data[i] is a varying as lanes amount of data are fetched each time at position specified by i
-        continue
+    // Uniform condition - all lanes remain active, return/break allowed
+    if threshold < 0 {
+        return  // ALLOWED: uniform condition, all lanes agree
     }
-    process(data[i]) // process is receiving the varying data directly with the lane masked according to the previous tests
+    
+    // Varying condition - creates partial mask, return/break forbidden
+    if data[i] > threshold { // data[i] is varying - some lanes may continue, others skip
+        continue  // continue still allowed
+        // return would be FORBIDDEN here - not all lanes active
+    }
+    process(data[i]) // process receives varying data with lane masking
 }
 
 // Transformed execution
@@ -428,19 +496,28 @@ var sum varying int
 var limit varying int
 var allDone [4]varying bool
 
-// Original nested loops - note: break statements not allowed in outer go for loop
+// Original nested loops - return/break rules depend on lane activity
 go for i := range 4 {
+    // Top-level: all lanes active, return/break allowed for uniform conditions
+    if errorCondition { // uniform condition
+        return  // ALLOWED: all lanes active, uniform decision
+    }
+    
     for j := range 4 {
         if matrix[i][j] == 0 {
-            continue  // Inner continue
+            continue  // Inner continue (always allowed)
         }
         if sum > limit {
             break     // Inner break (allowed in regular for loop)
         }
         sum += matrix[i][j]
     }
-    // Note: break statements not allowed in go for loops
-    // if allDone[i] { break } // COMPILE ERROR - breaks not allowed in go for
+    
+    // Varying condition would create partial mask
+    if allDone[i] { // varying condition - allDone[i] differs per lane
+        // return would be FORBIDDEN here - not all lanes would return
+        continue  // continue still allowed
+    }
 }
 
 // Transformed execution with SPMD outer loop
@@ -495,11 +572,187 @@ for outerIteration := 0; outerIteration < 4; outerIteration += lanes {
 
 1. **Continue**: Sets temporary mask for current iteration, reset on next iteration
 2. **Break**: Sets permanent mask that persists for remainder of loop
-3. **Break Restriction**: Break statements are NOT allowed in `go for` loops (SPMD loops)
-4. **Nested Breaks**: Inner breaks affect inner loop only, outer breaks affect all enclosing loops
+3. **Return/Break Rules**: Return/break statements are forbidden in `go for` loops generally when in varying/SPMD context, but are allowed in uniform context (The compiler has to be able to prove that a return/break are only inside uniform branch all the way to have them allowed)
+4. **Continue Allowed**: Continue statements remain legal for per-lane loop control
 5. **SPMD go for**: Processes multiple elements per iteration, mask tracks per-lane state
 6. **Early Termination**: Loop exits when no lanes remain active (`!reduce.Any(activeMask)`)
 7. **Mask Inheritance**: Inner scopes inherit masks from outer scopes via logical AND
+8. **Alternative Patterns**: Use reduce operations and structured control flow instead of early exits
+
+#### SPMD Return/Break Examples
+
+The following examples demonstrate the ISPC-based return/break rules in `go for` loops:
+
+```go
+// Example 1: ALLOWED - Return/break under uniform conditions
+func processDataWithUniformExit(data []int, threshold uniform int) {
+    go for i := range len(data) {
+        // ALLOWED: Uniform condition - all lanes make same decision
+        if threshold < 0 {
+            return  // OK: uniform condition, efficient direct return
+        }
+        
+        // ALLOWED: Uniform function call condition
+        if isErrorMode() { // uniform function
+            break   // OK: uniform condition, efficient direct break
+        }
+        
+        process(data[i])
+    }
+}
+
+// Example 2: FORBIDDEN - Return/break under varying conditions
+func processDataWithVaryingExit(data []int) {
+    go for i := range len(data) {
+        // FORBIDDEN: Varying condition creates partial mask
+        if data[i] < 0 { // data[i] is varying - different per lane
+            // return  // COMPILE ERROR: varying condition forbids return
+            // break   // COMPILE ERROR: varying condition forbids break
+            continue  // ALLOWED: continue always permitted
+        }
+        
+        process(data[i])
+    }
+}
+
+// Example 3: MIXED - Nested conditions follow deepest varying rule
+func processWithNestedConditions(data []int, mode uniform int) {
+    go for i := range len(data) {
+        // Uniform outer condition
+        if mode == DEBUG_MODE { // uniform condition
+            // FORBIDDEN: Inner varying condition makes return/break illegal
+            if data[i] > 100 { // varying condition - now in varying context
+                // return  // COMPILE ERROR: enclosing varying condition
+                // break   // COMPILE ERROR: enclosing varying condition
+                continue  // ALLOWED: continue always permitted
+            }
+            
+            // ALLOWED: Still under uniform condition only
+            if mode == TRACE_MODE { // another uniform condition
+                return  // OK: no varying conditions in scope
+            }
+        }
+        
+        process(data[i])
+    }
+}
+
+// Example 4: PERFORMANCE - Compare uniform vs varying behavior
+func demonstratePerformanceDifference(data []int, uniformThreshold uniform int) {
+    // FAST: Uniform early exit - entire SIMD loop can terminate efficiently
+    go for i := range len(data) {
+        if uniformThreshold < 0 {
+            return  // All lanes exit together - no mask tracking needed
+        }
+        process(data[i])
+    }
+    
+    // SLOWER: Varying conditions require mask tracking throughout loop
+    go for i := range len(data) {
+        if data[i] < 0 { // varying condition - requires per-lane mask tracking
+            continue // Must track which lanes continue vs process
+        }
+        process(data[i]) // Executed with mask for active lanes only
+    }
+}
+
+// Example 5: MIGRATION - Convert old patterns to new approach
+func searchPatternOldWay(data []varying byte, pattern uniform byte) uniform bool {
+    // OLD: Set flags, use reduce operations
+    var found varying bool = false
+    
+    go for i := range len(data) {
+        if data[i] == pattern {
+            found = true  // Set per-lane flag
+            // Can't return here due to varying condition
+        }
+    }
+    
+    return reduce.Any(found)  // Reduce operation outside loop
+}
+
+func searchPatternNewWay(data []varying byte, pattern uniform byte, errorMode uniform bool) uniform bool {
+    go for i := range len(data) {
+        // NEW: Early uniform exit for error conditions
+        if errorMode {
+            return false  // ALLOWED: uniform early exit
+        }
+        
+        if data[i] == pattern {
+            // Still can't return here - varying condition
+            return true  // COMPILE ERROR: varying condition forbids return
+        }
+    }
+    
+    return false
+}
+
+// Example 6: CORRECT USAGE - Structured approach with uniform exits
+func processWithErrorHandling(data []int, params uniform ProcessParams) error {
+    go for i := range len(data) {
+        // Check uniform error conditions first - can exit immediately
+        if params.AbortRequested {
+            return ErrAborted  // ALLOWED: uniform condition
+        }
+        
+        if params.Mode == INVALID_MODE {
+            break  // ALLOWED: uniform condition
+        }
+        
+        // Handle varying conditions without early exit
+        if data[i] < 0 { // varying condition
+            continue  // ALLOWED: continue to next iteration
+        }
+        
+        if err := process(data[i]); err != nil {
+            // Can't return here - would need to be handled differently
+            markError(i, err)  // Log error, continue processing
+            continue
+        }
+    }
+    
+    return nil
+}
+```
+
+#### Return/Break Validation Rules
+
+The type checker enforces ISPC-based rules during compilation:
+
+1. **Uniform Condition Rule**: Return/break statements are **allowed** when all enclosing if statements have uniform conditions
+2. **Varying Condition Rule**: Return/break statements are **forbidden** when any enclosing if statement has a varying condition
+3. **Continue Always Allowed**: Continue statements remain legal for per-lane flow control in all cases
+4. **Depth Tracking**: Implementation tracks varying control flow depth (following ISPC's `lHasVaryingBreakOrContinue` approach)
+
+```go
+// ISPC-based compile-time validation pseudocode
+func validateReturnBreak(stmt Node, context TypeContext) {
+    if !context.InSPMDFor() {
+        return  // Normal Go rules apply
+    }
+    
+    // ISPC approach: forbidden only under varying conditions
+    if (stmt.IsReturn() || stmt.IsBreak()) && context.VaryingDepth() > 0 {
+        error("return/break statements not allowed under varying conditions in go for loops")
+    }
+    
+    // Continue always allowed
+    if stmt.IsContinue() {
+        // Always legal - no restrictions
+    }
+}
+
+// Track varying control flow depth (following ISPC)
+func processIfStatement(ifStmt *IfStmt, context *TypeContext) {
+    if context.InSPMDFor() && ifStmt.Condition.Type().IsVaryingType() {
+        context.IncrementVaryingDepth()
+        defer context.DecrementVaryingDepth()
+    }
+    
+    // Process if statement body with updated context
+    processStatements(ifStmt.Body, context)
+}
+```
 
 ## Reference Materials
 
@@ -673,7 +926,7 @@ go get github.com/wasmerio/wasmer-go/wasmer
 
 ```bash
 # Compile ALL examples to both SIMD and scalar WASM
-for example in simple-sum odd-even bit-counting array-counting printf-verbs hex-encode to-upper base64-decoder ipv4-parser debug-varying goroutine-varying defer-varying panic-recover-varying map-restrictions pointer-varying type-switch-varying non-spmd-varying-return spmd-call-contexts lanes-index-restrictions varying-universal-constrained union-type-generics; do
+for example in simple-sum odd-even bit-counting array-counting printf-verbs hex-encode to-upper base64-decoder ipv4-parser debug-varying goroutine-varying defer-varying panic-recover-varying map-restrictions pointer-varying type-switch-varying non-spmd-varying-return spmd-call-contexts lanes-index-restrictions varying-universal-constrained union-type-generics infinite-loop-exit uniform-early-return; do
     echo "Testing $example in dual mode..."
     
     # Compile SIMD version

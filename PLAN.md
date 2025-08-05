@@ -129,7 +129,19 @@ This document provides a comprehensive, trackable implementation plan for adding
 - [ ] Enforce assignment rules (varying-to-uniform prohibited, uniform-to-varying broadcasts)
 - [ ] Implement SPMD function detection (functions with varying parameters)
 - [ ] Add public API restrictions (no public SPMD functions except builtins)
-- [ ] Implement control flow restrictions in type checking phase (`break` in `go for`, nested `go for` prohibited)
+- [ ] **UPDATED**: Implement ISPC-based return/break restrictions with mask alteration tracking:
+  - [ ] Add `inSPMDFor` context flag, `varyingDepth` counter, and `maskAltered` flag to statement processing
+  - [ ] Track varying depth through nested conditional statements (if/switch with varying conditions)
+  - [ ] Track mask alteration when `continue` occurs in varying context (`varyingDepth > 0`)
+  - [ ] Allow return/break statements when `varyingDepth == 0` AND `maskAltered == false` (clean uniform context only)
+  - [ ] Forbid return/break statements when `varyingDepth > 0` (any enclosing varying condition)
+  - [ ] Forbid return/break statements when `maskAltered == true` (prior continue in varying context)
+  - [ ] Allow continue statements in `go for` loops regardless of varying depth or mask alteration
+  - [ ] Add error types: `InvalidSPMDReturn`, `InvalidSPMDBreak`, `InvalidNestedSPMDFor`
+  - [ ] Implement different error messages for varying conditions vs mask alteration
+  - [ ] Implement `lHasVaryingBreakOrContinue()` equivalent for varying condition detection
+  - [ ] Handle reduce operations and function calls in varying depth analysis
+- [ ] Implement nested `go for` loop restrictions (enforced in type checking phase)
 - [ ] Add SIMD register capacity constraint validation
 - [ ] Implement map key restrictions (no varying keys)
 - [ ] Add type switch validation for varying interface{} usage

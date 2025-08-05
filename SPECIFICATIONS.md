@@ -281,8 +281,10 @@ The optional `[n]` syntax specifies that the data should be processed in groups 
 - The loop variable is implicitly `varying`
 - Each lane processes a different element of the range
 - The number of parallel lanes depends on the target architecture
-- `break` statements are **not allowed** in SPMD for loops
-- `continue` statements are allowed and use masking
+- `break` and `return` statements follow ISPC-based control flow rules:
+  - **Allowed** when all enclosing `if` statements have uniform conditions
+  - **Forbidden** when any enclosing `if` statement has a varying condition or for return inside any nested `for` loop (for now)
+- `continue` statements are always allowed and use masking
 - **Nesting restriction**: `go for` loops cannot be nested within other `go for` loops (prohibited for now)
 - **SPMD function restriction**: Functions with varying parameters cannot contain `go for` loops
 
@@ -553,9 +555,66 @@ go for i := range len(items) {
 
 #### Loop Control Restrictions
 
-- `break` statements are **prohibited** in `go for` loops (compile error)
-- `continue` statements are allowed in `go for` loops (implemented via masking)
+**Control Flow Rules (following ISPC approach with mask alteration tracking):**
+
+- `break` and `return` statements in `go for` loops are **conditionally allowed**:
+  - **Allowed** when all enclosing `if` statements have uniform conditions AND no mask alteration has occurred
+  - **Forbidden** when any enclosing `if` statement has a varying condition
+  - **Forbidden** after any `continue` statement in a varying context, even if subsequent conditions are uniform
+- `continue` statements are always allowed in `go for` loops (implemented via masking)
+- **Mask Alteration**: `continue` in varying contexts alters the execution mask, making subsequent uniform conditions affect only a subset of lanes
 - `goto` statements cannot jump into or out of `go for` loops
+
+**Examples:**
+
+```go
+// ALLOWED: Return/break under uniform conditions
+go for i := range data {
+    if uniformCondition {
+        return  // OK: uniform condition allows direct return
+    }
+    if data[i] < 0 { // varying condition
+        continue  // OK: continue always allowed
+        // return  // COMPILE ERROR: varying condition forbids return
+    }
+}
+
+// FORBIDDEN: Return/break under varying conditions forces mask tracking
+go for i := range data {
+    if data[i] < threshold { // varying condition
+        // break  // COMPILE ERROR: varying condition forbids break
+        continue  // OK: continue always allowed
+    }
+}
+
+// FORBIDDEN: Return/break after continue in varying context
+go for i := range data {
+    if data[i] < 0 { // varying condition
+        continue  // OK: continue always allowed, but alters mask
+    }
+    
+    // Mask has been altered by previous continue
+    if uniformCondition { // uniform condition, but mask is altered
+        // return  // COMPILE ERROR: return forbidden due to mask alteration  
+        // break   // COMPILE ERROR: break forbidden due to mask alteration
+        continue  // OK: continue always allowed
+    }
+}
+
+// FORBIDDEN: Complex mask alteration scenario
+go for i := range data {
+    if data[i] > 0 { // varying condition
+        if data[i] < 10 { // nested varying condition
+            continue  // Alters mask - some lanes skip remaining iterations
+        }
+    }
+    
+    // Execution mask altered by continue above
+    if uniformCondition { // uniform condition on remaining active lanes only
+        // return  // COMPILE ERROR: uniform condition but altered mask
+    }
+}
+```
 
 #### Type Switch Support for Varying Types
 
@@ -1681,7 +1740,7 @@ The TinyGo PoC implementation includes:
 SPMD-specific compile-time errors:
 
 - `cannot assign varying to uniform`
-- `break statement not allowed in SPMD for loop`
+- `break/return statement not allowed under varying conditions in SPMD for loop`
 - `go for loops cannot be nested` (for now)
 - `go for loops not allowed in SPMD functions`
 - `varying parameters not allowed in public functions`
