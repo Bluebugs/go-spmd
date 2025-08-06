@@ -216,9 +216,11 @@ This is a proof-of-concept implementation with the following status:
 
 - **Phase 0**: Foundation infrastructure (GOEXPERIMENT setup, test framework)
 - **Phase 1.1**: GOEXPERIMENT integration for SPMD flag
-- **Phase 1.2**: Lexer modifications for `uniform`/`varying` keywords
+- **Phase 1.2**: Lexer modifications for `uniform`/`varying` keywords with conditional recognition
 - Repository structure and submodule setup
 - Basic project documentation and implementation planning
+
+**Phase 1.2 Key Achievement**: Context-sensitive lexer with GOEXPERIMENT integration. Architectural decision made to defer full backward compatibility to parser level (Phase 1.3).
 
 ### 🚧 In Progress  
 
