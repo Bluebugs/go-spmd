@@ -94,14 +94,14 @@ This document provides a comprehensive, trackable implementation plan for adding
 - [x] Update Go build system to recognize SPMD experiment
 - [x] Create clear error messages when SPMD features used without experiment
 
-### 1.2 Lexer Modifications
-- [ ] **TDD**: Implement context-sensitive keyword recognition in `src/cmd/compile/internal/syntax/tokens.go`
-- [ ] Add `uniform` and `varying` keyword recognition in type contexts only
-- [ ] Ensure keywords work as regular identifiers in non-type contexts
-- [ ] Implement lexer support for `go for` construct recognition
-- [ ] Test backward compatibility - existing code using `uniform`/`varying` as identifiers works
-- [ ] Verify proper error messages for malformed SPMD syntax
-- [ ] **Make parser tests pass**: Lexer correctly recognizes SPMD tokens
+### 1.2 Lexer Modifications ✅ COMPLETED
+- [x] **TDD**: Implement context-sensitive keyword recognition in `src/cmd/compile/internal/syntax/tokens.go`
+- [x] Add `uniform` and `varying` keyword recognition in type contexts only
+- [x] Ensure keywords work as regular identifiers in non-type contexts
+- [x] Implement lexer support for `go for` construct recognition
+- [x] Test backward compatibility - existing code using `uniform`/`varying` as identifiers works
+- [x] Verify proper error messages for malformed SPMD syntax
+- [x] **Make parser tests pass**: Lexer correctly recognizes SPMD tokens
 
 ### 1.3 Parser Extensions
 - [ ] **TDD**: Extend parser in `src/cmd/compile/internal/syntax/parser.go` for SPMD syntax
@@ -433,11 +433,12 @@ This document provides a comprehensive, trackable implementation plan for adding
 - **Phase 0**: ✅ **COMPLETED** - All foundation infrastructure ready
 - **Phase 1**: 🚧 **IN PROGRESS** - Frontend implementation started
   - Phase 1.1: ✅ **COMPLETED** - GOEXPERIMENT Integration
+  - Phase 1.2: ✅ **COMPLETED** - Lexer Modifications
 - **Phase 2**: ❌ Not Started  
 - **Phase 3**: ❌ Not Started
 
-**Last Completed**: Phase 1.1 - GOEXPERIMENT Integration (2025-08-03)
-**Next Action**: Begin Phase 1.2 - Lexer Modifications
+**Last Completed**: Phase 1.2 - Lexer Modifications (2025-08-06)
+**Next Action**: Begin Phase 1.3 - Parser Extensions
 
 ## Phase 0 Foundation Setup - ✅ COMPLETE
 
@@ -473,6 +474,22 @@ This document provides a comprehensive, trackable implementation plan for adding
 - Phase 1.1 frontend GOEXPERIMENT integration is complete
 
 **Key Technical Achievement**: GOEXPERIMENT infrastructure is fully operational for frontend development. Build constraints work correctly, graceful degradation functions properly, and the foundation is ready for Phase 1.2 lexer implementation.
+
+### Recent Progress (Phase 1.2 - COMPLETED 2025-08-06)
+
+✅ **Lexer Modifications Complete**
+- Added _Uniform and _Varying tokens to src/cmd/compile/internal/syntax/tokens.go with proper enum positioning
+- Implemented context-sensitive keyword recognition in src/cmd/compile/internal/syntax/scanner.go with buildcfg.Experiment.SPMD gating
+- Updated token_string.go with correct token mapping arrays and string indices for new SPMD tokens
+- Added setGOEXPERIMENT() helper function to parser_test.go for experiment control during testing
+- Modified testFileWithSPMD() to properly set experiment flags during parsing with defer cleanup
+- Updated SPMD test files with proper build constraints (//go:build goexperiment.spmd)
+- All parser tests pass with correct GOEXPERIMENT flag behavior and backward compatibility maintained
+- Successfully built modified Go toolchain with SPMD support enabled
+- Verified context-sensitive lexing: uniform/varying are keywords only when GOEXPERIMENT=spmd is set
+- Confirmed zero breaking changes to existing Go code when experiment is disabled
+
+**Key Technical Achievement**: Context-sensitive lexer implementation is fully operational with GOEXPERIMENT integration. Uniform and varying keywords are recognized conditionally, backward compatibility is maintained, and the lexer foundation is ready for Phase 1.3 parser extensions.
 
 ### Previous Progress (Phase 0.5 - COMPLETED 2025-08-02)
 

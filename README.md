@@ -106,9 +106,9 @@ The SPMD-enabled TinyGo compiler will be available at `tinygo/build/tinygo`.
 
 ### 4. Verify Installation
 
-⚠️ **Note**: The following steps will build standard Go and TinyGo compilers. The SPMD extensions are not implemented yet.
+✅ **Note**: The following steps will now build the SPMD-enabled Go compiler with lexer modifications.
 
-Test the Go compiler (currently unmodified):
+Test the SPMD-enabled Go compiler:
 
 ```bash
 ./go/bin/go version
@@ -134,7 +134,7 @@ After making changes to the Go frontend:
 
 ```bash
 cd go/src
-./make.bash  # Faster than all.bash for development
+GOEXPERIMENT=spmd ./make.bash  # Build with SPMD experiment enabled
 cd ../..
 ```
 
@@ -214,19 +214,22 @@ This is a proof-of-concept implementation with the following status:
 
 ### ✅ Completed
 
+- **Phase 0**: Foundation infrastructure (GOEXPERIMENT setup, test framework)
+- **Phase 1.1**: GOEXPERIMENT integration for SPMD flag
+- **Phase 1.2**: Lexer modifications for `uniform`/`varying` keywords
 - Repository structure and submodule setup
-- Basic project documentation
-- Implementation planning and design
+- Basic project documentation and implementation planning
 
 ### 🚧 In Progress  
 
-- **Nothing currently implemented** - this is purely conceptual at the moment
+- **Phase 1.3**: Parser extensions for SPMD syntax constructs
 
 ### 📋 Planned (Not Yet Started)
 
-- Go frontend extensions (lexer, parser, type system)
-- SPMD-specific SSA opcodes
-- TinyGo LLVM backend modifications
+- **Phase 1.4+**: Type system implementation and type checking rules
+- **Phase 1.7**: SPMD SSA generation with predicated operations
+- **Phase 1.8-1.9**: Standard library extensions (`lanes` and `reduce` packages)
+- **Phase 2**: TinyGo LLVM backend with dual SIMD/scalar code generation
 - WebAssembly SIMD code generation
 - Cross-lane communication primitives
 - Advanced control flow masking
