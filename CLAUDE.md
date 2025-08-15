@@ -62,34 +62,30 @@ lanes.Shuffle(value, indices) // Arbitrary permutation
 
 ## Implementation Architecture
 
-### GOEXPERIMENT Flag Integration
+### Runtime GOEXPERIMENT Flag Integration
 
-SPMD support is implemented as an experimental feature behind `GOEXPERIMENT=spmd`:
+SPMD support is implemented as a **runtime experimental feature** behind `GOEXPERIMENT=spmd`:
 
-1. **Add SPMD flag to `internal/goexperiment/flags.go`**:
+1. **Runtime Experiment Flag**: `GOEXPERIMENT=spmd` environment variable enables SPMD functionality
 
-   ```go
-   // SPMD enables Single Program Multiple Data extensions
-   // including uniform/varying type qualifiers and go for loops
-   SPMD bool
-   ```
+2. **Single Compiler Binary**: One Go compiler binary handles both SPMD and standard Go compilation modes
 
-2. **Feature Gating in Compiler**:
-   - All SPMD syntax parsing gated behind `buildcfg.Experiment.SPMD`
-   - Lexer context-sensitive keyword recognition only when enabled
-   - Type checker SPMD rules only active with flag
-   - SSA generation conditional on experiment
+3. **Runtime Feature Gating**: All SPMD functionality gated behind `buildcfg.Experiment.SPMD` runtime checks:
+   - SPMD syntax parsing enabled/disabled per compilation
+   - Lexer token recognition controlled by runtime flag
+   - Type checker SPMD rules activated when experiment set
+   - SSA generation conditional on experiment flag
 
-3. **Build Tags**: Generated files use `//go:build goexperiment.spmd` constraints
+4. **No Build Constraints**: Standard Go files work in both modes - no special build tags required
 
-### Phase 1: Go Frontend Changes
+### Phase 1: Go Frontend Changes (Runtime Gated)
 
-- Extend lexer with `uniform`, `varying` keywords (gated by GOEXPERIMENT)
-- Make sure existing use of word `uniform` and `varying` still are permitted (gated by GOEXPERIMENT)
-- Parse `go for` as SPMD loop construct (gated by GOEXPERIMENT)
-- Add SPMD builtins to universe (conditional)
-- Type checking for uniform/varying rules (gated)
-- Mask propagation through control flow
+- **Runtime Token Recognition**: `uniform`, `varying` keywords only recognized when `buildcfg.Experiment.SPMD` is true
+- **Backward Compatibility**: Existing use of words `uniform` and `varying` still permitted when experiment disabled
+- **Conditional Parsing**: `go for` SPMD loop parsing only active when experiment enabled
+- **Gated Type System**: SPMD type checking rules only apply when `buildcfg.Experiment.SPMD` is true
+- **Runtime Extensions**: All SPMD extensions check experiment flag before executing
+- **Flexible Compilation**: Same source files compile with/without SPMD depending on flag
 
 ### Phase 2: SSA Extensions
 
@@ -788,18 +784,14 @@ func processIfStatement(ifStmt *IfStmt, context *TypeContext) {
 
 ## Development Workflow
 
-### TinyGo SPMD Development Setup
+### TinyGo SPMD Development Setup (Runtime Flag)
 
-1. **Enable experiment for TinyGo**:
-
-   ```bash
-   export GOEXPERIMENT=spmd
-   cd tinygo && go build  # Rebuild TinyGo with SPMD support
-   ```
+1. **No rebuild required**: Single TinyGo binary handles both modes
 
 2. **Compile SPMD to WebAssembly**:
 
    ```bash
+   # Enable SPMD for compilation
    GOEXPERIMENT=spmd tinygo build -target=wasi -o simple-sum.wasm examples/simple-sum/main.go
    ```
 
@@ -812,15 +804,21 @@ func processIfStatement(ifStmt *IfStmt, context *TypeContext) {
 4. **Verify experiment gating**:
 
    ```bash
-   # Should fail without experiment
-   tinygo build -target=wasi examples/simple-sum/main.go
+   # Should treat SPMD syntax as regular identifiers without experiment
+   tinygo build -target=wasi examples/simple-sum/main.go  # Works if no SPMD syntax
    ```
 
-5. **Validate SIMD instruction generation**:
+5. **Dual mode testing**:
 
    ```bash
-   # Inspect generated WASM for SIMD instructions
-   wasm2wat simple-sum.wasm | grep "v128"
+   # SIMD mode
+   GOEXPERIMENT=spmd tinygo build -target=wasi -simd=true -o test-simd.wasm main.go
+   
+   # Scalar mode  
+   GOEXPERIMENT=spmd tinygo build -target=wasi -simd=false -o test-scalar.wasm main.go
+   
+   # Inspect SIMD instructions
+   wasm2wat test-simd.wasm | grep "v128"
    ```
 
 ### Git Commit Guidelines

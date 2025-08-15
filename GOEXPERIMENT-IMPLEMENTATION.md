@@ -9,14 +9,15 @@ This separation allows leveraging Go's robust frontend while utilizing TinyGo's 
 
 ## Implementation Architecture
 
-The SPMD implementation uses a two-compiler approach leveraging both Go and TinyGo:
+The SPMD implementation uses a **runtime experiment flag** approach with a single Go compiler binary:
 
 ### Go Frontend (Phase 1: `src/cmd/compile/`)
 
-1. **Feature Flag**: `GOEXPERIMENT=spmd` enables SPMD syntax and semantics
-2. **Lexer/Parser**: Add `uniform`, `varying`, and `go for` syntax to main Go compiler
-3. **Type System**: SPMD type checking and inference in Go's type checker
-4. **SSA Generation**: Convert SPMD constructs to Go SSA IR with vector operations
+1. **Runtime Feature Flag**: `GOEXPERIMENT=spmd` enables SPMD syntax and semantics at compilation time
+2. **Runtime Experiment Checks**: All SPMD functionality gated behind `buildcfg.Experiment.SPMD` runtime checks  
+3. **Lexer/Parser**: Add `uniform`, `varying`, and `go for` syntax with runtime experiment gating
+4. **Type System**: SPMD type checking and inference with runtime enabling/disabling
+5. **SSA Generation**: Convert SPMD constructs to Go SSA IR with vector operations when experiment enabled
 
 ### TinyGo Backend (Phase 2: TinyGo consumes Go SSA)
 
@@ -80,10 +81,9 @@ func TestSPMDParser(t *testing.T) {
     
     for _, tc := range testCases {
         t.Run(tc.name, func(t *testing.T) {
-            // Set experiment flag
-            oldExperiment := buildcfg.Experiment.SPMD
-            buildcfg.Experiment.SPMD = tc.enabled
-            defer func() { buildcfg.Experiment.SPMD = oldExperiment }()
+            // Test with runtime experiment flag 
+            // Note: In actual implementation, buildcfg.Experiment.SPMD is set by runtime
+            // environment variable GOEXPERIMENT=spmd, not directly in tests
             
             // Parse file and check result
             src := readTestFile(tc.file)
@@ -151,10 +151,8 @@ func TestSPMDTypeChecking(t *testing.T) {
     
     for _, tc := range testCases {
         t.Run(tc.name, func(t *testing.T) {
-            // Set experiment flag
-            oldExperiment := buildcfg.Experiment.SPMD
-            buildcfg.Experiment.SPMD = tc.enabled
-            defer func() { buildcfg.Experiment.SPMD = oldExperiment }()
+            // Test with runtime experiment flag
+            // Note: buildcfg.Experiment.SPMD controlled by GOEXPERIMENT=spmd
             
             // Type check file and verify results
             src := readTestFile(tc.file)
@@ -205,8 +203,7 @@ func TestSPMDSSAGeneration(t *testing.T) {
     
     for _, tc := range testCases {
         t.Run(tc.name, func(t *testing.T) {
-            buildcfg.Experiment.SPMD = true
-            defer func() { buildcfg.Experiment.SPMD = false }()
+            // Test requires GOEXPERIMENT=spmd to be set at runtime
             
             // Generate SSA and verify opcodes
             fn := compileToSSA(tc.code)
@@ -327,86 +324,108 @@ echo "All SPMD integration tests passed!"
 
 **Important**: All implementation steps below should be driven by making the tests from Phase 0 pass.
 
-#### 1. Add SPMD Flag to Go Experimental System
+#### 1. Runtime SPMD Experiment Flag Integration
 
-**File**: `src/internal/goexperiment/flags.go` (main Go compiler)
+The SPMD experiment is enabled via runtime environment variable `GOEXPERIMENT=spmd`, not build-time constraints.
+
+**File**: `src/internal/buildcfg/exp.go` (Go compiler runtime experiment handling)
 
 ```go
-type Flags struct {
-    // ... existing Go flags ...
-    
-    // SPMD enables Single Program Multiple Data extensions including
-    // uniform/varying type qualifiers, go for loops, and cross-lane operations.
-    // Generates SSA that TinyGo can convert to WASM SIMD128.
-    SPMD bool
+// SPMD experiment is controlled by runtime GOEXPERIMENT environment variable
+// buildcfg.Experiment.SPMD is set during compilation process based on environment
+
+func init() {
+    // Runtime experiment flag parsing handled by Go's build configuration
+    // No separate build constraints needed - single binary supports both modes
 }
 ```
 
-**Build constraint generation**:
+**Runtime Usage**:
 
 ```bash
-cd src/internal/goexperiment
-go generate  # Creates exp_spmd_on.go and exp_spmd_off.go
+# Enable SPMD for single compilation
+GOEXPERIMENT=spmd go build program.go
+
+# Disable SPMD (default behavior) 
+go build program.go
 ```
 
-#### 2. Go Lexer Modifications
+#### 2. Go Lexer Modifications with Runtime Gating
 
 **File**: `src/cmd/compile/internal/syntax/tokens.go` (main Go compiler)
 
-Add SPMD keyword recognition to Go's lexer:
+Add SPMD keyword recognition with runtime experiment checks:
 
 ```go
-var keywords = [...]string{
-    // ... existing Go keywords ...
+// SPMD tokens only recognized when experiment enabled
+const (
+    _Uniform token = iota + 100  // Only available when buildcfg.Experiment.SPMD
+    _Varying                     // Only available when buildcfg.Experiment.SPMD
+)
+
+// Runtime SPMD token recognition
+func IsUniformToken(t token) bool {
+    if !buildcfg.Experiment.SPMD {
+        return false  // Disabled at runtime
+    }
+    return t == _Uniform
 }
 
-// Context-sensitive SPMD keyword recognition
-func (s *scanner) ident() {
-    // Existing identifier scanning...
-    
-    if buildcfg.Experiment.SPMD && s.isTypeContext() {
-        switch s.lit {
-        case "uniform", "varying":
-            s.tok = _Name // Handle as SPMD type qualifier
-            return
-        }
+func IsVaryingToken(t token) bool {
+    if !buildcfg.Experiment.SPMD {
+        return false  // Disabled at runtime  
     }
-    // Regular identifier handling
+    return t == _Varying
 }
 ```
 
 **Reference**: Similar to ISPC's context-sensitive keyword handling in `ispc/src/lex.ll`
 
-#### 3. Go Parser Extensions
+#### 3. Go Parser Extensions with Runtime Gating
 
 **File**: `src/cmd/compile/internal/syntax/parser.go` (main Go compiler)
 
-Add SPMD syntax parsing to Go's parser:
+Add SPMD syntax parsing with runtime experiment checks:
 
 ```go
-func (p *parser) stmt() Stmt {
+func (p *parser) type_() Expr {
     switch p.tok {
     // ... existing Go cases ...
     
-    case _Go:
+    case _Uniform, _Varying:
+        // SPMD qualified types (uniform/varying) when experiment enabled
         if buildcfg.Experiment.SPMD {
-            // Check for "go for" construct
-            if p.got(_For) {
-                return p.spmdForStmt()
-            }
+            return p.spmdType()  // Parse uniform/varying types
         }
-        return p.goStmt()
+        // Fall through to _Name case when SPMD disabled
+        fallthrough
+    case _Name:
+        return p.qualifiedName(nil)
     }
 }
 
-func (p *parser) spmdForStmt() *SPMDForStmt {
+func (p *parser) spmdType() *SPMDType {
     if !buildcfg.Experiment.SPMD {
-        p.syntaxError("SPMD for loops require GOEXPERIMENT=spmd")
+        p.syntaxError("uniform/varying require GOEXPERIMENT=spmd")
         return nil
     }
     
-    // Parse "go for i := range[n] expr { ... }"
-    // Create AST nodes for Go's type checker
+    typ := new(SPMDType)
+    typ.Qualifier = p.tok  // _Uniform or _Varying
+    p.next()  // consume qualifier
+    
+    // Handle constraint for varying types: varying[n] or varying[]
+    if typ.Qualifier == _Varying && p.got(_Lbrack) {
+        if p.got(_Rbrack) {
+            // varying[] - universal constraint  
+        } else {
+            typ.Constraint = p.expr()
+            p.want(_Rbrack)
+        }
+    }
+    
+    typ.Elem = p.type_()  // Parse underlying type
+    return typ
 }
 ```
 
