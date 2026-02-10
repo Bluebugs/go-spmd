@@ -829,6 +829,16 @@ func processIfStatement(ifStmt *IfStmt, context *TypeContext) {
    wasm2wat test-simd.wasm | grep "v128"
    ```
 
+### Agent Workflow (MANDATORY)
+
+All implementation work MUST follow this 3-step pipeline using Claude Code agents:
+
+1. **`golang-pro` agent**: Performs all code implementation (writing, editing, fixing Go code)
+2. **`code-reviewer` agent**: Reviews all changes for correctness, style, and safety - only proceed to commit if the reviewer approves
+3. **`clean-commit` agent**: Creates the final git commit only after the code review passes
+
+Never skip steps. Never commit without review approval. This ensures code quality and catches issues before they enter the commit history.
+
 ### Git Commit Guidelines
 
 **All commits across the SPMD project must follow these strict rules:**
