@@ -19,24 +19,31 @@ This workspace implements Single Program Multiple Data (SPMD) support for Go, si
 - **SPMD**: All lanes execute the same program but on different data elements
 - **Uniform**: Values that are the same across all SIMD lanes (scalars)
 - **Varying**: Values that differ across SIMD lanes (vectors)
-- **Constrained Varying**: `varying[n]` syntax specifies constraint `n` (hardware-independent, compiler handles via unrolling/masking)
+- **Constrained Varying**: `lanes.Varying[T, N]` specifies constraint `N` (hardware-independent, compiler handles via unrolling/masking)
 - **Execution Mask**: Tracks which lanes are active during control flow
-- **lanes.Count(varying any v)**: Number of SIMD lanes for a specific type (e.g., 4 for WASM 128-bit SIMD), known at compile time
+- **lanes.Count(lanes.Varying[T])**: Number of SIMD lanes for a specific type (e.g., 4 for WASM 128-bit SIMD), known at compile time
 - **lanes.Index()**: Current lane index (0 to lanes.Count()-1) in the current SPMD context
 - **lanes**: New Golang standard library module providing cross lane functions
 - **reduce**: New Golang standard library module providing reduction operations (varying to uniform) and type conversion (varying to array)
 - **Printf Integration**: `fmt.Printf` with `%v` automatically converts varying types to arrays for display
 
-### Go SPMD Syntax Extensions
+### Go SPMD Syntax
+
+SPMD types use the `lanes` package instead of keywords:
 
 ```go
-// Type qualifiers
-var x uniform int      // Scalar value, same across lanes
-var y varying float32  // Vector value, different per lane
+import "lanes"
+
+// Uniform values are regular Go values (no annotation needed)
+var x int              // Scalar value, same across all lanes
+var y float32          // Regular Go value = uniform
+
+// Varying values use lanes.Varying[T]
+var v lanes.Varying[float32]  // Vector value, different per lane
 
 // Constrained varying - hardware-independent constraints
-var data varying[4] byte   // Constraint 4 (compiler handles implementation)
-var mask varying[8] bool   // Constraint 8 (compiler handles implementation)
+var data lanes.Varying[byte, 4]   // Constraint 4 (compiler handles implementation)
+var mask lanes.Varying[bool, 8]   // Constraint 8 (compiler handles implementation)
 
 // SPMD loop construct
 go for i := range 16 {
@@ -51,13 +58,13 @@ go for i := range[4] 16 {
 }
 
 // Builtins
-lanes.Count(any) uniform int   // Returns SIMD width (e.g., 4)
-lanes.Index()   // Returns current lane [0,1,2,3]
+lanes.Count[int](v)          // Returns SIMD width (e.g., 4)
+lanes.Index()                // Returns current lane [0,1,2,3]
 
 // Cross-lane operations
 lanes.Broadcast(value, lane)  // Broadcast from one lane to all
 lanes.Rotate(value, offset)   // Rotate values across lanes
-lanes.Shuffle(value, indices) // Arbitrary permutation
+lanes.Swizzle(value, indices) // Arbitrary permutation
 ```
 
 ## Implementation Architecture
@@ -80,9 +87,10 @@ SPMD support is implemented as a **runtime experimental feature** behind `GOEXPE
 
 ### Phase 1: Go Frontend Changes (Runtime Gated)
 
-- **Runtime Token Recognition**: `uniform`, `varying` keywords only recognized when `buildcfg.Experiment.SPMD` is true
-- **Backward Compatibility**: Existing use of words `uniform` and `varying` still permitted when experiment disabled
-- **Conditional Parsing**: `go for` SPMD loop parsing only active when experiment enabled
+- **Package-Based Types**: Varying types use `lanes.Varying[T]` generic type (compiler magic, not regular generics). Uniform values are regular Go types (no annotation needed).
+- **Type Checker Intercept**: `lanes.Varying[T]` and `lanes.Varying[T, N]` are intercepted before generic instantiation and converted to internal `SPMDType`
+- **Backward Compatibility**: `uniform` and `varying` are regular identifiers (not keywords), no backward compatibility issues
+- **Conditional Parsing**: `go for` SPMD loop parsing only active when `buildcfg.Experiment.SPMD` is true
 - **Gated Type System**: SPMD type checking rules only apply when `buildcfg.Experiment.SPMD` is true
 - **Runtime Extensions**: All SPMD extensions check experiment flag before executing
 - **Flexible Compilation**: Same source files compile with/without SPMD depending on flag
@@ -115,7 +123,7 @@ Instead of custom opcodes, use standard SSA operations with vector types:
 
 ```go
 // Original Go SPMD code
-var data [16]varying int32
+var data [16]lanes.Varying[int32]
 go for i := range 16 {
     data[i] = i * 2
 }
@@ -135,7 +143,7 @@ SPMD functions receive mask as **first parameter** in SSA:
 
 ```go
 // Go source
-func process(data varying int32) varying int32 {
+func process(data lanes.Varying[int32]) lanes.Varying[int32] {
     return data * 2
 }
 
@@ -154,7 +162,7 @@ Track execution masks using regular SSA variables and operations:
 
 ```go
 // Go SPMD conditional
-var cond varying bool
+var cond lanes.Varying[bool]
 if cond {
     // true branch  
 } else {
@@ -372,7 +380,7 @@ falseMask = currentMask & ~varyingCond
 #### For Loop Masking
 
 ```go
-var t varying bool
+var t lanes.Varying[bool]
 
 // Original code
 for i := range 10 {
@@ -392,9 +400,9 @@ for i := range 10 {
 }
 
 // Transformed execution with mask tracking
-var loopMask varying bool = currentMask
-var continueMask varying bool = false  // per-lane continue flags
-var breakMask varying bool = false     // per-lane break flags
+var loopMask lanes.Varying[bool] = currentMask
+var continueMask lanes.Varying[bool] = false  // per-lane continue flags
+var breakMask lanes.Varying[bool] = false     // per-lane break flags
 
 for iteration := 0; iteration < 10; iteration++ { // iteration is an uniform and so has same value in all lanes
     // Update loop condition for active lanes
@@ -442,7 +450,7 @@ for iteration := 0; iteration < 10; iteration++ { // iteration is an uniform and
 ```go
 // Original SPMD code - return/break allowed when all lanes active
 var data [16]int
-var threshold uniform int
+var threshold int
 go for i := range 16 { // i is a varying with different value in each lane
     // Uniform condition - all lanes remain active, return/break allowed
     if threshold < 0 {
@@ -459,7 +467,7 @@ go for i := range 16 { // i is a varying with different value in each lane
 
 // Transformed execution
 lanes := lanes.Count(16)        // e.g., 4 int for WASM128 (uniform)
-var continueMask varying bool = false  // per-lane continue flags
+var continueMask lanes.Varying[bool] = false  // per-lane continue flags
 
 for iteration := 0; iteration < 16; iteration += lanes {
     // Calculate lane indices: [iteration, iteration+1, ...]
@@ -487,10 +495,10 @@ for iteration := 0; iteration < 16; iteration += lanes {
 #### Nested Loop Masking
 
 ```go
-var matrix [4][4]varying int
-var sum varying int
-var limit varying int
-var allDone [4]varying bool
+var matrix [4][4]lanes.Varying[int]
+var sum lanes.Varying[int]
+var limit lanes.Varying[int]
+var allDone [4]lanes.Varying[bool]
 
 // Original nested loops - return/break rules depend on lane activity
 go for i := range 4 {
@@ -530,12 +538,12 @@ for outerIteration := 0; outerIteration < 4; outerIteration += lanes {
     }
     
     // Inner loop - traditional for loop in SPMD context
-    var innerMask varying bool = outerValidMask
-    var innerBreakMask varying bool = false
-    
+    var innerMask lanes.Varying[bool] = outerValidMask
+    var innerBreakMask lanes.Varying[bool] = false
+
     for innerIter := 0; innerIter < 4; innerIter++ { // innerIter is uniform
         innerActiveMask := innerMask & ~innerBreakMask
-        var innerContinueMask varying bool = false
+        var innerContinueMask lanes.Varying[bool] = false
         
         if !reduce.Any(innerActiveMask) {
             break // All lanes done with inner loop
@@ -581,7 +589,7 @@ The following examples demonstrate the ISPC-based return/break rules in `go for`
 
 ```go
 // Example 1: ALLOWED - Return/break under uniform conditions
-func processDataWithUniformExit(data []int, threshold uniform int) {
+func processDataWithUniformExit(data []int, threshold int) {
     go for i := range len(data) {
         // ALLOWED: Uniform condition - all lanes make same decision
         if threshold < 0 {
@@ -612,7 +620,7 @@ func processDataWithVaryingExit(data []int) {
 }
 
 // Example 3: MIXED - Nested conditions follow deepest varying rule
-func processWithNestedConditions(data []int, mode uniform int) {
+func processWithNestedConditions(data []int, mode int) {
     go for i := range len(data) {
         // Uniform outer condition
         if mode == DEBUG_MODE { // uniform condition
@@ -634,7 +642,7 @@ func processWithNestedConditions(data []int, mode uniform int) {
 }
 
 // Example 4: PERFORMANCE - Compare uniform vs varying behavior
-func demonstratePerformanceDifference(data []int, uniformThreshold uniform int) {
+func demonstratePerformanceDifference(data []int, uniformThreshold int) {
     // FAST: Uniform early exit - entire SIMD loop can terminate efficiently
     go for i := range len(data) {
         if uniformThreshold < 0 {
@@ -653,9 +661,9 @@ func demonstratePerformanceDifference(data []int, uniformThreshold uniform int) 
 }
 
 // Example 5: MIGRATION - Convert old patterns to new approach
-func searchPatternOldWay(data []varying byte, pattern uniform byte) uniform bool {
+func searchPatternOldWay(data []lanes.Varying[byte], pattern byte) bool {
     // OLD: Set flags, use reduce operations
-    var found varying bool = false
+    var found lanes.Varying[bool] = false
     
     go for i := range len(data) {
         if data[i] == pattern {
@@ -667,7 +675,7 @@ func searchPatternOldWay(data []varying byte, pattern uniform byte) uniform bool
     return reduce.Any(found)  // Reduce operation outside loop
 }
 
-func searchPatternNewWay(data []varying byte, pattern uniform byte, errorMode uniform bool) uniform bool {
+func searchPatternNewWay(data []lanes.Varying[byte], pattern byte, errorMode bool) bool {
     go for i := range len(data) {
         // NEW: Early uniform exit for error conditions
         if errorMode {
@@ -684,7 +692,7 @@ func searchPatternNewWay(data []varying byte, pattern uniform byte, errorMode un
 }
 
 // Example 6: CORRECT USAGE - Structured approach with uniform exits
-func processWithErrorHandling(data []int, params uniform ProcessParams) error {
+func processWithErrorHandling(data []int, params ProcessParams) error {
     go for i := range len(data) {
         // Check uniform error conditions first - can exit immediately
         if params.AbortRequested {

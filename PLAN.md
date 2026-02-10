@@ -197,12 +197,12 @@ This document provides a comprehensive, trackable implementation plan for adding
 - [x] **Implement SPMD function nesting restriction**: Error on `go for` inside functions with varying params
 - [x] **Add SPMD function detection**: Track functions with varying parameters in type checker
 
-### 1.6 Migration to Package-Based Types 🔴 **NEXT**
+### 1.6 Migration to Package-Based Types ✅ **COMPLETED** (2026-02-10)
 
-**Rationale**: Replace `varying`/`uniform` keywords with `lanes.Varying[T]` generic type to eliminate
+**Rationale**: Replaced `varying`/`uniform` keywords with `lanes.Varying[T]` generic type to eliminate
 backward compatibility issues. Regular Go values are implicitly uniform (no keyword needed).
 
-**New Syntax**:
+**Syntax Mapping**:
 | Old (keyword-based)         | New (package-based)              |
 |-----------------------------|----------------------------------|
 | `var x uniform int`         | `var x int`                      |
@@ -216,31 +216,32 @@ backward compatibility issues. Regular Go values are implicitly uniform (no keyw
 - `lanes.Varying[T, N]` uses compiler magic: the type checker special-cases `lanes.Varying` to
   accept an optional second numeric literal argument (not valid Go generics, handled specifically
   for this type)
-- `reduce.Uniform[T any] = T` is a documentation-only generic type alias
+- `reduce.Uniform[T]` removed (Go doesn't support generic type aliases with type params on RHS)
 - Internal `SPMDType` in types2 is kept as canonical representation; only how it's created changes
 - `go for` parsing and ForStmt.IsSpmd stay unchanged
 - All ISPC-based control flow rules stay unchanged
 
-**Implementation Steps**:
-- [ ] Define `type Varying[T any] struct{ _ [0]T }` in lanes package
-- [ ] Define `type Uniform[T any] = T` in reduce package
-- [ ] Update lanes/reduce function signatures to use Varying[T]/T instead of varying T/uniform T
-- [ ] Add lanes.Varying[T] and lanes.Varying[T, N] recognition in type checker (typexpr_ext_spmd.go)
-- [ ] Add IndexExpr intercept in typexpr.go before generic instantiation
-- [ ] Remove UniformQualifier from internal SPMDType (SPMDType always means varying)
-- [ ] Simplify operand_ext_spmd.go: remove all uniform code paths
-- [ ] Remove _Uniform/_Varying tokens from syntax/tokens.go
-- [ ] Remove SPMDType AST node from syntax/nodes.go
-- [ ] Remove spmdType()/looksLikeSPMDType() from syntax/parser.go
-- [ ] Delete syntax/spmd_tokens.go
-- [ ] Remove SPMDType case from syntax/printer.go, walk_ext_spmd.go, noder/quirks.go
-- [ ] Remove case *syntax.SPMDType from types2/typexpr.go
-- [ ] Clean up typexpr_ext_spmd.go: remove old processSPMDType(), keep processLanesVaryingType()
-- [ ] Update all 5 parser test files for new syntax
-- [ ] Update all 12 type checker test files for new syntax
-- [ ] Update all 6 SSA test files for new syntax
-- [ ] Update all 42 integration test files for new syntax
-- [ ] Verify build with and without GOEXPERIMENT=spmd
+**Completed Steps**:
+- [x] Define `type Varying[T any] struct{ _ [0]T }` in lanes package
+- [x] Update lanes/reduce function signatures to use Varying[T]/T instead of varying T/uniform T
+- [x] Add lanes.Varying[T] and lanes.Varying[T, N] recognition in type checker (typexpr_ext_spmd.go)
+- [x] Add IndexExpr intercept in typexpr.go before generic instantiation
+- [x] Handle unqualified Varying[T] within lanes package itself
+- [x] Remove UniformQualifier from internal SPMDType (SPMDType always means varying)
+- [x] Simplify operand_ext_spmd.go: remove all uniform code paths
+- [x] Remove _Uniform/_Varying tokens from syntax/tokens.go
+- [x] Remove SPMDType AST node from syntax/nodes.go
+- [x] Remove spmdType()/looksLikeSPMDType() from syntax/parser.go
+- [x] Delete syntax/spmd_tokens.go
+- [x] Remove SPMDType case from syntax/printer.go, walk_ext_spmd.go, noder/quirks.go
+- [x] Remove case *syntax.SPMDType from types2/typexpr.go
+- [x] Clean up typexpr_ext_spmd.go: remove old processSPMDType(), keep processLanesVaryingType()
+- [x] Update all 5 parser test files for new syntax
+- [x] Update all 12 type checker test files for new syntax
+- [x] Update all 6 SSA test files for new syntax
+- [x] Update all 42 integration test files for new syntax
+- [x] Verify build with and without GOEXPERIMENT=spmd
+- [x] All SPMD tests pass (parser: 5/5, type checker: 12/12, SSA: 6/6)
 
 ### 1.7 SIMD Register Capacity Validation
 
@@ -566,18 +567,17 @@ backward compatibility issues. Regular Go values are implicitly uniform (no keyw
 
 - **Phase 0**: ✅ **COMPLETED** - All foundation infrastructure ready
 - **Phase 1**: 🚧 **IN PROGRESS** - Frontend implementation
-  - Phase 1.1-1.5.3: ✅ **COMPLETED** - Keyword-based SPMD (being migrated)
-  - Phase 1.6: 🔴 **NEXT** - Migration to package-based types (lanes.Varying[T])
+  - Phase 1.1-1.5.3: ✅ **COMPLETED** - Original keyword-based SPMD
+  - Phase 1.6: ✅ **COMPLETED** - Migration to package-based types (lanes.Varying[T])
   - Phase 1.7: ❌ Not Started - SIMD Register Capacity Validation
-  - Phase 1.8: ✅ **COMPLETED** - lanes package (needs signature update for new syntax)
+  - Phase 1.8: ✅ **COMPLETED** - lanes package (signatures updated for new syntax)
   - Phase 1.9: ❌ Not Started - reduce package
   - Phase 1.10: ❌ Not Started - SSA Generation
 - **Phase 2**: ❌ Not Started
 - **Phase 3**: ❌ Not Started
 
-**Last Completed**: Phase 1.8 lanes package + rebase onto go1.27dev (2026-02-08)
-**Current Work**: Phase 1.6 - Migration from keyword-based to package-based SPMD types
-**Next Action**: Implement lanes.Varying[T] type and update type checker recognition
+**Last Completed**: Phase 1.6 - Migration from keyword-based to package-based SPMD types (2026-02-10)
+**Next Action**: Phase 1.7 SIMD Register Capacity Validation or Phase 1.10 SSA Generation
 
 ### Recent Major Achievements (Phase 1.5 Extensions)
 
