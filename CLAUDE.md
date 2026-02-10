@@ -79,7 +79,7 @@ SPMD support is implemented as a **runtime experimental feature** behind `GOEXPE
 
 3. **Runtime Feature Gating**: All SPMD functionality gated behind `buildcfg.Experiment.SPMD` runtime checks:
    - SPMD syntax parsing enabled/disabled per compilation
-   - Lexer token recognition controlled by runtime flag
+   - `lanes.Varying[T]` type recognition controlled by runtime flag
    - Type checker SPMD rules activated when experiment set
    - SSA generation conditional on experiment flag
 
@@ -848,7 +848,7 @@ func processIfStatement(ifStmt *IfStmt, context *TypeContext) {
    - One line summary (50 chars max), optional detailed description if needed
    - **NO EMOJIS EVER** - plain text only
    - Examples:
-     - ✅ "Add uniform/varying keyword recognition to Go lexer"
+     - ✅ "Add lanes.Varying type recognition to type checker"
      - ✅ "Fix SPMD loop type checking for constrained varying"
      - ✅ "Implement SIMD128 vector add instruction generation"
      - ❌ "🚀 Add cool SPMD features and fix some bugs ✨"
@@ -894,14 +894,16 @@ func processIfStatement(ifStmt *IfStmt, context *TypeContext) {
 
 ## Current Implementation Status
 
-Starting fresh - no commits yet. Follow the implementation plan in order:
+Go frontend implementation (Phase 1) is largely complete with 25+ commits on the `spmd` branch:
 
-1. Lexer/parser changes first
-2. Type system and validation
-3. SSA generation
-4. TinyGo LLVM backend
-5. WASM target configuration
-6. Testing and examples
+1. **Phase 1.1-1.5: COMPLETED** - Lexer, parser, type system, type checking (keyword-based)
+2. **Phase 1.6: COMPLETED** - Migration to package-based types (`lanes.Varying[T]` replaces `varying` keyword)
+3. **Phase 1.8: COMPLETED** - `lanes` package with compiler builtin stubs, `Count()` PoC
+4. **Phase 1.9: PARTIALLY DONE** - `reduce` package stubs (all functions panic, not implemented)
+5. **Phase 2: NOT STARTED** - SSA extensions for SPMD masking and vector types
+6. **Phase 3: NOT STARTED** - TinyGo LLVM backend with WASM SIMD128 target
+
+Next priorities: Phase 1.9 (reduce package implementation) and Phase 2 (SSA generation)
 
 ## Proof of Concept Success Criteria
 
