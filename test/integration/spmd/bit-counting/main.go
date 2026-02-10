@@ -15,7 +15,7 @@ func main() {
 }
 
 func countBits(data []uint8) int {
-	var count varying uint8
+	var count lanes.Varying[uint8]
 
 	go for _, v := range data {
 		// v is varying (each lane processes different elements)

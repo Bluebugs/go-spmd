@@ -17,7 +17,7 @@ func main() {
 }
 
 func sum(data []int) int {
-	var total varying int = 0
+	var total lanes.Varying[int] = 0
 
 	go for _, value := range data {
 		// value is varying (each lane processes different elements)

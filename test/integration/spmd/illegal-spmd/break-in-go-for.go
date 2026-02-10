@@ -2,11 +2,12 @@
 // Expected error: "break statement not allowed in SPMD for loop"
 package main
 
+import "lanes"
 import "reduce"
 
 func main() {
 	data := []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
-	
+
 	// ILLEGAL: Direct break in go for loop
 	go for i := range data {
 		if data[i] > 5 {
@@ -50,15 +51,15 @@ func main() {
 // ILLEGAL: Break with condition in go for
 func conditionalBreak() {
 	data := make([]int, 100)
-	
+
 	go for i := range data {
-		var condition varying bool = (data[i] > 50)
-		
+		var condition lanes.Varying[bool] = (data[i] > 50)
+
 		// Even with reduction, break is not allowed
 		if reduce.Any(condition) {
 			break  // ERROR: break statement not allowed in SPMD for loop
 		}
-		
+
 		data[i] = process(data[i])
 	}
 }
@@ -70,7 +71,7 @@ func process(x int) int {
 // LEGAL: Continue statements are allowed (for comparison)
 func legalContinue() {
 	data := []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
-	
+
 	go for i := range data {
 		if data[i]%2 == 0 {
 			continue  // LEGAL: continue is allowed in go for loops
@@ -82,7 +83,7 @@ func legalContinue() {
 // LEGAL: Break in regular for loop inside go for is allowed
 func legalInnerBreak() {
 	data := []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
-	
+
 	go for i := range data {
 		// Regular for loop inside go for - break is allowed here
 		for j := 0; j < 10; j++ {

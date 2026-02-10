@@ -21,15 +21,15 @@ func debugProcessing(data []int) {
 	go for _, v := range data {
 		// v is already varying (each lane gets different data elements)
 		doubled := v * 2
-		
+
 		// Printf automatically converts varying to array with %v
 		fmt.Printf("Lane values: %v\n", v)       // Automatic reduce.From conversion
 		fmt.Printf("Doubled: %v\n", doubled)     // Automatic reduce.From conversion
-		
+
 		// Manual conversion still available if needed
 		currentValues := reduce.From(v)
 		fmt.Printf("Manual conversion: %v\n", currentValues)
-		
+
 		// Normal SPMD processing continues...
 		total := reduce.Add(doubled)
 		fmt.Printf("Total for this iteration: %d\n", total)

@@ -15,7 +15,7 @@ func main() {
 		"No verbs here",
 		"Multiple %s verbs %d here %f",
 	}
-	
+
 	for _, format := range formats {
 		pos := findFirstVerb(format)
 		if pos >= 0 {
@@ -29,17 +29,17 @@ func main() {
 func findFirstVerb(s string) int {
 	// Things stays the same outside of SPMD context, i is by default an uniform int
 	i := 0
-  	
+
 	go for _, c := range s {
     	check := c == '%'
-    
+
 		if reduce.Any(check) {
 			// This is legal, as we are outside of SPMD context due to the if being on uniform value
         	return i + reduce.FindFirstSet(check)
     	}
-    
+
 		i += lanes.Count(c)
   	}
-  	
+
 	return len(s)
 }

@@ -12,11 +12,11 @@ func main() {
 	// Different arrays with different lengths to demonstrate divergent control flow
 	arrays := [][]int{
 		{1, 2},     // Lane 0
-		{3},        // Lane 1  
+		{3},        // Lane 1
 		{4},        // Lane 2
 		{5, 6, 7},  // Lane 3
 	}
-	
+
 	result := countArrays(arrays)
 	fmt.Printf("Array sums: %v\n", result)
 }

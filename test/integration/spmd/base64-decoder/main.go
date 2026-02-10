@@ -48,15 +48,15 @@ func Decode(ascii []byte) ([]byte, bool) {
 	return decoded, true
 }
 
-func outputPattern() varying[4] uint8 {
-	var r varying[4] uint8
+func outputPattern() lanes.Varying[uint8, 4] {
+	var r lanes.Varying[uint8, 4]
 	go for i := range[4] {
 		r[i] = uint8(i + i/3) // Creates: [0,1,2,4]
 	}
 	return r
 }
 
-func decodeChunk(ascii varying[4] byte, pattern varying[4] uint8) ([]byte, bool) {
+func decodeChunk(ascii lanes.Varying[byte, 4], pattern lanes.Varying[uint8, 4]) ([]byte, bool) {
 	// Step 1: Perfect hash function for table indexing
 	hashes := lanes.ShiftRight(ascii, 4)
 	if ascii == '/' {
@@ -86,8 +86,8 @@ func decodeChunk(ascii varying[4] byte, pattern varying[4] uint8) ([]byte, bool)
 	shiftPattern := lanes.From([]uint16{2, 4, 6, 8})
 	shifted := lanes.ShiftLeft(sextets, shiftPattern)
 
-	shiftedLo := varying[4] byte(shifted)
-	shiftedHi := varying[4] byte(lanes.ShiftRight(shifted, 8))
+	shiftedLo := lanes.Varying[byte, 4](shifted)
+	shiftedHi := lanes.Varying[byte, 4](lanes.ShiftRight(shifted, 8))
 	decodedChunks := shiftedLo | lanes.Rotate(shiftedHi, 1)
 
 	// Step 5: Extract final 3 bytes using output pattern (Swizzle)

@@ -197,7 +197,52 @@ This document provides a comprehensive, trackable implementation plan for adding
 - [x] **Implement SPMD function nesting restriction**: Error on `go for` inside functions with varying params
 - [x] **Add SPMD function detection**: Track functions with varying parameters in type checker
 
-### 1.6 SIMD Register Capacity Validation
+### 1.6 Migration to Package-Based Types 🔴 **NEXT**
+
+**Rationale**: Replace `varying`/`uniform` keywords with `lanes.Varying[T]` generic type to eliminate
+backward compatibility issues. Regular Go values are implicitly uniform (no keyword needed).
+
+**New Syntax**:
+| Old (keyword-based)         | New (package-based)              |
+|-----------------------------|----------------------------------|
+| `var x uniform int`         | `var x int`                      |
+| `var y varying float32`     | `var y lanes.Varying[float32]`   |
+| `var c varying[4] int`      | `var c lanes.Varying[int, 4]`    |
+| `var d varying[] byte`      | `var d lanes.Varying[byte, 0]`   |
+| `func f(x varying int)`    | `func f(x lanes.Varying[int])`   |
+| `go for i := range 16`     | `go for i := range 16` (unchanged) |
+
+**Design Decisions**:
+- `lanes.Varying[T, N]` uses compiler magic: the type checker special-cases `lanes.Varying` to
+  accept an optional second numeric literal argument (not valid Go generics, handled specifically
+  for this type)
+- `reduce.Uniform[T any] = T` is a documentation-only generic type alias
+- Internal `SPMDType` in types2 is kept as canonical representation; only how it's created changes
+- `go for` parsing and ForStmt.IsSpmd stay unchanged
+- All ISPC-based control flow rules stay unchanged
+
+**Implementation Steps**:
+- [ ] Define `type Varying[T any] struct{ _ [0]T }` in lanes package
+- [ ] Define `type Uniform[T any] = T` in reduce package
+- [ ] Update lanes/reduce function signatures to use Varying[T]/T instead of varying T/uniform T
+- [ ] Add lanes.Varying[T] and lanes.Varying[T, N] recognition in type checker (typexpr_ext_spmd.go)
+- [ ] Add IndexExpr intercept in typexpr.go before generic instantiation
+- [ ] Remove UniformQualifier from internal SPMDType (SPMDType always means varying)
+- [ ] Simplify operand_ext_spmd.go: remove all uniform code paths
+- [ ] Remove _Uniform/_Varying tokens from syntax/tokens.go
+- [ ] Remove SPMDType AST node from syntax/nodes.go
+- [ ] Remove spmdType()/looksLikeSPMDType() from syntax/parser.go
+- [ ] Delete syntax/spmd_tokens.go
+- [ ] Remove SPMDType case from syntax/printer.go, walk_ext_spmd.go, noder/quirks.go
+- [ ] Remove case *syntax.SPMDType from types2/typexpr.go
+- [ ] Clean up typexpr_ext_spmd.go: remove old processSPMDType(), keep processLanesVaryingType()
+- [ ] Update all 5 parser test files for new syntax
+- [ ] Update all 12 type checker test files for new syntax
+- [ ] Update all 6 SSA test files for new syntax
+- [ ] Update all 42 integration test files for new syntax
+- [ ] Verify build with and without GOEXPERIMENT=spmd
+
+### 1.7 SIMD Register Capacity Validation
 
 - [ ] Implement `checkSIMDRegisterCapacity` for `go for` loops
 - [ ] Add capacity constraint checking based on range element type and varying types used
@@ -208,7 +253,7 @@ This document provides a comprehensive, trackable implementation plan for adding
 - [ ] Generate clear error messages for capacity violations
 - [ ] Test complex scenarios with mixed varying type sizes
 
-### 1.7 Go SSA Generation for SPMD
+### 1.10 Go SSA Generation for SPMD
 
 - [ ] **TDD**: Extend SSA generation in `src/cmd/compile/internal/ssagen/ssa.go`
 - [ ] **Extend SSA opcodes to support predicated operations**: Modify Go's SSA IR to accept boolean mask predicates, transforming it into Predicated Static Single Assignment (PSSA)
@@ -224,7 +269,7 @@ This document provides a comprehensive, trackable implementation plan for adding
 - [ ] Implement constrained varying handling with static array unrolling using predicated operations
 - [ ] **Make SSA tests pass**: Correct predicated SSA opcodes generated for all SPMD constructs
 
-### 1.8 Standard Library Extensions (lanes package) ✅ **COMPLETED**
+### 1.8 Standard Library Extensions (lanes package) ✅ **COMPLETED** (signatures updated in Phase 1.6)
 
 - [x] Create `src/lanes/lanes.go` with build constraint `//go:build goexperiment.spmd`
 - [x] Implement `Count[T any](value varying T) uniform int` with WASM SIMD128 type-based calculation
@@ -250,7 +295,7 @@ This document provides a comprehensive, trackable implementation plan for adding
 
 **✅ COMPLETED**: Phase 1.8 lanes package provides complete API for PoC validation with smart constrained varying handling.
 
-### 1.9 Standard Library Extensions (reduce package) 🔴 **CRITICAL PoC DEPENDENCY**
+### 1.9 Standard Library Extensions (reduce package) 🔴 **CRITICAL PoC DEPENDENCY** (use lanes.Varying[T] syntax)
 
 - [ ] Create `src/reduce/reduce.go` with build constraint `//go:build goexperiment.spmd`
 - [ ] Define generic type constraints (VaryingBool, VaryingNumeric[T], VaryingInteger[T], etc.)
@@ -520,20 +565,19 @@ This document provides a comprehensive, trackable implementation plan for adding
 ## Current Status
 
 - **Phase 0**: ✅ **COMPLETED** - All foundation infrastructure ready
-- **Phase 1**: 🚧 **IN PROGRESS** - Frontend implementation advancing well
-  - Phase 1.1: ✅ **COMPLETED** - GOEXPERIMENT Integration
-  - Phase 1.2: ✅ **COMPLETED** - Lexer Modifications
-  - Phase 1.3: ✅ **COMPLETED** - Parser Extensions
-  - Phase 1.4: ✅ **COMPLETED** - Type System Implementation
-  - Phase 1.5: ✅ **COMPLETED** - Type Checking Rules Implementation (7+ tests passing)
-  - Phase 1.5.2: ✅ **COMPLETED** - SPMD Assignment Rule Validation
-  - Phase 1.5.3: ✅ **COMPLETED** - Function Restriction Validation
-- **Phase 2**: ❌ Not Started  
+- **Phase 1**: 🚧 **IN PROGRESS** - Frontend implementation
+  - Phase 1.1-1.5.3: ✅ **COMPLETED** - Keyword-based SPMD (being migrated)
+  - Phase 1.6: 🔴 **NEXT** - Migration to package-based types (lanes.Varying[T])
+  - Phase 1.7: ❌ Not Started - SIMD Register Capacity Validation
+  - Phase 1.8: ✅ **COMPLETED** - lanes package (needs signature update for new syntax)
+  - Phase 1.9: ❌ Not Started - reduce package
+  - Phase 1.10: ❌ Not Started - SSA Generation
+- **Phase 2**: ❌ Not Started
 - **Phase 3**: ❌ Not Started
 
-**Last Completed**: Phase 1.5 Type Checking Rules with 7+ SPMD tests passing (2025-08-18)
-**Current Work**: Phase 1.6 - SIMD Register Capacity Validation (or Phase 1.7 - SSA Generation)
-**Next Action**: Either implement Phase 1.6 capacity validation or proceed with Phase 1.7 SSA extensions
+**Last Completed**: Phase 1.8 lanes package + rebase onto go1.27dev (2026-02-08)
+**Current Work**: Phase 1.6 - Migration from keyword-based to package-based SPMD types
+**Next Action**: Implement lanes.Varying[T] type and update type checker recognition
 
 ### Recent Major Achievements (Phase 1.5 Extensions)
 
