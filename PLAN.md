@@ -326,11 +326,17 @@ backward compatibility issues. Regular Go values are implicitly uniform (no keyw
 - [ ] Detect SPMD functions (functions with varying parameters) at call sites
 - [ ] Pass `s.spmdMask` as implicit first argument in SSA generation
 
-#### 1.10i Switch Statement Masking
+#### 1.10i Switch Statement Masking ✅ **COMPLETED** (2026-02-11)
 
-- [ ] Implement mask-based execution for varying switch conditions
-- [ ] Generate per-case masks and execute all cases with respective masks
-- [ ] Merge variables after all cases using SPMDSelect chain
+- [x] Add `IsVaryingSwitch` flag propagation: syntax → types2 → noder → IR → walk → SSA
+- [x] Type checker sets `IsVaryingSwitch` in `spmdSwitchStmt()`, increments varying depth
+- [x] Walk phase skips `walkSwitch` for varying switches, preserves Tag and Cases
+- [x] SSA `spmdSwitchStmt()`: per-case mask computation (SPMDEqual + SPMDMaskAnd/AndNot)
+- [x] N-way variable merge using cascading SPMDSelect (mutually exclusive masks)
+- [x] Support both scalar (auto-splatted) and varying case values
+- [x] `isVaryingSPMDValue()` helper detects varying SSA values for conditional splatting
+- [x] `spmdCaseValues()` type checker validates mixed scalar/varying case expressions
+- [x] Old typecheck (`tcSwitchExpr`) bypassed for varying switches
 
 #### 1.10j Remaining SSA Integration
 
@@ -648,12 +654,13 @@ backward compatibility issues. Regular Go values are implicitly uniform (no keyw
     - 1.10d: ✅ IR opcodes for vectorized loop index generation
     - 1.10e: ✅ Tail masking for non-multiple loop bounds
     - 1.10f: ✅ Mask propagation through varying if/else
-    - 1.10g-j: ❌ Varying for-loop masking, function call mask insertion, switch masking, remaining integration
+    - 1.10i: ✅ Switch masking (IsVaryingSwitch, spmdSwitchStmt, per-case masks, N-way merge, varying case values)
+    - 1.10g-h,j: ❌ Varying for-loop masking, function call mask insertion, remaining integration
 - **Phase 2**: ❌ Not Started
 - **Phase 3**: ❌ Not Started
 
-**Last Completed**: Phase 1.10e - SPMD tail masking for non-multiple loop bounds (2026-02-11)
-**Next Action**: Phase 1.10g (varying for-loop masking) or remaining 1.10 sub-phases
+**Last Completed**: Phase 1.10i - SPMD switch statement masking with varying case values (2026-02-11)
+**Next Action**: Phase 1.10g (varying for-loop masking) or Phase 1.10h (function call mask insertion)
 
 ### Recent Major Achievements (Phase 1.5 Extensions)
 
