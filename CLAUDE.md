@@ -904,16 +904,18 @@ Never skip steps. Never commit without review approval. This ensures code qualit
 
 ## Current Implementation Status
 
-Go frontend implementation (Phase 1) is largely complete with 25+ commits on the `spmd` branch:
+Go frontend implementation (Phase 1) is largely complete with 26+ commits on the `spmd` branch:
 
 1. **Phase 1.1-1.5: COMPLETED** - Lexer, parser, type system, type checking (keyword-based)
 2. **Phase 1.6: COMPLETED** - Migration to package-based types (`lanes.Varying[T]` replaces `varying` keyword)
-3. **Phase 1.8: COMPLETED** - `lanes` package with compiler builtin stubs, `Count()` PoC
-4. **Phase 1.9: PARTIALLY DONE** - `reduce` package stubs (all functions panic, not implemented)
-5. **Phase 2: NOT STARTED** - SSA extensions for SPMD masking and vector types
-6. **Phase 3: NOT STARTED** - TinyGo LLVM backend with WASM SIMD128 target
+3. **Phase 1.7: COMPLETED** - SIMD lane count calculation and recording (laneCountForType, computeEffectiveLaneCount, ForStmt.LaneCount)
+4. **Phase 1.8: COMPLETED** - `lanes` package with compiler builtin stubs, `Count()` PoC
+5. **Phase 1.9: PARTIALLY DONE** - `reduce` package stubs (all functions panic, not implemented)
+6. **Phase 1.10: NOT STARTED** - Go SSA Generation for SPMD
+7. **Phase 2: NOT STARTED** - SSA extensions for SPMD masking and vector types
+8. **Phase 3: NOT STARTED** - TinyGo LLVM backend with WASM SIMD128 target
 
-Next priorities: Phase 1.9 (reduce package implementation) and Phase 2 (SSA generation)
+Next priorities: Phase 1.9 (reduce package implementation) and Phase 1.10 (SSA generation)
 
 ## Proof of Concept Success Criteria
 

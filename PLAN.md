@@ -243,16 +243,20 @@ backward compatibility issues. Regular Go values are implicitly uniform (no keyw
 - [x] Verify build with and without GOEXPERIMENT=spmd
 - [x] All SPMD tests pass (parser: 5/5, type checker: 12/12, SSA: 6/6)
 
-### 1.7 SIMD Register Capacity Validation
+### 1.7 SIMD Register Capacity Validation ✅ **COMPLETED** (2026-02-10)
 
-- [ ] Implement `checkSIMDRegisterCapacity` for `go for` loops
-- [ ] Add capacity constraint checking based on range element type and varying types used
-- [ ] Implement `checkSPMDFunctionCapacity` validation for SPMD functions
-- [ ] Calculate lane count constraints based on largest varying parameter type
-- [ ] Validate all varying types in function body fit capacity constraints
-- [ ] Record adjusted lane counts for code generation
-- [ ] Generate clear error messages for capacity violations
-- [ ] Test complex scenarios with mixed varying type sizes
+- [x] Implement `laneCountForType()` with correct SIMD128 formula: 16 bytes / sizeof(T)
+- [x] Fix `calculateVaryingTypeCapacity()` to use type-dependent lane count (was hardcoded to 4)
+- [x] Add `computeEffectiveLaneCount()` for go for loops (minimum across all unconstrained varying types)
+- [x] Add `computeFunctionLaneCount()` for SPMD functions based on varying parameter types
+- [x] Add `LaneCount int64` field to ForStmt AST node for SSA consumption
+- [x] Track varying element sizes during type checking (`varyingElemSizes` in SPMDControlFlowInfo)
+- [x] Record effective lane count at end of go for loop type checking
+- [x] Remove dead code: `defaultLaneCount`, `pocCapacityMultiplier`, `checkGoForCapacity`, `calculateGoForCapacity`, `checkSPMDFunctionCapacity`
+- [x] Make `Int`/`Uint` explicit in `getTypeSize()` (was falling through to default)
+- [x] Add `testLaneCountConsistency()` test for mixed element types
+- [x] Fix misleading lane count comments in simd_capacity.go test
+- [x] Verify builds pass with and without GOEXPERIMENT=spmd
 
 ### 1.10 Go SSA Generation for SPMD
 
@@ -569,15 +573,15 @@ backward compatibility issues. Regular Go values are implicitly uniform (no keyw
 - **Phase 1**: 🚧 **IN PROGRESS** - Frontend implementation
   - Phase 1.1-1.5.3: ✅ **COMPLETED** - Original keyword-based SPMD
   - Phase 1.6: ✅ **COMPLETED** - Migration to package-based types (lanes.Varying[T])
-  - Phase 1.7: ❌ Not Started - SIMD Register Capacity Validation
+  - Phase 1.7: ✅ **COMPLETED** - SIMD lane count calculation and recording
   - Phase 1.8: ✅ **COMPLETED** - lanes package (signatures updated for new syntax)
   - Phase 1.9: ❌ Not Started - reduce package
   - Phase 1.10: ❌ Not Started - SSA Generation
 - **Phase 2**: ❌ Not Started
 - **Phase 3**: ❌ Not Started
 
-**Last Completed**: Phase 1.6 - Migration from keyword-based to package-based SPMD types (2026-02-10)
-**Next Action**: Phase 1.7 SIMD Register Capacity Validation or Phase 1.10 SSA Generation
+**Last Completed**: Phase 1.7 - SIMD lane count calculation and recording (2026-02-10)
+**Next Action**: Phase 1.9 reduce package implementation or Phase 1.10 SSA Generation
 
 ### Recent Major Achievements (Phase 1.5 Extensions)
 
