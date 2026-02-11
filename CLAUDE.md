@@ -904,18 +904,25 @@ Never skip steps. Never commit without review approval. This ensures code qualit
 
 ## Current Implementation Status
 
-Go frontend implementation (Phase 1) is largely complete with 26+ commits on the `spmd` branch:
+Go frontend implementation (Phase 1) is largely complete with 31+ commits on the `spmd` branch:
 
 1. **Phase 1.1-1.5: COMPLETED** - Lexer, parser, type system, type checking (keyword-based)
 2. **Phase 1.6: COMPLETED** - Migration to package-based types (`lanes.Varying[T]` replaces `varying` keyword)
 3. **Phase 1.7: COMPLETED** - SIMD lane count calculation and recording (laneCountForType, computeEffectiveLaneCount, ForStmt.LaneCount)
 4. **Phase 1.8: COMPLETED** - `lanes` package with compiler builtin stubs, `Count()` PoC
 5. **Phase 1.9: PARTIALLY DONE** - `reduce` package stubs (all functions panic, not implemented)
-6. **Phase 1.10: NOT STARTED** - Go SSA Generation for SPMD
-7. **Phase 2: NOT STARTED** - SSA extensions for SPMD masking and vector types
-8. **Phase 3: NOT STARTED** - TinyGo LLVM backend with WASM SIMD128 target
+6. **Phase 1.10: IN PROGRESS** - Go SSA Generation for SPMD
+   - 1.10a: COMPLETED - SPMD field propagation through noder/IR pipeline (IsSpmd, LaneCount wired to SSA)
+   - 1.10b: COMPLETED - Scalar fallback SSA generation for SPMD go for loops
+   - 1.10c: COMPLETED - 42 SPMD vector opcodes added to SSA generic ops (arithmetic, mask, memory, reduction, cross-lane)
+   - 1.10d: COMPLETED - IR opcodes for vectorized loop index (OSPMDLaneIndex, OSPMDSplat, OSPMDAdd) + walk/range.go stride
+   - 1.10e: COMPLETED - Tail masking for non-multiple loop bounds (spmdBodyWithTailMask, SPMDLess + SPMDMaskAnd)
+   - 1.10f: COMPLETED - Mask propagation through varying if/else (IsVaryingCond flag, spmdIfStmt, SPMDSelect merge)
+   - 1.10g+: NOT STARTED - Varying for-loop masking, SPMD function call mask insertion, switch masking
+7. **Phase 2: NOT STARTED** - TinyGo LLVM backend with WASM SIMD128 target
+8. **Phase 3: NOT STARTED** - Validation and dual-mode testing
 
-Next priorities: Phase 1.9 (reduce package implementation) and Phase 1.10 (SSA generation)
+Next priorities: Phase 1.10g (varying for-loop masking) or remaining 1.10 sub-phases, then Phase 1.9 (reduce package)
 
 ## Proof of Concept Success Criteria
 

@@ -260,19 +260,84 @@ backward compatibility issues. Regular Go values are implicitly uniform (no keyw
 
 ### 1.10 Go SSA Generation for SPMD
 
-- [ ] **TDD**: Extend SSA generation in `src/cmd/compile/internal/ssagen/ssa.go`
-- [ ] **Extend SSA opcodes to support predicated operations**: Modify Go's SSA IR to accept boolean mask predicates, transforming it into Predicated Static Single Assignment (PSSA)
-- [ ] Add predicate parameter to vector SSA operations (OpVectorAdd, OpVectorMul, OpVectorLoad, OpVectorStore)
-- [ ] Implement mask-aware SSA instruction generation for all varying operations
-- [ ] Implement `spmdForStmt` using predicated SSA opcodes (leveraging standard opcodes with mask predicates)
-- [ ] Generate mask tracking through OpPhi, OpAnd, OpOr, OpNot operations with predicate support
-- [ ] Implement automatic mask-first parameter insertion for SPMD function calls
-- [ ] Generate predicated vector operations using OpVectorAdd, OpVectorMul, etc. with mask predicates
-- [ ] Implement uniform-to-varying broadcasts via lanes.Broadcast calls with predicate handling
-- [ ] Add conditional masking with OpSelect for control flow using predicated operations
-- [ ] Generate reduce operation calls with proper mask handling through predicated SSA
-- [ ] Implement constrained varying handling with static array unrolling using predicated operations
-- [ ] **Make SSA tests pass**: Correct predicated SSA opcodes generated for all SPMD constructs
+#### 1.10a SPMD Field Propagation Through Noder/IR Pipeline ✅ **COMPLETED** (2026-02-10)
+
+- [x] Add `IsSpmd` and `LaneCount` fields to `ir.ForStmt` and `ir.RangeStmt`
+- [x] Wire SPMD fields through noder serialization (`writer.go`/`reader.go`)
+- [x] Propagate fields through `walk/range.go` lowering to SSA generation
+- [x] SPMD loops dispatch to `spmdForStmt()` stub in SSA generator
+
+#### 1.10b Scalar Fallback SSA Generation ✅ **COMPLETED** (2026-02-10)
+
+- [x] Replace `spmdForStmt()` fatal stub with standard for-loop SSA generation
+- [x] SPMD loops compile and execute correctly with scalar semantics
+- [x] Add `scalarForStmt()` as fallback when `laneCount <= 1`
+
+#### 1.10c SPMD Vector Opcodes ✅ **COMPLETED** (2026-02-10)
+
+- [x] Add 42 type-agnostic SPMD opcodes to `ssa/_gen/genericOps.go`
+- [x] Opcodes cover: vector construction (Splat, LaneIndex), arithmetic (Add/Sub/Mul/Div/Neg),
+      bitwise (And/Or/Xor/Not/Shl/Shr), comparison (Eq/Ne/Lt/Le/Gt/Ge),
+      mask (MaskAnd/MaskOr/MaskAndNot/MaskNot), memory (Load/Store/MaskedLoad/MaskedStore/Gather/Scatter),
+      reduction (ReduceAdd/ReduceMul/ReduceMin/ReduceMax/ReduceAnd/ReduceOr/ReduceXor/ReduceAll/ReduceAny),
+      cross-lane (Broadcast/Rotate/Swizzle/ShiftLanesLeft/ShiftLanesRight),
+      and conversion (Select, Convert)
+- [x] Opcodes will be lowered to target-specific SIMD instructions by TinyGo LLVM backend
+
+#### 1.10d IR Opcodes for Vectorized Loop Index ✅ **COMPLETED** (2026-02-10)
+
+- [x] Add `OSPMDLaneIndex`, `OSPMDSplat`, `OSPMDAdd` IR opcodes
+- [x] `walk/range.go` emits correct stride (`laneCount`) and varying loop index: `i = splat(hv1) + laneIndex`
+- [x] `walk/expr.go` handles SPMD IR opcodes in expression evaluation
+- [x] SSA generator maps IR SPMD opcodes to SSA SPMD opcodes
+- [x] `spmdForStmt` generates vectorized loop structure with correct block layout
+
+#### 1.10e Tail Masking for Non-Multiple Loop Bounds ✅ **COMPLETED** (2026-02-11)
+
+- [x] Generate tail mask when loop bound N is not a multiple of `laneCount`
+- [x] Compute `validMask = laneIndices < N` for the last iteration
+- [x] AND tail mask with execution mask for all operations in the loop body
+- [x] Add `spmdBodyWithTailMask()` that resets mask, executes index assignment, computes tail mask
+- [x] Safe fallback when IR pattern doesn't match expected SPMD assignment
+
+#### 1.10f SPMD Mask Propagation Through Control Flow ✅ **COMPLETED** (2026-02-11)
+
+- [x] Add `IsVaryingCond bool` to `syntax.IfStmt` and `ir.IfStmt`
+- [x] Type checker sets `IsVaryingCond` in `spmdIfStmt()` when condition is varying
+- [x] Noder serializes/deserializes `IsVaryingCond` through export pipeline
+- [x] Add `inSPMDLoop` and `spmdMask` fields to SSA `state` struct
+- [x] Initialize all-true mask (`SPMDSplat(true)`) at `go for` loop entry
+- [x] Dispatch varying if to `spmdIfStmt()` which executes both branches with different lane masks
+- [x] Compute `trueMask = currentMask & cond`, `falseMask = currentMask & ~cond`
+- [x] Merge modified variables using `SPMDSelect(cond, trueVal, falseVal)`
+- [x] Snapshot/restore variable state to prevent cross-branch contamination
+
+#### 1.10g Varying For-Loop Masking (continue/break masks)
+
+- [ ] Implement per-lane `continueMask` and `breakMask` tracking for regular for loops inside SPMD context
+- [ ] Generate `activeMask = loopMask & ~breakMask` at loop iteration start
+- [ ] Generate `bodyMask = activeMask & ~continueMask` for loop body
+- [ ] Reset `continueMask` per iteration, accumulate `breakMask` permanently
+- [ ] Early loop exit when `!reduce.Any(activeMask)`
+
+#### 1.10h SPMD Function Call Mask Insertion
+
+- [ ] Implement automatic mask-first parameter insertion for calls to SPMD functions
+- [ ] Detect SPMD functions (functions with varying parameters) at call sites
+- [ ] Pass `s.spmdMask` as implicit first argument in SSA generation
+
+#### 1.10i Switch Statement Masking
+
+- [ ] Implement mask-based execution for varying switch conditions
+- [ ] Generate per-case masks and execute all cases with respective masks
+- [ ] Merge variables after all cases using SPMDSelect chain
+
+#### 1.10j Remaining SSA Integration
+
+- [ ] Implement uniform-to-varying broadcasts via lanes.Broadcast
+- [ ] Generate reduce operation calls with proper mask handling
+- [ ] Implement constrained varying handling with static array unrolling
+- [ ] **Make SSA tests pass**: Correct SSA opcodes generated for all SPMD constructs
 
 ### 1.8 Standard Library Extensions (lanes package) ✅ **COMPLETED** (signatures updated in Phase 1.6)
 
@@ -576,12 +641,19 @@ backward compatibility issues. Regular Go values are implicitly uniform (no keyw
   - Phase 1.7: ✅ **COMPLETED** - SIMD lane count calculation and recording
   - Phase 1.8: ✅ **COMPLETED** - lanes package (signatures updated for new syntax)
   - Phase 1.9: ❌ Not Started - reduce package
-  - Phase 1.10: ❌ Not Started - SSA Generation
+  - Phase 1.10: 🚧 **IN PROGRESS** - SSA Generation
+    - 1.10a: ✅ SPMD field propagation through noder/IR pipeline
+    - 1.10b: ✅ Scalar fallback SSA generation
+    - 1.10c: ✅ 42 SPMD vector opcodes in SSA generic ops
+    - 1.10d: ✅ IR opcodes for vectorized loop index generation
+    - 1.10e: ✅ Tail masking for non-multiple loop bounds
+    - 1.10f: ✅ Mask propagation through varying if/else
+    - 1.10g-j: ❌ Varying for-loop masking, function call mask insertion, switch masking, remaining integration
 - **Phase 2**: ❌ Not Started
 - **Phase 3**: ❌ Not Started
 
-**Last Completed**: Phase 1.7 - SIMD lane count calculation and recording (2026-02-10)
-**Next Action**: Phase 1.9 reduce package implementation or Phase 1.10 SSA Generation
+**Last Completed**: Phase 1.10e - SPMD tail masking for non-multiple loop bounds (2026-02-11)
+**Next Action**: Phase 1.10g (varying for-loop masking) or remaining 1.10 sub-phases
 
 ### Recent Major Achievements (Phase 1.5 Extensions)
 
