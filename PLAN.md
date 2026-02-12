@@ -483,19 +483,18 @@ These must be ported from the compiler internals before TinyGo can compile any S
 **Gap Analysis**:
 | Package | Current State | Target State | Lines to Port |
 |---------|--------------|--------------|---------------|
-| `go/ast` | No SPMD fields | `IsSpmd`, `LaneCount` on `RangeStmt` | ~10 |
+| `go/ast` | ✅ `IsSpmd`, `LaneCount` on `RangeStmt` | Done | 2 fields |
 | `go/parser` | No `go for` parsing | Full SPMD loop detection | ~50-100 |
 | `go/types` | 6 stub files (61 lines) | Real implementations | ~1,900 from types2 |
 | `go/ssa` | No SPMD metadata | `IsSpmd` on range instructions | ~20 |
 
-#### 2.0a Port go/ast SPMD Fields
+#### 2.0a Port go/ast SPMD Fields ✅ COMPLETED
 
-- [ ] Add `IsSpmd bool` field to `go/ast.RangeStmt` (or create dedicated SPMD loop AST node)
-- [ ] Add `LaneCount int64` field to `go/ast.RangeStmt`
-- [ ] Add `IsVaryingCond bool` to `go/ast.IfStmt` (for varying condition tracking)
-- [ ] Add `IsVaryingSwitch bool` to `go/ast.SwitchStmt`
-- [ ] Ensure `go/ast.Walk` handles new fields correctly
-- [ ] Reference: `cmd/compile/internal/syntax/nodes.go` (ForStmt.IsSpmd, ForStmt.LaneCount)
+- [x] Add `IsSpmd bool` field to `go/ast.RangeStmt`
+- [x] Add `LaneCount int64` field to `go/ast.RangeStmt`
+- [x] `go/ast.Walk` needs no changes (only visits child nodes, not metadata fields)
+- [x] `go/ast` print.go needs no changes (reflection-based, auto-includes new fields)
+- Note: `IsVaryingCond`/`IsVaryingSwitch` not added — these are semantic (type-checker outputs), not syntactic. TinyGo determines varyingness by checking `go/types.Type` at the condition expression. This follows go/ast convention: nodes represent syntax, not semantics.
 
 #### 2.0b Port go/parser `go for` Syntax
 
@@ -851,16 +850,17 @@ Port the 6 stub files from no-ops to real implementations. Source: `cmd/compile/
     - 1.10j: ✅ lanes/reduce builtin call interception (16 functions -> SPMD opcodes, 7 deferred)
     - 1.10k: ❌ Remaining SSA integration (constrained varying)
     - 1.10L: ✅ Fix pre-existing all.bash failures (6 test suites)
-- **Phase 2**: 🔍 Exploration Complete, Implementation Not Started
+- **Phase 2**: 🚧 In Progress (stdlib porting started)
   - TinyGo architecture explored and documented
   - Critical finding: TinyGo uses `golang.org/x/tools/go/ssa` (not `cmd/compile` SSA)
   - Critical finding: `go/parser`, `go/ast`, `go/types` lack SPMD support (must be ported first)
   - Phase 2 plan rewritten: 2.0 (stdlib porting) + 2.1-2.10 (TinyGo compiler work)
   - Phase 2.0 gap: go/types has 61 lines of stubs vs types2's 1,936 lines of real implementation
+  - 2.0a: ✅ go/ast SPMD fields (IsSpmd, LaneCount on RangeStmt)
 - **Phase 3**: ❌ Not Started
 
-**Last Completed**: Phase 1.10L - Fixed all 6 all.bash test failures (2026-02-12)
-**Next Action**: Phase 2.0a - Port go/ast SPMD fields (IsSpmd, LaneCount on RangeStmt)
+**Last Completed**: Phase 2.0a - Added IsSpmd and LaneCount fields to go/ast.RangeStmt (2026-02-12)
+**Next Action**: Phase 2.0b - Port go/parser `go for` syntax detection
 
 ### Recent Major Achievements (Phase 1.5 Extensions)
 

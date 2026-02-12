@@ -937,9 +937,9 @@ Go frontend implementation (Phase 1) is complete with 46 commits on the `spmd` b
    - 1.10j: COMPLETED - lanes/reduce builtin call interception (16 functions -> SPMD opcodes, 7 deferred)
    - 1.10h: COMPLETED - Function call mask insertion (OpSPMDCallSetMask, OpSPMDFuncEntryMask, isSPMDCallTarget, spmdFuncEntry)
    - 1.10L: COMPLETED - Fixed all 6 pre-existing all.bash test failures (copyright, stdPkgs, deps, error codes, gcimporter, go/types)
-7. **Phase 2: EXPLORATION COMPLETE, IMPLEMENTATION NOT STARTED** - TinyGo LLVM backend with WASM SIMD128 target
+7. **Phase 2: IN PROGRESS** - TinyGo LLVM backend with WASM SIMD128 target
    - **Phase 2.0: Go Standard Library Porting** (prerequisite before TinyGo work):
-     - `go/ast`: No SPMD fields — need `IsSpmd`, `LaneCount` on `RangeStmt`
+     - `go/ast`: COMPLETED — `IsSpmd`, `LaneCount` fields added to `RangeStmt`
      - `go/parser`: No `go for` parsing — need to port from `cmd/compile/internal/syntax`
      - `go/types`: 6 stub files (61 lines) — need to port 1,936 lines from types2
      - `go/ssa`: No SPMD metadata — need minimal `IsSpmd` on range instructions
@@ -951,7 +951,7 @@ Go frontend implementation (Phase 1) is complete with 46 commits on the `spmd` b
      - Missing: GOEXPERIMENT support, WASM `+simd128` feature flag, vector type generation
 8. **Phase 3: NOT STARTED** - Validation and dual-mode testing
 
-Next priority: Phase 2.0a - Port go/ast SPMD fields (IsSpmd, LaneCount on RangeStmt)
+Next priority: Phase 2.0b - Port go/parser `go for` syntax detection
 
 ## Proof of Concept Success Criteria
 
