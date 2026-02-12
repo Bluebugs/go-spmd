@@ -904,7 +904,7 @@ Never skip steps. Never commit without review approval. This ensures code qualit
 
 ## Current Implementation Status
 
-Go frontend implementation (Phase 1) is largely complete with 38 commits on the `spmd` branch:
+Go frontend implementation (Phase 1) is largely complete with 39 commits on the `spmd` branch:
 
 1. **Phase 1.1-1.5: COMPLETED** - Lexer, parser, type system, type checking (keyword-based)
 2. **Phase 1.6: COMPLETED** - Migration to package-based types (`lanes.Varying[T]` replaces `varying` keyword)
@@ -919,12 +919,13 @@ Go frontend implementation (Phase 1) is largely complete with 38 commits on the 
    - 1.10e: COMPLETED - Tail masking for non-multiple loop bounds (spmdBodyWithTailMask, SPMDLess + SPMDMaskAnd)
    - 1.10f: COMPLETED - Mask propagation through varying if/else (IsVaryingCond flag, spmdIfStmt, SPMDSelect merge)
    - 1.10i: COMPLETED - Switch masking (IsVaryingSwitch, spmdSwitchStmt, per-case masks, N-way merge, varying case values)
+   - 1.10g: COMPLETED - Varying for-loop masking (spmdLoopMaskState, spmdMaskedBranchStmt, spmdRegularForStmt, spmdVaryingDepth tracking)
    - 1.10j: COMPLETED - lanes/reduce builtin call interception (16 functions -> SPMD opcodes, 7 deferred)
-   - 1.10g-h: NOT STARTED - Varying for-loop masking, function call mask insertion
+   - 1.10h: NOT STARTED - function call mask insertion
 7. **Phase 2: NOT STARTED** - TinyGo LLVM backend with WASM SIMD128 target
 8. **Phase 3: NOT STARTED** - Validation and dual-mode testing
 
-Next priorities: Phase 1.10g (varying for-loop masking) or Phase 1.10h (function call mask insertion)
+Next priority: Phase 1.10h (function call mask insertion)
 
 ## Proof of Concept Success Criteria
 

@@ -312,13 +312,21 @@ backward compatibility issues. Regular Go values are implicitly uniform (no keyw
 - [x] Merge modified variables using `SPMDSelect(cond, trueVal, falseVal)`
 - [x] Snapshot/restore variable state to prevent cross-branch contamination
 
-#### 1.10g Varying For-Loop Masking (continue/break masks)
+#### 1.10g Varying For-Loop Masking (continue/break masks) ✅ **COMPLETED** (2026-02-11)
 
-- [ ] Implement per-lane `continueMask` and `breakMask` tracking for regular for loops inside SPMD context
-- [ ] Generate `activeMask = loopMask & ~breakMask` at loop iteration start
-- [ ] Generate `bodyMask = activeMask & ~continueMask` for loop body
-- [ ] Reset `continueMask` per iteration, accumulate `breakMask` permanently
-- [ ] Early loop exit when `!reduce.Any(activeMask)`
+- [x] Add `spmdLoopMaskState` struct tracking per-lane continue/break masks per loop level
+- [x] Add `spmdVaryingDepth` counter to detect varying context (inside spmdIfStmt/spmdSwitchStmt)
+- [x] Add `spmdLoopMasks` field to SSA `state` struct with linked list for nested loops
+- [x] Implement `spmdMaskedBranchStmt()`: mask accumulation for continue/break in varying context
+- [x] Implement `spmdExcludeBranchMasks()`: subtract accumulated masks after if/switch merge
+- [x] Implement `spmdRegularForStmt()`: regular for loops inside SPMD get full mask tracking
+- [x] Set up continue mask in `spmdForStmt()` (break under varying forbidden in go for)
+- [x] Reset continue mask per iteration in `spmdBodyWithTailMask()`
+- [x] Add `spmdVaryingDepth` increment/decrement to `spmdIfStmt()` and `spmdSwitchStmt()`
+- [x] Dispatch OCONTINUE/OBREAK to mask accumulation when `spmdVaryingDepth > 0`
+- [x] Dispatch OFOR to `spmdRegularForStmt` when `s.inSPMDLoop`
+- [x] Update test expectations in go_for_loops.go and mask_propagation.go
+- [x] Known limitation: break in varying switch inside go for wrongly accumulates into loop continue mask (deferred)
 
 #### 1.10h SPMD Function Call Mask Insertion
 
@@ -666,14 +674,15 @@ backward compatibility issues. Regular Go values are implicitly uniform (no keyw
     - 1.10d: ✅ IR opcodes for vectorized loop index generation
     - 1.10e: ✅ Tail masking for non-multiple loop bounds
     - 1.10f: ✅ Mask propagation through varying if/else
+    - 1.10g: ✅ Varying for-loop masking (spmdLoopMaskState, spmdMaskedBranchStmt, spmdRegularForStmt, spmdVaryingDepth)
     - 1.10i: ✅ Switch masking (IsVaryingSwitch, spmdSwitchStmt, per-case masks, N-way merge, varying case values)
     - 1.10j: ✅ lanes/reduce builtin call interception (16 functions -> SPMD opcodes, 7 deferred)
-    - 1.10g-h: ❌ Varying for-loop masking, function call mask insertion
+    - 1.10h: ❌ Function call mask insertion
 - **Phase 2**: ❌ Not Started
 - **Phase 3**: ❌ Not Started
 
-**Last Completed**: Phase 1.10j - lanes/reduce builtin call interception at SSA level (2026-02-11)
-**Next Action**: Phase 1.10g (varying for-loop masking) or Phase 1.10h (function call mask insertion)
+**Last Completed**: Phase 1.10g - Varying for-loop masking (2026-02-11)
+**Next Action**: Phase 1.10h (function call mask insertion)
 
 ### Recent Major Achievements (Phase 1.5 Extensions)
 
