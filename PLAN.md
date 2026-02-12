@@ -338,10 +338,22 @@ backward compatibility issues. Regular Go values are implicitly uniform (no keyw
 - [x] `spmdCaseValues()` type checker validates mixed scalar/varying case expressions
 - [x] Old typecheck (`tcSwitchExpr`) bypassed for varying switches
 
-#### 1.10j Remaining SSA Integration
+#### 1.10j lanes/reduce Builtin Call Interception ✅ **COMPLETED** (2026-02-11)
 
-- [ ] Implement uniform-to-varying broadcasts via lanes.Broadcast
-- [ ] Generate reduce operation calls with proper mask handling
+- [x] Add `//go:noinline` to all lanes/reduce exported functions to prevent inlining before SSA interception
+- [x] Add SPMD builtin dispatch in `ssa.go` OCALLFUNC handling (expression + statement contexts)
+- [x] Implement `spmdBuiltinCall()` dispatcher: validates package path, strips generic type params, filters constrained args
+- [x] Implement `spmdLanesBuiltin()`: 7 lanes functions mapped to SPMD opcodes (Index, Count, Broadcast, Rotate, Swizzle, ShiftLeft, ShiftRight)
+- [x] Implement `spmdReduceBuiltin()`: 9 reduce functions mapped to SPMD opcodes (Add, Mul, Max, Min, Or, And, Xor, All, Any)
+- [x] Handle private `*Builtin` function variants (broadcastBuiltin, rotateBuiltin, swizzleBuiltin)
+- [x] Defensive argument count validation for all intercepted functions
+- [x] Constrained varying filtering: numerically constrained args (constraint > 0) fall through to normal call
+- [x] Deferred functions (From, FromConstrained, ToConstrained, reduce.From/Count/FindFirstSet/Mask) fall through to normal call
+- [x] Rewrite SSA test files (broadcast_operations.go, reduce_operations.go) for builtin interception
+- [x] End-to-end compilation tests pass for lanes and reduce function calls
+
+#### 1.10k Remaining SSA Integration
+
 - [ ] Implement constrained varying handling with static array unrolling
 - [ ] **Make SSA tests pass**: Correct SSA opcodes generated for all SPMD constructs
 
@@ -655,11 +667,12 @@ backward compatibility issues. Regular Go values are implicitly uniform (no keyw
     - 1.10e: ✅ Tail masking for non-multiple loop bounds
     - 1.10f: ✅ Mask propagation through varying if/else
     - 1.10i: ✅ Switch masking (IsVaryingSwitch, spmdSwitchStmt, per-case masks, N-way merge, varying case values)
-    - 1.10g-h,j: ❌ Varying for-loop masking, function call mask insertion, remaining integration
+    - 1.10j: ✅ lanes/reduce builtin call interception (16 functions -> SPMD opcodes, 7 deferred)
+    - 1.10g-h: ❌ Varying for-loop masking, function call mask insertion
 - **Phase 2**: ❌ Not Started
 - **Phase 3**: ❌ Not Started
 
-**Last Completed**: Phase 1.10i - SPMD switch statement masking with varying case values (2026-02-11)
+**Last Completed**: Phase 1.10j - lanes/reduce builtin call interception at SSA level (2026-02-11)
 **Next Action**: Phase 1.10g (varying for-loop masking) or Phase 1.10h (function call mask insertion)
 
 ### Recent Major Achievements (Phase 1.5 Extensions)
