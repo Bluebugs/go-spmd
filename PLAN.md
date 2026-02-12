@@ -1,8 +1,8 @@
 # SPMD Implementation Plan for Go + TinyGo
 
-**Version**: 1.2
+**Version**: 1.3
 **Last Updated**: 2026-02-12
-**Status**: Phase 1 Complete (including all.bash fixes), Pre-Phase 2
+**Status**: Phase 1 Complete, Phase 2 Planned (TinyGo backend exploration done)
 
 ## Project Overview
 
@@ -446,93 +446,146 @@ Fixed all 6 accumulated test failures from Phase 1.1-1.10:
 
 ## Phase 2: TinyGo Backend Implementation
 
-**Goal**: Convert Go SSA with SPMD constructs to LLVM IR and generate dual SIMD/scalar WASM.
+**Goal**: Convert SPMD Go programs to LLVM IR via TinyGo and generate dual SIMD/scalar WASM.
 
-### 2.1 TinyGo SSA-to-LLVM Integration
+**Critical Architecture Note**: TinyGo uses `golang.org/x/tools/go/ssa` (NOT Go's `cmd/compile/internal/ssa`). The 42 SPMD opcodes from Phase 1.10c are invisible to TinyGo. Phase 2 must work at the **type level**: detect `lanes.Varying[T]` types and lower them to LLVM vector types directly in TinyGo's compiler. LLVM builder calls like `CreateAdd(<4 x i32>, <4 x i32>)` automatically generate the correct WASM SIMD128 instructions.
 
-- [ ] **TDD**: Modify `src/compiler/compiler.go` to recognize SPMD SSA constructs
-- [ ] Implement detection of vector types in SSA instructions
-- [ ] Add SPMD function call detection (functions with varying parameters)
-- [ ] Implement mask parameter handling for SPMD function calls
-- [ ] Add vector type mapping to LLVM vector types (i32x4, f32x4 for WASM SIMD128)
-- [ ] **Make integration tests pass**: TinyGo correctly processes SPMD SSA
+**Key TinyGo Files**:
+- `compiler/compiler.go` (3500+ lines): Main compilation, type mapping, instruction lowering
+- `compiler/calls.go`: Function call handling
+- `compiler/intrinsics.go`: LLVM intrinsic wrappers (pattern for SIMD intrinsics)
+- `compiler/llvm.go`: LLVM IR utilities
+- `compiler/ircheck/check.go`: IR verification (already handles `llvm.VectorTypeKind`)
+- `loader/loader.go`: Package loading via `go list -json -deps`
+- `loader/ssa.go`: SSA generation using `golang.org/x/tools/go/ssa`
+- `targets/wasm.json`, `wasip1.json`, `wasip2.json`: WASM target configs
+- `compileopts/config.go`: Build options and target configuration
+- `goenv/goenv.go`: Go environment management
 
-### 2.2 Dual Mode Code Generation Infrastructure
+### 2.0 TinyGo Foundation Setup
 
-- [ ] Add `-simd=true/false` build flag to `src/main.go`
-- [ ] Implement `SIMDEnabled` configuration option in compileopts
-- [ ] Create dual code generation paths in compiler context
-- [ ] Add SIMD capability detection and configuration
-- [ ] Implement graceful fallback when SIMD disabled
-- [ ] Test build flag properly controls code generation mode
+- [ ] Add GOEXPERIMENT support to TinyGo compilation pipeline
+  - [ ] Read GOEXPERIMENT from environment in `goenv/goenv.go`
+  - [ ] Propagate SPMD experiment flag through `compileopts/config.go`
+  - [ ] Gate SPMD features behind experiment flag in compiler
+- [ ] Enable WASM SIMD128 in target configuration
+  - [ ] Add `+simd128` to features in `targets/wasm.json`, `wasip1.json`, `wasip2.json`
+  - [ ] Add `-simd=true/false` build flag for dual-mode compilation
+  - [ ] Create SIMD-disabled variant targets (features without `+simd128`)
+- [ ] Set up TinyGo build and test infrastructure
+  - [ ] Verify TinyGo builds with our modified Go toolchain
+  - [ ] Create SPMD-specific test harness for WASM output validation
+  - [ ] Set up wasmer-go runtime for testing generated WASM
 
-### 2.3 SIMD Mode Implementation
+### 2.1 SPMD Type Detection and Vector Type Generation
 
-- [ ] **TDD**: Implement SIMD vector operations in `compileBinOp`
-- [ ] Generate LLVM vector instructions for varying arithmetic
-- [ ] Map Go SSA vector ops to LLVM vector intrinsics
-- [ ] Implement SPMD function calls with mask-first parameter
-- [ ] Add conditional execution via LLVM select instructions
-- [ ] Generate efficient mask propagation using LLVM vector operations
-- [ ] **Make integration tests pass**: SIMD WASM contains v128.* instructions
+**Key Function**: `getLLVMType()` / `makeLLVMType()` at `compiler/compiler.go:387`
 
-### 2.4 Scalar Mode Implementation  
+- [ ] Detect `lanes.Varying[T]` in Go type system (via `*types.Named` wrapping the lanes.Varying struct)
+- [ ] Map varying types to LLVM vector types based on SIMD width:
+  - `lanes.Varying[int32]` → `<4 x i32>` (WASM SIMD128: 128/32 = 4 lanes)
+  - `lanes.Varying[float32]` → `<4 x float>` (4 lanes)
+  - `lanes.Varying[int64]` → `<2 x i64>` (2 lanes)
+  - `lanes.Varying[int8]` → `<16 x i8>` (16 lanes)
+  - `lanes.Varying[bool]` → `<N x i1>` (lane count from elem type context)
+- [ ] Handle scalar fallback mode: map `lanes.Varying[T]` to array types or scalar loops
+- [ ] Cache vector types in `compilerContext.llvmTypes` (existing `typeutil.Map`)
+- [ ] Add `isVaryingType()` helper to detect `lanes.Varying[T]` named types
+- [ ] Add `getVaryingElemType()` to extract element type from Varying struct
+- [ ] Add `getLaneCountForTarget()` based on target SIMD width and element size
 
-- [ ] **TDD**: Implement scalar fallback code generation in `generateScalarVectorOp`
-- [ ] Generate element-wise scalar loops instead of vector operations
-- [ ] Implement traditional for loops for varying operations
-- [ ] Handle mask propagation through scalar conditional logic
+### 2.2 SPMD Loop Lowering (`go for`)
+
+**Key Function**: `createInstruction()` at `compiler/compiler.go:1498`
+
+- [ ] Detect `go for` range loops in SSA (via ForStmt.IsSpmd metadata)
+  - Note: go/ssa may not preserve IsSpmd; may need to detect via `go for` pattern
+- [ ] Generate vectorized loop structure:
+  - Outer loop iterates in steps of `laneCount`
+  - Lane index vector: `<0, 1, 2, 3>` + scalar iteration variable
+  - Tail mask for non-multiple bounds: `laneIndices < N`
+- [ ] Initialize execution mask to all-true at loop entry
+- [ ] Reset continue mask per iteration
+
+### 2.3 Varying Arithmetic and Binary Operations
+
+**Key Function**: `createBinOp()` at `compiler/compiler.go:2559`
+
+- [ ] No changes needed for basic arithmetic! LLVM auto-vectorizes:
+  - `CreateAdd(<4 x i32>, <4 x i32>)` → `i32x4.add` (automatic)
+  - `CreateFMul(<4 x float>, <4 x float>)` → `f32x4.mul` (automatic)
+- [ ] Add uniform-to-varying broadcast: `CreateVectorSplat(laneCount, scalarValue)`
+- [ ] Handle mixed varying/uniform binary operations (splat uniform operand)
+- [ ] Handle comparison operations producing vector masks (`<4 x i1>`)
+
+### 2.4 Control Flow Masking
+
+- [ ] Implement varying if/else masking:
+  - Compute `trueMask = currentMask & condition`
+  - Compute `falseMask = currentMask & ~condition`
+  - Execute both branches
+  - Merge modified variables using LLVM `select` instruction
+- [ ] Implement varying switch masking:
+  - Per-case mask computation via `SPMDEqual + SPMDMaskAnd`
+  - N-way variable merge using cascading `select`
+- [ ] Implement varying for-loop masking:
+  - Continue mask accumulation per iteration
+  - Break mask persistence across iterations
+  - Early exit when `reduce.Any(activeMask)` is false
+- [ ] Add `inSPMDLoop` and `spmdMask` state tracking to TinyGo builder
+
+### 2.5 SPMD Function Call Handling
+
+**Key Function**: `createFunctionCall()` in `compiler/calls.go`
+
+- [ ] Detect SPMD functions (functions with `lanes.Varying[T]` parameters)
+- [ ] Insert execution mask as first parameter in SPMD function calls
+- [ ] At SPMD function entry, load mask from first parameter
+- [ ] Handle non-SPMD → SPMD calls (pass all-true mask)
+- [ ] Handle SPMD → SPMD calls (pass current execution mask)
+
+### 2.6 lanes/reduce Builtin Implementation
+
+**Key Pattern**: `compiler/intrinsics.go` (existing LLVM intrinsic wrappers)
+
+- [ ] Intercept `lanes.Index()` → generate lane index vector constant `<0, 1, 2, 3>`
+- [ ] Intercept `lanes.Count[T]()` → generate compile-time constant (e.g., 4 for i32 on SIMD128)
+- [ ] Intercept `lanes.Broadcast()` → `CreateShuffleVector` or `CreateVectorSplat`
+- [ ] Intercept `lanes.Rotate()` → `CreateShuffleVector` with rotated indices
+- [ ] Intercept `lanes.Swizzle()` → `CreateShuffleVector` with arbitrary indices
+- [ ] Intercept `lanes.ShiftLeft/ShiftRight()` → `CreateShuffleVector` with shifted indices
+- [ ] Intercept `reduce.Add()` → LLVM horizontal add reduction intrinsic
+- [ ] Intercept `reduce.All()` → vector `and` reduction + extract
+- [ ] Intercept `reduce.Any()` → vector `or` reduction + extract
+- [ ] Intercept `reduce.Max/Min()` → LLVM horizontal max/min reduction
+- [ ] Intercept `reduce.Or/And/Xor()` → LLVM bitwise reduction intrinsics
+- [ ] Intercept `reduce.From()` → extract vector elements to array/slice
+
+### 2.7 Memory Operations
+
+- [ ] Implement `SPMDLoad`: vector load from contiguous memory
+- [ ] Implement `SPMDStore`: vector store to contiguous memory
+- [ ] Implement `SPMDMaskedLoad/MaskedStore`: conditional vector loads/stores
+- [ ] Handle `SPMDGather/Scatter`: indirect vector memory access
+- [ ] Array indexing with varying indices → gather/scatter pattern
+
+### 2.8 Scalar Fallback Mode
+
+- [ ] When `-simd=false`, map `lanes.Varying[T]` to scalar loops instead of vectors
+- [ ] Generate element-wise scalar loops for varying operations
+- [ ] Implement traditional for loops with scalar masking (if/else branches)
 - [ ] Ensure identical behavior between SIMD and scalar modes
-- [ ] **Make integration tests pass**: Scalar WASM contains no SIMD instructions
-
-### 2.5 WebAssembly SIMD128 Code Generation
-
-- [ ] **TDD**: Implement WASM SIMD instruction mapping in `src/targets/wasm.go`
-- [ ] Generate `i32x4.add`, `i32x4.mul` for integer vector operations
-- [ ] Add `f32x4.add`, `f32x4.mul` for floating-point vector operations
-- [ ] Implement `v128.load`, `v128.store` for memory operations
-- [ ] Add `i32x4.extract_lane` for lane access operations
-- [ ] Generate `v128.and`, `v128.or`, `v128.not` for mask operations
-- [ ] Map LLVM vector intrinsics to WASM SIMD128 instructions
-- [ ] **Make integration tests pass**: Correct SIMD instructions generated
-
-### 2.6 Built-in Function Implementation
-
-- [ ] Implement `lanes.Count()` as compile-time constant based on target
-- [ ] Generate `lanes.Index()` as lane index vector creation
-- [ ] Implement `lanes.Broadcast()` as vector splat operations
-- [ ] Add `lanes.Rotate()` as vector shuffle operations
-- [ ] Implement `reduce.Add()` as horizontal reduction operations
-- [ ] Generate `reduce.All()` and `reduce.Any()` as vector reductions
-- [ ] Add efficient implementations for all lanes and reduce functions
-- [ ] Ensure automatic inlining of all built-in function calls
-
-### 2.7 Constrained Varying Implementation
-
-- [ ] Implement static array unrolling for `varying[n]` types
-- [ ] Generate multiple mask tracking for constrained varying operations
-- [ ] Add efficient handling when constraint matches SIMD width
-- [ ] Implement `lanes.FromConstrained()` as array decomposition
-- [ ] Generate appropriate loop unrolling for constraints larger than SIMD width
-- [ ] Handle `varying[]` universal constrained type processing
-
-### 2.8 Memory and Performance Optimization
-
-- [ ] Implement efficient vector memory layouts
-- [ ] Add LLVM optimization flags for SIMD code
-- [ ] Ensure mask operations don't inhibit vectorization
-- [ ] Implement efficient control flow handling for divergent lanes
-- [ ] Add dead lane elimination optimizations
-- [ ] Optimize function call overhead for SPMD functions
+- [ ] Verify scalar WASM contains no v128.* instructions
 
 ### 2.9 Backend Integration Testing
 
-- [ ] Verify all examples compile to both SIMD and scalar WASM successfully
-- [ ] Test WASM files execute correctly in wasmer-go runtime
-- [ ] Validate SIMD instruction generation via wasm2wat inspection
-- [ ] Confirm scalar fallback produces identical results
-- [ ] Test performance differences between SIMD and scalar modes
-- [ ] Verify browser compatibility with generated WASM
+- [ ] Verify simple-sum example compiles and produces correct WASM
+- [ ] Verify SIMD WASM contains `v128.*` instructions via `wasm2wat` inspection
+- [ ] Verify scalar WASM contains no SIMD instructions
+- [ ] Test WASM execution in wasmer-go runtime
+- [ ] Validate identical output between SIMD and scalar modes
+- [ ] Test all examples compile to both SIMD and scalar WASM
+- [ ] Benchmark SIMD vs scalar performance differences
 
 ## Phase 3: Validation and Success Criteria
 
@@ -699,11 +752,14 @@ Fixed all 6 accumulated test failures from Phase 1.1-1.10:
     - 1.10j: ✅ lanes/reduce builtin call interception (16 functions -> SPMD opcodes, 7 deferred)
     - 1.10k: ❌ Remaining SSA integration (constrained varying)
     - 1.10L: ✅ Fix pre-existing all.bash failures (6 test suites)
-- **Phase 2**: ❌ Not Started
+- **Phase 2**: 🔍 Exploration Complete, Implementation Not Started
+  - TinyGo architecture explored and documented
+  - Critical finding: TinyGo uses `golang.org/x/tools/go/ssa` (not `cmd/compile` SSA)
+  - Phase 2 plan rewritten to work at type level with LLVM vector types
 - **Phase 3**: ❌ Not Started
 
 **Last Completed**: Phase 1.10L - Fixed all 6 all.bash test failures (2026-02-12)
-**Next Action**: Phase 2 (TinyGo backend)
+**Next Action**: Phase 2.0 - TinyGo Foundation Setup (GOEXPERIMENT support + SIMD128 enablement)
 
 ### Recent Major Achievements (Phase 1.5 Extensions)
 
