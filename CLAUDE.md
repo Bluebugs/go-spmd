@@ -111,8 +111,8 @@ SPMD support is implemented as a **runtime experimental feature** behind `GOEXPE
 **Step 1 — Go Standard Library Porting (Phase 2.0 in PLAN.md)**:
 
 Before TinyGo can compile any SPMD code, the standard library toolchain must be ported:
-- `go/ast`: Add `IsSpmd`, `LaneCount` fields to `RangeStmt` (currently missing)
-- `go/parser`: Port `go for` loop detection from `cmd/compile/internal/syntax/parser.go`
+- `go/ast`: COMPLETED — `IsSpmd`, `LaneCount`, `Constraint` fields on `RangeStmt`
+- `go/parser`: COMPLETED — `go for` loop detection + `range[N]` constraint parsing
 - `go/types`: Port SPMD type checking from types2 stubs (61 lines) to real implementations (1,936 lines)
 - `go/ssa`: NO changes — `golang.org/x/tools/go/ssa` is an external module, not in our Go fork
   - SPMD metadata extracted from typed AST in TinyGo's loader instead (avoids forking x/tools)
@@ -939,8 +939,8 @@ Go frontend implementation (Phase 1) is complete with 46 commits on the `spmd` b
    - 1.10L: COMPLETED - Fixed all 6 pre-existing all.bash test failures (copyright, stdPkgs, deps, error codes, gcimporter, go/types)
 7. **Phase 2: IN PROGRESS** - TinyGo LLVM backend with WASM SIMD128 target
    - **Phase 2.0: Go Standard Library Porting** (prerequisite before TinyGo work):
-     - `go/ast`: COMPLETED — `IsSpmd`, `LaneCount` fields added to `RangeStmt`
-     - `go/parser`: No `go for` parsing — need to port from `cmd/compile/internal/syntax`
+     - `go/ast`: COMPLETED — `IsSpmd`, `LaneCount`, `Constraint` fields on `RangeStmt`
+     - `go/parser`: COMPLETED — `go for` parsing + `range[N]` constraints (11 tests)
      - `go/types`: 6 stub files (61 lines) — need to port 1,936 lines from types2
      - `go/ssa`: No SPMD metadata — need minimal `IsSpmd` on range instructions
    - **Phase 2.1-2.10: TinyGo Compiler Work**:
@@ -951,7 +951,7 @@ Go frontend implementation (Phase 1) is complete with 46 commits on the `spmd` b
      - Missing: GOEXPERIMENT support, WASM `+simd128` feature flag, vector type generation
 8. **Phase 3: NOT STARTED** - Validation and dual-mode testing
 
-Next priority: Phase 2.0b - Port go/parser `go for` syntax detection
+Next priority: Phase 2.0c - Port go/types SPMD type checking
 
 ## Proof of Concept Success Criteria
 

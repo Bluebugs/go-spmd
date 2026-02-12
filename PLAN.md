@@ -451,16 +451,16 @@ Fixed all 6 accumulated test failures from Phase 1.1-1.10:
 **Critical Architecture Note**: TinyGo uses `golang.org/x/tools/go/ssa` (NOT Go's `cmd/compile/internal/ssa`). The 42 SPMD opcodes from Phase 1.10c are invisible to TinyGo. Phase 2 must work at the **type level**: detect `lanes.Varying[T]` types and lower them to LLVM vector types directly in TinyGo's compiler. LLVM builder calls like `CreateAdd(<4 x i32>, <4 x i32>)` automatically generate the correct WASM SIMD128 instructions.
 
 **Critical Prerequisite**: TinyGo uses `go/parser` + `go/types` + `go/ssa` (standard library), NOT the compiler-internal packages. Currently:
-- `go/parser` cannot parse `go for` syntax (no SPMD loop detection)
-- `go/ast` has no SPMD fields (`ForStmt`/`RangeStmt` lack `IsSpmd`, `LaneCount`)
+- ✅ `go/parser` can parse `go for` syntax with `range[N]` constraints (Phase 2.0b)
+- ✅ `go/ast` has SPMD fields (`RangeStmt` has `IsSpmd`, `LaneCount`, `Constraint`)
 - `go/types` has only no-op stubs (61 lines vs 1,936 lines in types2)
 - `go/ssa` has no SPMD metadata
 
-These must be ported from the compiler internals before TinyGo can compile any SPMD code.
+Remaining items must be ported from the compiler internals before TinyGo can compile any SPMD code.
 
 **Key Go Standard Library Files** (to port):
-- `go/ast/ast.go`: AST node definitions (needs SPMD fields)
-- `go/parser/parser.go`: Parser (needs `go for` syntax)
+- `go/ast/ast.go`: ✅ AST node definitions (SPMD fields added)
+- `go/parser/parser.go`: ✅ Parser (`go for` syntax + `range[N]` constraints)
 - `go/types/*_ext_spmd.go`: 6 stub files → real implementations
 - `go/types/spmd.go`: SPMDType struct (exists, needs integration)
 
@@ -483,8 +483,8 @@ These must be ported from the compiler internals before TinyGo can compile any S
 **Gap Analysis**:
 | Package | Current State | Target State | Lines to Port |
 |---------|--------------|--------------|---------------|
-| `go/ast` | ✅ `IsSpmd`, `LaneCount` on `RangeStmt` | Done | 2 fields |
-| `go/parser` | No `go for` parsing | Full SPMD loop detection | ~50-100 |
+| `go/ast` | ✅ `IsSpmd`, `LaneCount`, `Constraint` on `RangeStmt` | Done | 3 fields |
+| `go/parser` | ✅ `go for` + `range[N]` parsing | Done | ~130 lines |
 | `go/types` | 6 stub files (61 lines) | Real implementations | ~1,900 from types2 |
 | `go/ssa` | No SPMD metadata | `IsSpmd` on range instructions | ~20 |
 
@@ -496,16 +496,18 @@ These must be ported from the compiler internals before TinyGo can compile any S
 - [x] `go/ast` print.go needs no changes (reflection-based, auto-includes new fields)
 - Note: `IsVaryingCond`/`IsVaryingSwitch` not added — these are semantic (type-checker outputs), not syntactic. TinyGo determines varyingness by checking `go/types.Type` at the condition expression. This follows go/ast convention: nodes represent syntax, not semantics.
 
-#### 2.0b Port go/parser `go for` Syntax
+#### 2.0b Port go/parser `go for` Syntax ✅ COMPLETED
 
-- [ ] Port SPMD `go for` loop detection from `cmd/compile/internal/syntax/parser.go:3131`
-  - Detect `go` keyword followed by `for` (currently parsed as goroutine launch)
-  - Set `IsSpmd = true` on the resulting `RangeStmt`
-  - Gate behind `buildcfg.Experiment.SPMD` runtime check
-- [ ] Port constrained range syntax `range[N]` parsing
-- [ ] Port `looksLikeSPMDType()` / `spmdType()` parsing if needed for go/parser
-- [ ] Add parser tests for `go for` syntax in `go/parser/`
-- [ ] Reference: `cmd/compile/internal/syntax/parser.go` lines 816, 1016-1023, 1722-1768, 3131
+- [x] Port SPMD `go for` loop detection from `cmd/compile/internal/syntax/parser.go`
+  - Modified `parseGoStmt` to detect `go` followed by `for` when `buildcfg.Experiment.SPMD` is set
+  - Added `parseSpmdForStmt` handling all 6 variants (bare range, key, key-value, with/without constraint)
+  - Sets `IsSpmd = true` on the resulting `RangeStmt`
+- [x] Port constrained range syntax `range[N]` parsing via `parseSpmdConstraint`
+- [x] Added `Constraint Expr` field to `go/ast.RangeStmt` for `range[N]` expressions
+- [x] Updated `go/ast.Walk` to traverse `Constraint` before `X` and `Body`
+- [x] Updated `go/build/deps_test.go` to allow `go/parser` to import `internal/buildcfg`
+- [x] Added 11 parser tests in `go/parser/parser_spmd_test.go`
+- Note: `looksLikeSPMDType()` not needed — `lanes.Varying[int32, 4]` already parses as `ast.IndexListExpr` via standard Go generics syntax
 
 #### 2.0c Port go/types SPMD Type Checking
 
@@ -857,10 +859,11 @@ Port the 6 stub files from no-ops to real implementations. Source: `cmd/compile/
   - Phase 2 plan rewritten: 2.0 (stdlib porting) + 2.1-2.10 (TinyGo compiler work)
   - Phase 2.0 gap: go/types has 61 lines of stubs vs types2's 1,936 lines of real implementation
   - 2.0a: ✅ go/ast SPMD fields (IsSpmd, LaneCount on RangeStmt)
+  - 2.0b: ✅ go/parser `go for` parsing + `range[N]` constraints + `Constraint` field on RangeStmt
 - **Phase 3**: ❌ Not Started
 
-**Last Completed**: Phase 2.0a - Added IsSpmd and LaneCount fields to go/ast.RangeStmt (2026-02-12)
-**Next Action**: Phase 2.0b - Port go/parser `go for` syntax detection
+**Last Completed**: Phase 2.0b - Port go/parser `go for` syntax detection with range[N] constraints (2026-02-12)
+**Next Action**: Phase 2.0c - Port go/types SPMD type checking
 
 ### Recent Major Achievements (Phase 1.5 Extensions)
 
