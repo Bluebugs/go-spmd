@@ -114,7 +114,8 @@ Before TinyGo can compile any SPMD code, the standard library toolchain must be 
 - `go/ast`: Add `IsSpmd`, `LaneCount` fields to `RangeStmt` (currently missing)
 - `go/parser`: Port `go for` loop detection from `cmd/compile/internal/syntax/parser.go`
 - `go/types`: Port SPMD type checking from types2 stubs (61 lines) to real implementations (1,936 lines)
-- `go/ssa`: Add minimal `IsSpmd` metadata on range instructions (NO custom opcodes)
+- `go/ssa`: NO changes — `golang.org/x/tools/go/ssa` is an external module, not in our Go fork
+  - SPMD metadata extracted from typed AST in TinyGo's loader instead (avoids forking x/tools)
 
 **Step 2 — TinyGo Compiler Work (Phase 2.1-2.10 in PLAN.md)**:
 
