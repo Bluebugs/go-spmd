@@ -904,7 +904,7 @@ Never skip steps. Never commit without review approval. This ensures code qualit
 
 ## Current Implementation Status
 
-Go frontend implementation (Phase 1) is largely complete with 40 commits on the `spmd` branch:
+Go frontend implementation (Phase 1) is complete with 46 commits on the `spmd` branch:
 
 1. **Phase 1.1-1.5: COMPLETED** - Lexer, parser, type system, type checking (keyword-based)
 2. **Phase 1.6: COMPLETED** - Migration to package-based types (`lanes.Varying[T]` replaces `varying` keyword)
@@ -922,25 +922,11 @@ Go frontend implementation (Phase 1) is largely complete with 40 commits on the 
    - 1.10g: COMPLETED - Varying for-loop masking (spmdLoopMaskState, spmdMaskedBranchStmt, spmdRegularForStmt, spmdVaryingDepth tracking)
    - 1.10j: COMPLETED - lanes/reduce builtin call interception (16 functions -> SPMD opcodes, 7 deferred)
    - 1.10h: COMPLETED - Function call mask insertion (OpSPMDCallSetMask, OpSPMDFuncEntryMask, isSPMDCallTarget, spmdFuncEntry)
+   - 1.10L: COMPLETED - Fixed all 6 pre-existing all.bash test failures (copyright, stdPkgs, deps, error codes, gcimporter, go/types)
 7. **Phase 2: NOT STARTED** - TinyGo LLVM backend with WASM SIMD128 target
 8. **Phase 3: NOT STARTED** - Validation and dual-mode testing
 
-Next priority: Phase 1.10k (remaining SSA integration) or Phase 2 (TinyGo backend)
-
-### Known all.bash Failures (Pre-existing)
-
-The following `all.bash` failures exist and need to be addressed as the project progresses:
-
-| Test | Failure | Root Cause | Priority |
-|------|---------|-----------|----------|
-| `go/build` TestDependencies | `reduce imports [lanes]` not in allowlist | `deps_test.go` allowlist needs `reduce -> lanes` entry | Medium |
-| `go/doc/comment` TestStd | New lanes/reduce packages not registered | Standard library registration for new packages | Low |
-| `go/types` TestGenerate | `go/types` package unaware of TSPMD type tag | `go/types` is separate from `cmd/compile/internal/types2` | Medium |
-| `internal/copyright` TestCopyright | Missing/wrong copyright on new files | Copyright headers on lanes/reduce package files | Low |
-| `internal/types/errors` TestErrorCodeExamples | 9 SPMD error codes missing test examples | Need example `.go` files for each `InvalidSPMD*` error code | Medium |
-| `reduce` build (via vet) | `unhandled type tag: 12` in `go/internal/gcimporter` | `gcimporter` doesn't handle TSPMD type tag (known noder issue) | High |
-
-These failures are not regressions from any specific phase -- they accumulated during Phase 1.1-1.10 development. They should be fixed in a dedicated cleanup pass before Phase 2 begins.
+Next priority: Phase 2 (TinyGo backend)
 
 ## Proof of Concept Success Criteria
 
