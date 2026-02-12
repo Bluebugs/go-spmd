@@ -106,8 +106,17 @@ SPMD support is implemented as a **runtime experimental feature** behind `GOEXPE
 
 ### Phase 3: TinyGo LLVM Backend (NOT STARTED - Phase 2 in PLAN.md)
 
-**Critical Architecture Note**: TinyGo uses `golang.org/x/tools/go/ssa` (NOT Go's `cmd/compile/internal/ssa`).
-The 42 SPMD opcodes from Phase 1.10c are invisible to TinyGo. The TinyGo backend must:
+**Critical Architecture Note**: TinyGo uses `go/parser` + `go/types` + `golang.org/x/tools/go/ssa` (standard library), NOT the compiler-internal packages. The 42 SPMD opcodes from Phase 1.10c are invisible to TinyGo.
+
+**Step 1 — Go Standard Library Porting (Phase 2.0 in PLAN.md)**:
+
+Before TinyGo can compile any SPMD code, the standard library toolchain must be ported:
+- `go/ast`: Add `IsSpmd`, `LaneCount` fields to `RangeStmt` (currently missing)
+- `go/parser`: Port `go for` loop detection from `cmd/compile/internal/syntax/parser.go`
+- `go/types`: Port SPMD type checking from types2 stubs (61 lines) to real implementations (1,936 lines)
+- `go/ssa`: Add minimal `IsSpmd` metadata on range instructions (NO custom opcodes)
+
+**Step 2 — TinyGo Compiler Work (Phase 2.1-2.10 in PLAN.md)**:
 
 - Detect `lanes.Varying[T]` types and map to LLVM vector types (`<4 x i32>`, `<4 x float>`, etc.)
 - LLVM auto-vectorizes: `CreateAdd(<4 x i32>, <4 x i32>)` generates WASM `v128.add` automatically
@@ -928,15 +937,20 @@ Go frontend implementation (Phase 1) is complete with 46 commits on the `spmd` b
    - 1.10h: COMPLETED - Function call mask insertion (OpSPMDCallSetMask, OpSPMDFuncEntryMask, isSPMDCallTarget, spmdFuncEntry)
    - 1.10L: COMPLETED - Fixed all 6 pre-existing all.bash test failures (copyright, stdPkgs, deps, error codes, gcimporter, go/types)
 7. **Phase 2: EXPLORATION COMPLETE, IMPLEMENTATION NOT STARTED** - TinyGo LLVM backend with WASM SIMD128 target
-   - Critical discovery: TinyGo uses `golang.org/x/tools/go/ssa` (NOT Go's `cmd/compile/internal/ssa`)
-   - The 42 SPMD opcodes from Phase 1.10c are invisible to TinyGo
-   - Phase 2 must work at the type level: detect `lanes.Varying[T]` → LLVM vector types
-   - LLVM auto-vectorizes: `CreateAdd(<4 x i32>, <4 x i32>)` → WASM `v128.add`
-   - Key integration points: `getLLVMType()` (compiler.go:387), `createBinOp()` (compiler.go:2559)
-   - Missing: GOEXPERIMENT support, WASM `+simd128` feature flag, vector type generation
+   - **Phase 2.0: Go Standard Library Porting** (prerequisite before TinyGo work):
+     - `go/ast`: No SPMD fields — need `IsSpmd`, `LaneCount` on `RangeStmt`
+     - `go/parser`: No `go for` parsing — need to port from `cmd/compile/internal/syntax`
+     - `go/types`: 6 stub files (61 lines) — need to port 1,936 lines from types2
+     - `go/ssa`: No SPMD metadata — need minimal `IsSpmd` on range instructions
+   - **Phase 2.1-2.10: TinyGo Compiler Work**:
+     - TinyGo uses `golang.org/x/tools/go/ssa` (NOT Go's `cmd/compile/internal/ssa`)
+     - Type-level approach: detect `lanes.Varying[T]` → LLVM vector types
+     - LLVM auto-vectorizes: `CreateAdd(<4 x i32>, <4 x i32>)` → WASM `v128.add`
+     - Key integration points: `getLLVMType()` (compiler.go:387), `createBinOp()` (compiler.go:2559)
+     - Missing: GOEXPERIMENT support, WASM `+simd128` feature flag, vector type generation
 8. **Phase 3: NOT STARTED** - Validation and dual-mode testing
 
-Next priority: Phase 2.0 - TinyGo Foundation Setup (GOEXPERIMENT support + SIMD128 enablement)
+Next priority: Phase 2.0a - Port go/ast SPMD fields (IsSpmd, LaneCount on RangeStmt)
 
 ## Proof of Concept Success Criteria
 

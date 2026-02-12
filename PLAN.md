@@ -1,6 +1,6 @@
 # SPMD Implementation Plan for Go + TinyGo
 
-**Version**: 1.3
+**Version**: 1.4
 **Last Updated**: 2026-02-12
 **Status**: Phase 1 Complete, Phase 2 Planned (TinyGo backend exploration done)
 
@@ -450,7 +450,21 @@ Fixed all 6 accumulated test failures from Phase 1.1-1.10:
 
 **Critical Architecture Note**: TinyGo uses `golang.org/x/tools/go/ssa` (NOT Go's `cmd/compile/internal/ssa`). The 42 SPMD opcodes from Phase 1.10c are invisible to TinyGo. Phase 2 must work at the **type level**: detect `lanes.Varying[T]` types and lower them to LLVM vector types directly in TinyGo's compiler. LLVM builder calls like `CreateAdd(<4 x i32>, <4 x i32>)` automatically generate the correct WASM SIMD128 instructions.
 
-**Key TinyGo Files**:
+**Critical Prerequisite**: TinyGo uses `go/parser` + `go/types` + `go/ssa` (standard library), NOT the compiler-internal packages. Currently:
+- `go/parser` cannot parse `go for` syntax (no SPMD loop detection)
+- `go/ast` has no SPMD fields (`ForStmt`/`RangeStmt` lack `IsSpmd`, `LaneCount`)
+- `go/types` has only no-op stubs (61 lines vs 1,936 lines in types2)
+- `go/ssa` has no SPMD metadata
+
+These must be ported from the compiler internals before TinyGo can compile any SPMD code.
+
+**Key Go Standard Library Files** (to port):
+- `go/ast/ast.go`: AST node definitions (needs SPMD fields)
+- `go/parser/parser.go`: Parser (needs `go for` syntax)
+- `go/types/*_ext_spmd.go`: 6 stub files → real implementations
+- `go/types/spmd.go`: SPMDType struct (exists, needs integration)
+
+**Key TinyGo Files** (to modify):
 - `compiler/compiler.go` (3500+ lines): Main compilation, type mapping, instruction lowering
 - `compiler/calls.go`: Function call handling
 - `compiler/intrinsics.go`: LLVM intrinsic wrappers (pattern for SIMD intrinsics)
@@ -462,7 +476,79 @@ Fixed all 6 accumulated test failures from Phase 1.1-1.10:
 - `compileopts/config.go`: Build options and target configuration
 - `goenv/goenv.go`: Go environment management
 
-### 2.0 TinyGo Foundation Setup
+### 2.0 Go Standard Library SPMD Porting
+
+**Goal**: Port SPMD support from compiler-internal packages to Go standard library packages so that TinyGo (and all tools using go/parser + go/types + go/ssa) can process SPMD code.
+
+**Gap Analysis**:
+| Package | Current State | Target State | Lines to Port |
+|---------|--------------|--------------|---------------|
+| `go/ast` | No SPMD fields | `IsSpmd`, `LaneCount` on `RangeStmt` | ~10 |
+| `go/parser` | No `go for` parsing | Full SPMD loop detection | ~50-100 |
+| `go/types` | 6 stub files (61 lines) | Real implementations | ~1,900 from types2 |
+| `go/ssa` | No SPMD metadata | `IsSpmd` on range instructions | ~20 |
+
+#### 2.0a Port go/ast SPMD Fields
+
+- [ ] Add `IsSpmd bool` field to `go/ast.RangeStmt` (or create dedicated SPMD loop AST node)
+- [ ] Add `LaneCount int64` field to `go/ast.RangeStmt`
+- [ ] Add `IsVaryingCond bool` to `go/ast.IfStmt` (for varying condition tracking)
+- [ ] Add `IsVaryingSwitch bool` to `go/ast.SwitchStmt`
+- [ ] Ensure `go/ast.Walk` handles new fields correctly
+- [ ] Reference: `cmd/compile/internal/syntax/nodes.go` (ForStmt.IsSpmd, ForStmt.LaneCount)
+
+#### 2.0b Port go/parser `go for` Syntax
+
+- [ ] Port SPMD `go for` loop detection from `cmd/compile/internal/syntax/parser.go:3131`
+  - Detect `go` keyword followed by `for` (currently parsed as goroutine launch)
+  - Set `IsSpmd = true` on the resulting `RangeStmt`
+  - Gate behind `buildcfg.Experiment.SPMD` runtime check
+- [ ] Port constrained range syntax `range[N]` parsing
+- [ ] Port `looksLikeSPMDType()` / `spmdType()` parsing if needed for go/parser
+- [ ] Add parser tests for `go for` syntax in `go/parser/`
+- [ ] Reference: `cmd/compile/internal/syntax/parser.go` lines 816, 1016-1023, 1722-1768, 3131
+
+#### 2.0c Port go/types SPMD Type Checking
+
+Port the 6 stub files from no-ops to real implementations. Source: `cmd/compile/internal/types2/*_ext_spmd.go` (1,936 lines total).
+
+**Note**: The types2 package uses `syntax.Node` types while go/types uses `ast.Node` types. The port requires mechanical API translation (same logic, different AST types).
+
+- [ ] Port `typexpr_ext_spmd.go`: `lanes.Varying[T]` type recognition and `handleSPMDIndexExpr()` (272 lines in types2)
+  - This is the critical entry point: intercepts `lanes.Varying[T]` before generic instantiation
+- [ ] Port `operand_ext_spmd.go`: SPMD assignability rules (307 lines in types2)
+  - Varying→uniform forbidden, uniform→varying broadcast, pointer rules
+- [ ] Port `stmt_ext_spmd.go`: Statement validation and control flow (579 lines in types2)
+  - ISPC-based return/break restrictions, mask alteration tracking, `go for` nesting checks
+  - Includes `SPMDControlFlowInfo`, `handleSPMDStatement()`, `spmdForStmt()`
+- [ ] Port `check_ext_spmd.go`: Function signature validation (206 lines in types2)
+  - SPMD function detection, capacity checking, context management
+- [ ] Port `expr_ext_spmd.go`: Binary/comparison expression handling (140 lines in types2)
+  - Varying type propagation through expressions
+- [ ] Port `call_ext_spmd.go`: Function call validation (94 lines in types2)
+  - SPMD function call validation, `lanes.Index()` context checks
+- [ ] Port `unify_ext_spmd.go`: Generic type unification (76 lines in types2)
+- [ ] Port `predicates_ext_spmd.go`: Type identity checks (35 lines in types2)
+- [ ] Port `typestring_ext_spmd.go`: String representation (44 lines in types2)
+- [ ] Port `pointer_ext_spmd.go`: Pointer-to-varying validation (183 lines in types2)
+- [ ] Add `spmdInfo SPMDControlFlowInfo` field to `go/types.Checker` struct
+- [ ] Verify `go/types` TestGenerate still passes after porting
+- [ ] Add SPMD-specific type checker tests in `go/types/`
+
+#### 2.0d Add Minimal go/ssa SPMD Metadata
+
+- [ ] Add `IsSpmd bool` field to `golang.org/x/tools/go/ssa` range loop instruction
+  - Preserve `go for` metadata from AST through SSA construction
+  - TinyGo's compiler reads go/ssa instructions; needs to know which loops are SPMD
+- [ ] Propagate `LaneCount` from AST range to SSA instruction
+- [ ] Add `HasVaryingParams()` helper to detect SPMD functions in go/ssa
+  - Check if any function parameter has type `lanes.Varying[T]`
+- [ ] **No custom SPMD opcodes in go/ssa** — all vectorization happens in TinyGo's compiler layer
+- [ ] Note: `golang.org/x/tools` is an external dependency; changes require either:
+  - A fork of `golang.org/x/tools` (similar to Go compiler fork), OR
+  - Detection heuristics in TinyGo (detect `go for` patterns without SSA metadata)
+
+### 2.1 TinyGo Foundation Setup
 
 - [ ] Add GOEXPERIMENT support to TinyGo compilation pipeline
   - [ ] Read GOEXPERIMENT from environment in `goenv/goenv.go`
@@ -477,7 +563,7 @@ Fixed all 6 accumulated test failures from Phase 1.1-1.10:
   - [ ] Create SPMD-specific test harness for WASM output validation
   - [ ] Set up wasmer-go runtime for testing generated WASM
 
-### 2.1 SPMD Type Detection and Vector Type Generation
+### 2.2 SPMD Type Detection and Vector Type Generation (TinyGo)
 
 **Key Function**: `getLLVMType()` / `makeLLVMType()` at `compiler/compiler.go:387`
 
@@ -494,7 +580,7 @@ Fixed all 6 accumulated test failures from Phase 1.1-1.10:
 - [ ] Add `getVaryingElemType()` to extract element type from Varying struct
 - [ ] Add `getLaneCountForTarget()` based on target SIMD width and element size
 
-### 2.2 SPMD Loop Lowering (`go for`)
+### 2.3 SPMD Loop Lowering (`go for`)
 
 **Key Function**: `createInstruction()` at `compiler/compiler.go:1498`
 
@@ -507,7 +593,7 @@ Fixed all 6 accumulated test failures from Phase 1.1-1.10:
 - [ ] Initialize execution mask to all-true at loop entry
 - [ ] Reset continue mask per iteration
 
-### 2.3 Varying Arithmetic and Binary Operations
+### 2.4 Varying Arithmetic and Binary Operations
 
 **Key Function**: `createBinOp()` at `compiler/compiler.go:2559`
 
@@ -518,7 +604,7 @@ Fixed all 6 accumulated test failures from Phase 1.1-1.10:
 - [ ] Handle mixed varying/uniform binary operations (splat uniform operand)
 - [ ] Handle comparison operations producing vector masks (`<4 x i1>`)
 
-### 2.4 Control Flow Masking
+### 2.5 Control Flow Masking
 
 - [ ] Implement varying if/else masking:
   - Compute `trueMask = currentMask & condition`
@@ -534,7 +620,7 @@ Fixed all 6 accumulated test failures from Phase 1.1-1.10:
   - Early exit when `reduce.Any(activeMask)` is false
 - [ ] Add `inSPMDLoop` and `spmdMask` state tracking to TinyGo builder
 
-### 2.5 SPMD Function Call Handling
+### 2.6 SPMD Function Call Handling
 
 **Key Function**: `createFunctionCall()` in `compiler/calls.go`
 
@@ -544,7 +630,7 @@ Fixed all 6 accumulated test failures from Phase 1.1-1.10:
 - [ ] Handle non-SPMD → SPMD calls (pass all-true mask)
 - [ ] Handle SPMD → SPMD calls (pass current execution mask)
 
-### 2.6 lanes/reduce Builtin Implementation
+### 2.7 lanes/reduce Builtin Implementation
 
 **Key Pattern**: `compiler/intrinsics.go` (existing LLVM intrinsic wrappers)
 
@@ -561,7 +647,7 @@ Fixed all 6 accumulated test failures from Phase 1.1-1.10:
 - [ ] Intercept `reduce.Or/And/Xor()` → LLVM bitwise reduction intrinsics
 - [ ] Intercept `reduce.From()` → extract vector elements to array/slice
 
-### 2.7 Memory Operations
+### 2.8 Memory Operations
 
 - [ ] Implement `SPMDLoad`: vector load from contiguous memory
 - [ ] Implement `SPMDStore`: vector store to contiguous memory
@@ -569,7 +655,7 @@ Fixed all 6 accumulated test failures from Phase 1.1-1.10:
 - [ ] Handle `SPMDGather/Scatter`: indirect vector memory access
 - [ ] Array indexing with varying indices → gather/scatter pattern
 
-### 2.8 Scalar Fallback Mode
+### 2.9 Scalar Fallback Mode
 
 - [ ] When `-simd=false`, map `lanes.Varying[T]` to scalar loops instead of vectors
 - [ ] Generate element-wise scalar loops for varying operations
@@ -577,7 +663,7 @@ Fixed all 6 accumulated test failures from Phase 1.1-1.10:
 - [ ] Ensure identical behavior between SIMD and scalar modes
 - [ ] Verify scalar WASM contains no v128.* instructions
 
-### 2.9 Backend Integration Testing
+### 2.10 Backend Integration Testing
 
 - [ ] Verify simple-sum example compiles and produces correct WASM
 - [ ] Verify SIMD WASM contains `v128.*` instructions via `wasm2wat` inspection
@@ -755,11 +841,13 @@ Fixed all 6 accumulated test failures from Phase 1.1-1.10:
 - **Phase 2**: 🔍 Exploration Complete, Implementation Not Started
   - TinyGo architecture explored and documented
   - Critical finding: TinyGo uses `golang.org/x/tools/go/ssa` (not `cmd/compile` SSA)
-  - Phase 2 plan rewritten to work at type level with LLVM vector types
+  - Critical finding: `go/parser`, `go/ast`, `go/types` lack SPMD support (must be ported first)
+  - Phase 2 plan rewritten: 2.0 (stdlib porting) + 2.1-2.10 (TinyGo compiler work)
+  - Phase 2.0 gap: go/types has 61 lines of stubs vs types2's 1,936 lines of real implementation
 - **Phase 3**: ❌ Not Started
 
 **Last Completed**: Phase 1.10L - Fixed all 6 all.bash test failures (2026-02-12)
-**Next Action**: Phase 2.0 - TinyGo Foundation Setup (GOEXPERIMENT support + SIMD128 enablement)
+**Next Action**: Phase 2.0a - Port go/ast SPMD fields (IsSpmd, LaneCount on RangeStmt)
 
 ### Recent Major Achievements (Phase 1.5 Extensions)
 
