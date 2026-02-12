@@ -113,7 +113,7 @@ SPMD support is implemented as a **runtime experimental feature** behind `GOEXPE
 Before TinyGo can compile any SPMD code, the standard library toolchain must be ported:
 - `go/ast`: COMPLETED — `IsSpmd`, `LaneCount`, `Constraint` fields on `RangeStmt`
 - `go/parser`: COMPLETED — `go for` loop detection + `range[N]` constraint parsing
-- `go/types`: Port SPMD type checking from types2 stubs (61 lines) to real implementations (1,936 lines)
+- `go/types`: COMPLETED — 10 `*_ext_spmd.go` files ported from types2, 6 test files, hooks in stmt/expr/typexpr/check/decl/call/index
 - `go/ssa`: NO changes — `golang.org/x/tools/go/ssa` is an external module, not in our Go fork
   - SPMD metadata extracted from typed AST in TinyGo's loader instead (avoids forking x/tools)
 
@@ -918,7 +918,7 @@ Never skip steps. Never commit without review approval. This ensures code qualit
 
 ## Current Implementation Status
 
-Go frontend implementation (Phase 1) is complete with 46 commits on the `spmd` branch:
+Go frontend implementation (Phase 1) is complete with 53 commits on the `spmd` branch:
 
 1. **Phase 1.1-1.5: COMPLETED** - Lexer, parser, type system, type checking (keyword-based)
 2. **Phase 1.6: COMPLETED** - Migration to package-based types (`lanes.Varying[T]` replaces `varying` keyword)
@@ -941,8 +941,8 @@ Go frontend implementation (Phase 1) is complete with 46 commits on the `spmd` b
    - **Phase 2.0: Go Standard Library Porting** (prerequisite before TinyGo work):
      - `go/ast`: COMPLETED — `IsSpmd`, `LaneCount`, `Constraint` fields on `RangeStmt`
      - `go/parser`: COMPLETED — `go for` parsing + `range[N]` constraints (11 tests)
-     - `go/types`: 6 stub files (61 lines) — need to port 1,936 lines from types2
-     - `go/ssa`: No SPMD metadata — need minimal `IsSpmd` on range instructions
+     - `go/types`: COMPLETED — 10 `*_ext_spmd.go` files ported from types2, 6 test files, 5 commits
+     - `go/ssa`: No changes needed — SPMD metadata extracted from typed AST in TinyGo's loader
    - **Phase 2.1-2.10: TinyGo Compiler Work**:
      - TinyGo uses `golang.org/x/tools/go/ssa` (NOT Go's `cmd/compile/internal/ssa`)
      - Type-level approach: detect `lanes.Varying[T]` → LLVM vector types
@@ -951,7 +951,7 @@ Go frontend implementation (Phase 1) is complete with 46 commits on the `spmd` b
      - Missing: GOEXPERIMENT support, WASM `+simd128` feature flag, vector type generation
 8. **Phase 3: NOT STARTED** - Validation and dual-mode testing
 
-Next priority: Phase 2.0c - Port go/types SPMD type checking
+Next priority: Phase 2.0d - SPMD metadata extraction in TinyGo loader (or Phase 2.1 TinyGo foundation)
 
 ## Proof of Concept Success Criteria
 
