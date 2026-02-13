@@ -119,13 +119,15 @@ Before TinyGo can compile any SPMD code, the standard library toolchain must be 
 
 **Step 2 — TinyGo Compiler Work (Phase 2.1-2.10 in PLAN.md)**:
 
-- Detect `lanes.Varying[T]` types and map to LLVM vector types (`<4 x i32>`, `<4 x float>`, etc.)
-- LLVM auto-vectorizes: `CreateAdd(<4 x i32>, <4 x i32>)` generates WASM `v128.add` automatically
-- Add GOEXPERIMENT support to TinyGo (currently missing)
-- Enable `+simd128` in WASM target configurations
-- Intercept lanes/reduce function calls and lower to LLVM vector intrinsics
-- Handle masking through LLVM select instructions and conditional branches
-- Key files: `compiler/compiler.go` (getLLVMType, createBinOp, createExpr), `compiler/calls.go`
+- Detect `lanes.Varying[T]` types and map to LLVM vector types (`<4 x i32>`, `<4 x float>`, etc.) — DONE (Phase 2.2)
+- LLVM auto-vectorizes: `CreateAdd(<4 x i32>, <4 x i32>)` generates WASM `v128.add` automatically — DONE (Phase 2.2/2.4)
+- Add GOEXPERIMENT support to TinyGo — DONE (Phase 2.1)
+- Enable `+simd128` in WASM target configurations — DONE (Phase 2.1)
+- SPMD loop lowering: lane indices, tail mask, +laneCount increment — DONE (Phase 2.3)
+- Handle varying if/else via CFG linearization and LLVM select instructions — DONE (Phase 2.5)
+- Intercept lanes/reduce function calls and lower to LLVM vector intrinsics — TODO
+- Handle SPMD function call mask insertion — TODO
+- Key files: `compiler/compiler.go` (getLLVMType, createBinOp, createExpr, createFunction, *ssa.If/*ssa.Jump/*ssa.Phi), `compiler/spmd.go`, `compiler/calls.go`
 
 ## SSA Generation Strategy (Following ISPC's Approach)
 
@@ -963,13 +965,19 @@ Go frontend implementation (Phase 1) is complete with 53 commits on the `spmd` b
      - `compiler/compiler.go`: `spmdLoopState`/`spmdValueOverride` fields, `getValue()` override, `createFunction()` hooks, BinOp `+1` → `+laneCount`
      - `compiler/spmd_llvm_test.go`: 4 new tests (lane offset, lane indices, tail mask, analyze nil)
      - Key insight: SSA `rangeint.iter` phi detected by comment, scalar phi stays for loop logic, vector override for body instructions
-   - **Phase 2.4-2.10: TinyGo Compiler Work**:
+   - **Phase 2.4: COMPLETED** (via Phase 2.2) — Varying arithmetic uses LLVM auto-vectorization
+   - **Phase 2.5: COMPLETED** — Control flow masking (varying if/else linearization)
+     - `compiler/spmd.go`: `spmdVaryingIf` type, `isBlockInSPMDBody()`, `spmdDetectVaryingIf()`, `spmdFindMerge()`, `spmdFindThenExits()`, `spmdShouldRedirectJump()`, `spmdCreateMergeSelect()`, `spmdVectorAnyTrue()`, `spmdIsReachableFrom()`
+     - `compiler/compiler.go`: 3 new builder fields (`spmdVaryingIfs`, `spmdThenExitRedirects`, `spmdMergeSelects`), modified `*ssa.If` (linearize vector conditions), `*ssa.Jump` (then-exit redirects), `*ssa.Phi` (merge select conversion), fixed `spmdValueOverride` scope for if/then/else/done blocks
+     - `compiler/spmd_llvm_test.go`: 4 new tests (vector any-true, select creation, block detection, broadcast for select)
+     - Key insight: go/ssa creates separate "if.done" merge per if statement with exactly 2 predecessors; nesting works by construction
+   - **Phase 2.6-2.10: TinyGo Compiler Work (remaining)**:
      - TinyGo uses `golang.org/x/tools/go/ssa` (NOT Go's `cmd/compile/internal/ssa`)
      - LLVM auto-vectorizes: `CreateAdd(<4 x i32>, <4 x i32>)` → WASM `v128.add`
-     - Missing: lanes/reduce call interception, control flow masking, function call mask insertion
+     - Missing: SPMD function call handling, lanes/reduce call interception, varying switch/for-loop masking
 8. **Phase 3: NOT STARTED** - Validation and dual-mode testing
 
-Next priority: Phase 2.5 - Control flow masking (or Phase 2.7 - lanes/reduce builtin implementation)
+Next priority: Phase 2.6 - SPMD function call handling (or Phase 2.7 - lanes/reduce builtin implementation)
 
 ## Proof of Concept Success Criteria
 
