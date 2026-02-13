@@ -2,7 +2,7 @@
 
 **Version**: 1.7
 **Last Updated**: 2026-02-13
-**Status**: Phase 1 Complete, Phase 2.0 stdlib porting complete, Phase 2.3 SPMD loop lowering complete
+**Status**: Phase 1 Complete, Phase 2.0 stdlib porting complete, Phase 2.5 control flow masking complete
 
 ## Project Overview
 
@@ -630,21 +630,20 @@ Ported 10 `*_ext_spmd.go` files from types2 to go/types with full API translatio
 - [x] Handle comparison operations producing vector masks (`<N x i1>`) — LLVM handles natively
 - [x] Unary operations: `ConstNull` for negation, `ConstAllOnes` for complement (vector-safe)
 
-### 2.5 Control Flow Masking
+### 2.5 Control Flow Masking (Varying If/Else) ✅ COMPLETED
 
-- [ ] Implement varying if/else masking:
-  - Compute `trueMask = currentMask & condition`
-  - Compute `falseMask = currentMask & ~condition`
-  - Execute both branches
-  - Merge modified variables using LLVM `select` instruction
-- [ ] Implement varying switch masking:
-  - Per-case mask computation via `SPMDEqual + SPMDMaskAnd`
-  - N-way variable merge using cascading `select`
-- [ ] Implement varying for-loop masking:
-  - Continue mask accumulation per iteration
-  - Break mask persistence across iterations
-  - Early exit when `reduce.Any(activeMask)` is false
-- [ ] Add `inSPMDLoop` and `spmdMask` state tracking to TinyGo builder
+- [x] Implement varying if/else masking via CFG linearization:
+  - Detect vector `<N x i1>` conditions at `*ssa.If` instructions
+  - Linearize control flow: unconditional branch to then-block, then-exits redirect to else-block
+  - Convert merge-point phis to LLVM `select(vectorCond, thenVal, elseVal)` instructions
+  - Handle if-with-else and if-without-else patterns
+  - Support nested varying if/else (each merge has exactly 2 predecessors in go/ssa)
+  - Fix `spmdValueOverride` scope to persist across if.then/if.else/if.done blocks
+- [x] New functions in `compiler/spmd.go`: `spmdVaryingIf` type, `isBlockInSPMDBody`, `spmdDetectVaryingIf`, `spmdFindMerge`, `spmdFindThenExits`, `spmdShouldRedirectJump`, `spmdCreateMergeSelect`, `spmdVectorAnyTrue`, `spmdIsReachableFrom`
+- [x] Integration in `compiler/compiler.go`: 3 new builder fields, modified `*ssa.If`/`*ssa.Jump`/`*ssa.Phi` cases
+- [x] Tests: `TestSPMDVectorAnyTrue`, `TestSPMDSelectCreation`, `TestSPMDIsBlockInSPMDBody`, `TestSPMDBroadcastMatchForSelect`
+- [ ] Implement varying switch masking (deferred)
+- [ ] Implement varying for-loop masking: continue/break mask accumulation (deferred)
 
 ### 2.6 SPMD Function Call Handling
 
@@ -876,10 +875,11 @@ Ported 10 `*_ext_spmd.go` files from types2 to go/types with full API translatio
   - 2.1: ✅ GOEXPERIMENT support + auto-SIMD128 for WASM (6 files, 12 tests)
   - 2.2: ✅ LLVM vector type generation for lanes.Varying[T] (3 files, 6 tests/34 cases)
   - 2.3: ✅ SPMD loop lowering for go for range loops (3 files, 4 tests/14 cases)
+  - 2.5: ✅ Control flow masking — varying if/else linearization + phi→select (3 files, 4 tests)
 - **Phase 3**: ❌ Not Started
 
-**Last Completed**: Phase 2.3 - SPMD loop lowering for go for range loops (2026-02-13)
-**Next Action**: Phase 2.5 - Control flow masking in TinyGo (or Phase 2.7 - lanes/reduce builtin implementation)
+**Last Completed**: Phase 2.5 - Control flow masking for varying if/else (2026-02-13)
+**Next Action**: Phase 2.6 - SPMD function call handling (or Phase 2.7 - lanes/reduce builtin implementation)
 
 ### Recent Major Achievements (Phase 1.5 Extensions)
 
