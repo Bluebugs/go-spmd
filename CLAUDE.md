@@ -958,13 +958,18 @@ Go frontend implementation (Phase 1) is complete with 53 commits on the `spmd` b
      - `compiler/compiler.go`: `*types.SPMDType` case in `makeLLVMType()`, bypass `typeutil.Map` for SPMDType in `getLLVMType()`, broadcast in `createBinOp()`, SPMD pre-check in `createConst()`, vector-safe `ConstNull`/`ConstAllOnes` in `createUnOp()`
      - `compiler/spmd_llvm_test.go`: 6 tests, 34 cases (lane count, type mapping, constants, broadcast, splat, consistency)
      - Key insight: `typeutil.Map` from `x/tools` can't hash `*types.SPMDType`; bypassed with direct `makeLLVMType()` call (LLVM memoizes vector types internally)
-   - **Phase 2.3-2.10: TinyGo Compiler Work**:
+   - **Phase 2.3: COMPLETED** — SPMD loop lowering (`go for` range loops)
+     - `compiler/spmd.go`: `analyzeSPMDLoops()` detects rangeint SSA patterns, `emitSPMDBodyPrologue()` generates lane indices + tail mask
+     - `compiler/compiler.go`: `spmdLoopState`/`spmdValueOverride` fields, `getValue()` override, `createFunction()` hooks, BinOp `+1` → `+laneCount`
+     - `compiler/spmd_llvm_test.go`: 4 new tests (lane offset, lane indices, tail mask, analyze nil)
+     - Key insight: SSA `rangeint.iter` phi detected by comment, scalar phi stays for loop logic, vector override for body instructions
+   - **Phase 2.4-2.10: TinyGo Compiler Work**:
      - TinyGo uses `golang.org/x/tools/go/ssa` (NOT Go's `cmd/compile/internal/ssa`)
      - LLVM auto-vectorizes: `CreateAdd(<4 x i32>, <4 x i32>)` → WASM `v128.add`
-     - Missing: lanes/reduce call interception, SPMD loop lowering, control flow masking, function call mask insertion
+     - Missing: lanes/reduce call interception, control flow masking, function call mask insertion
 8. **Phase 3: NOT STARTED** - Validation and dual-mode testing
 
-Next priority: Phase 2.3 - lanes/reduce builtin call interception in TinyGo
+Next priority: Phase 2.5 - Control flow masking (or Phase 2.7 - lanes/reduce builtin implementation)
 
 ## Proof of Concept Success Criteria
 

@@ -1,8 +1,8 @@
 # SPMD Implementation Plan for Go + TinyGo
 
-**Version**: 1.6
+**Version**: 1.7
 **Last Updated**: 2026-02-13
-**Status**: Phase 1 Complete, Phase 2.0 stdlib porting complete, Phase 2.2 LLVM vector type generation complete
+**Status**: Phase 1 Complete, Phase 2.0 stdlib porting complete, Phase 2.3 SPMD loop lowering complete
 
 ## Project Overview
 
@@ -591,18 +591,32 @@ Ported 10 `*_ext_spmd.go` files from types2 to go/types with full API translatio
 - [x] 6 tests in `compiler/spmd_llvm_test.go` (34 test cases)
 - [ ] Handle scalar fallback mode: map `lanes.Varying[T]` to array types or scalar loops (deferred)
 
-### 2.3 SPMD Loop Lowering (`go for`)
+### 2.3 SPMD Loop Lowering (`go for`) ✅ COMPLETED
 
-**Key Function**: `createInstruction()` at `compiler/compiler.go:1498`
+**Key Approach**: getValue override + instruction interception (no SSA/LLVM block structure changes)
 
-- [ ] Detect `go for` range loops in SSA (via ForStmt.IsSpmd metadata)
-  - Note: go/ssa may not preserve IsSpmd; may need to detect via `go for` pattern
-- [ ] Generate vectorized loop structure:
-  - Outer loop iterates in steps of `laneCount`
-  - Lane index vector: `<0, 1, 2, 3>` + scalar iteration variable
-  - Tail mask for non-multiple bounds: `laneIndices < N`
-- [ ] Initialize execution mask to all-true at loop entry
-- [ ] Reset continue mask per iteration
+**Critical Discovery**: `go/ssa` lifts the `rangeint.iter` alloca to a phi node with `Comment: "rangeint.iter"`. Detection uses block/phi comments set by `lift.go:491`.
+
+- [x] Detect `go for` range loops in SSA via rangeint pattern matching
+  - `analyzeSPMDLoops()`: scans ALL blocks for `rangeint.body` comment, finds `rangeint.iter` phi, validates position inside SPMD loop via `isInSPMDLoop()`
+  - Finds successor `rangeint.loop` block, extracts increment BinOp and bound value
+  - Computes lane count from iter phi's LLVM element type
+- [x] Generate vectorized loop structure:
+  - `emitSPMDBodyPrologue()`: after scalar phi compiled, splats it + adds `<0,1,...,laneCount-1>` offset
+  - Lane indices: `splat(scalarPhi) + <0,1,2,...,laneCount-1>` via `splatScalar()` + `spmdLaneOffsetConst()`
+  - Tail mask: `laneIndices < splat(bound)` via `CreateICmp(IntSLT, ...)`
+  - Stores `laneIndices` and `tailMask` in `spmdActiveLoop` for body instructions
+- [x] Override `getValue()` to substitute iter phi with lane indices vector in body blocks
+  - Per-block `spmdValueOverride` map, enabled only for body blocks, cleared for others
+- [x] Replace loop increment `+1` with `+laneCount` in `createExpr()` BinOp interception
+  - Uses pointer equality (`expr == loop.incrBinOp`) for precise targeting
+- [x] 4 new tests in `compiler/spmd_llvm_test.go` (14 test cases total)
+  - `TestSPMDLaneOffsetConstant`: `<0,1,...,N-1>` generation for various lane counts
+  - `TestSPMDComputeLaneIndices`: lane index computation at different iteration values
+  - `TestSPMDComputeTailMask`: per-lane bounds checking (all active, partial tail, single lane)
+  - `TestSPMDAnalyzeLoopsNil`: graceful nil handling for non-SPMD functions
+- [ ] Initialize execution mask to all-true at loop entry (deferred to Phase 2.5)
+- [ ] Reset continue mask per iteration (deferred to Phase 2.5)
 
 ### 2.4 Varying Arithmetic and Binary Operations ✅ COMPLETED (via Phase 2.2)
 
@@ -861,10 +875,11 @@ Ported 10 `*_ext_spmd.go` files from types2 to go/types with full API translatio
   - 2.0d: ✅ SPMD metadata extraction in TinyGo compiler (spmd.go + spmd_test.go, 13 tests)
   - 2.1: ✅ GOEXPERIMENT support + auto-SIMD128 for WASM (6 files, 12 tests)
   - 2.2: ✅ LLVM vector type generation for lanes.Varying[T] (3 files, 6 tests/34 cases)
+  - 2.3: ✅ SPMD loop lowering for go for range loops (3 files, 4 tests/14 cases)
 - **Phase 3**: ❌ Not Started
 
-**Last Completed**: Phase 2.2 - LLVM vector type generation for lanes.Varying[T] (2026-02-13)
-**Next Action**: Phase 2.3 - lanes/reduce builtin call interception in TinyGo
+**Last Completed**: Phase 2.3 - SPMD loop lowering for go for range loops (2026-02-13)
+**Next Action**: Phase 2.5 - Control flow masking in TinyGo (or Phase 2.7 - lanes/reduce builtin implementation)
 
 ### Recent Major Achievements (Phase 1.5 Extensions)
 
