@@ -852,10 +852,11 @@ Ported 10 `*_ext_spmd.go` files from types2 to go/types with full API translatio
   - 2.0b: ✅ go/parser `go for` parsing + `range[N]` constraints + `Constraint` field on RangeStmt
   - 2.0c: ✅ go/types SPMD type checking (10 ext_spmd files, 6 test files, 5 commits)
   - 2.0d: ✅ SPMD metadata extraction in TinyGo compiler (spmd.go + spmd_test.go, 13 tests)
+  - 2.1: ✅ GOEXPERIMENT support + auto-SIMD128 for WASM (6 files, 12 tests)
 - **Phase 3**: ❌ Not Started
 
-**Last Completed**: Phase 2.0d - SPMD metadata extraction in TinyGo compiler (2026-02-12)
-**Next Action**: Phase 2.1 - TinyGo foundation setup (GOEXPERIMENT support + WASM SIMD128 target)
+**Last Completed**: Phase 2.1 - TinyGo GOEXPERIMENT support + auto-SIMD128 (2026-02-12)
+**Next Action**: Phase 2.2 - LLVM vector type generation for lanes.Varying[T]
 
 ### Recent Major Achievements (Phase 1.5 Extensions)
 

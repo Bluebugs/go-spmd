@@ -222,11 +222,12 @@ This is a proof-of-concept implementation with the following status:
 - **Phase 1.10**: Go SSA generation for SPMD (42 vector opcodes, mask propagation, control flow)
 - **Phase 2.0a-c**: Go standard library SPMD porting (go/ast, go/parser, go/types)
 - **Phase 2.0d**: SPMD metadata extraction in TinyGo compiler (first TinyGo modification)
+- **Phase 2.1**: GOEXPERIMENT support + auto-SIMD128 for WASM targets
 - Repository structure and submodule setup
 
 ### In Progress
 
-- **Phase 2.1+**: TinyGo LLVM backend with WASM SIMD128 target
+- **Phase 2.2+**: TinyGo LLVM backend with WASM SIMD128 target
 
 ### Planned
 

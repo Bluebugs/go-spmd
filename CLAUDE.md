@@ -948,15 +948,20 @@ Go frontend implementation (Phase 1) is complete with 53 commits on the `spmd` b
      - `compiler/spmd_test.go`: 13 tests (extraction, signature analysis, binary search queries)
      - `compiler/compiler.go`: `spmdInfo` field on `compilerContext`, `loadSPMDInfo()` call in `CompilePackage()`
      - Query helpers: `isInSPMDLoop()`, `getSPMDLoopAt()`, `getSPMDFuncInfo()`, `isSPMDFunction()`, `hasSPMDCode()`
-   - **Phase 2.1-2.10: TinyGo Compiler Work**:
+   - **Phase 2.1: COMPLETED** — GOEXPERIMENT support + auto-SIMD128 for WASM
+     - `goenv/goenv.go`: GOEXPERIMENT in Keys + Get()
+     - `compileopts/config.go`: GOExperiment() method, hasExperiment() helper, Features() auto-adds +simd128
+     - `compileopts/config_spmd_test.go`: 12 test cases (auto-SIMD128 logic + accessor)
+     - `main.go`: Wire GOExperiment from environment; `loader/list.go`: pass to go list subprocess
+   - **Phase 2.2-2.10: TinyGo Compiler Work**:
      - TinyGo uses `golang.org/x/tools/go/ssa` (NOT Go's `cmd/compile/internal/ssa`)
      - Type-level approach: detect `lanes.Varying[T]` → LLVM vector types
      - LLVM auto-vectorizes: `CreateAdd(<4 x i32>, <4 x i32>)` → WASM `v128.add`
      - Key integration points: `getLLVMType()` (compiler.go:387), `createBinOp()` (compiler.go:2559)
-     - Missing: GOEXPERIMENT support, WASM `+simd128` feature flag, vector type generation
+     - Missing: vector type generation, lanes/reduce call interception, masking
 8. **Phase 3: NOT STARTED** - Validation and dual-mode testing
 
-Next priority: Phase 2.1 - TinyGo foundation setup (GOEXPERIMENT support + WASM SIMD128 target)
+Next priority: Phase 2.2 - LLVM vector type generation for lanes.Varying[T]
 
 ## Proof of Concept Success Criteria
 
