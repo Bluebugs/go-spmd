@@ -645,15 +645,19 @@ Ported 10 `*_ext_spmd.go` files from types2 to go/types with full API translatio
 - [ ] Implement varying switch masking (deferred)
 - [ ] Implement varying for-loop masking: continue/break mask accumulation (deferred)
 
-### 2.6 SPMD Function Call Handling
+### 2.6 SPMD Function Call Handling — COMPLETED
 
-**Key Function**: `createFunctionCall()` in `compiler/calls.go`
+**Key Files**: `compiler/spmd.go`, `compiler/symbol.go`, `compiler/func.go`, `compiler/compiler.go`
 
-- [ ] Detect SPMD functions (functions with `lanes.Varying[T]` parameters)
-- [ ] Insert execution mask as first parameter in SPMD function calls
-- [ ] At SPMD function entry, load mask from first parameter
-- [ ] Handle non-SPMD → SPMD calls (pass all-true mask)
-- [ ] Handle SPMD → SPMD calls (pass current execution mask)
+- [x] Detect SPMD functions (functions with `lanes.Varying[T]` parameters) — via existing `isSPMDFunction()`
+- [x] Insert execution mask as first parameter in SPMD function declarations — `getFunction()` in symbol.go
+- [x] Insert execution mask type in SPMD function pointer types — `getLLVMFunctionType()` in func.go
+- [x] At SPMD function entry, extract mask from first parameter — `createFunctionStart()` with `spmdEntryMask` field
+- [x] Handle non-SPMD → SPMD calls (pass all-true mask) — `spmdCallMask()` fallback
+- [x] Handle SPMD loop → SPMD calls (pass tail mask from loop state) — `spmdCallMask()` loop check
+- [x] Handle SPMD → SPMD calls (pass entry mask) — `spmdCallMask()` entry mask check
+- [x] Skip mask for exported SPMD functions (defensive, type checker forbids them)
+- [x] Tests: `TestSPMDMaskType` (5 cases), `TestSPMDCallMaskAllTrue` (4 cases)
 
 ### 2.7 lanes/reduce Builtin Implementation
 
