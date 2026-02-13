@@ -1,8 +1,8 @@
 # SPMD Implementation Plan for Go + TinyGo
 
-**Version**: 1.4
+**Version**: 1.5
 **Last Updated**: 2026-02-12
-**Status**: Phase 1 Complete, Phase 2.0 stdlib porting nearly complete (go/ast, go/parser, go/types done)
+**Status**: Phase 1 Complete, Phase 2.0 stdlib porting complete, Phase 2.0d TinyGo metadata extraction complete
 
 ## Project Overview
 
@@ -534,31 +534,24 @@ Ported 10 `*_ext_spmd.go` files from types2 to go/types with full API translatio
 - [x] Verify builds pass with and without `GOEXPERIMENT=spmd`
 - [x] Add SPMD-specific type checker tests in `go/types/testdata/spmd/` (6 test files)
 
-#### 2.0d SPMD Metadata Without go/ssa Changes
+#### 2.0d SPMD Metadata Extraction in TinyGo Compiler ✅ COMPLETED
 
-**Key insight**: `golang.org/x/tools/go/ssa` is an external module (`golang.org/x/tools v0.30.0`), NOT part of the Go standard library. Unlike `go/ast`, `go/parser`, and `go/types` (which live in our Go fork), modifying go/ssa would require forking `golang.org/x/tools` — adding another submodule to maintain.
+**Key insight**: `golang.org/x/tools/go/ssa` is an external module (`golang.org/x/tools v0.30.0`), NOT part of the Go standard library. Modifying go/ssa would require forking `golang.org/x/tools`. Instead, SPMD metadata is extracted from the typed AST directly in TinyGo's compiler.
 
-**Decision**: Do NOT modify `golang.org/x/tools/go/ssa`. Instead, extract SPMD metadata from the typed AST in TinyGo's loader before SSA construction.
+**Decision**: Do NOT modify `golang.org/x/tools/go/ssa`. Extract SPMD metadata from the typed AST in TinyGo's `CompilePackage()` function (which receives `*loader.Package` with AST and types).
 
-**Rationale**: TinyGo's loader (`loader/loader.go`) has access to both the typed AST (`go/ast` nodes with `go/types` info) and the SSA program. SPMD metadata can be extracted at the AST level and carried through as a side table:
-
-- `go/ast.RangeStmt.IsSpmd` — set by `go/parser` (Phase 2.0b), readable in TinyGo's loader
-- `go/ast.RangeStmt.LaneCount` — set by `go/parser` (Phase 2.0b), readable in TinyGo's loader
-- `lanes.Varying[T]` type detection — available via `go/types` (Phase 2.0c), no SSA metadata needed
-- SPMD function detection — check if any parameter has `*types.SPMDType`, available from `go/types`
-
-**Implementation in TinyGo's loader** (Phase 2.1):
-- [ ] Add SPMD metadata extraction pass in `loader/loader.go` after type checking
-  - Walk typed AST to find `RangeStmt` nodes with `IsSpmd == true`
-  - Record SPMD loop positions and lane counts in a side map
-  - Detect SPMD functions by scanning parameter types for `*types.SPMDType`
-- [ ] Create `SPMDInfo` side table: maps AST positions → SPMD metadata
-  - `map[token.Pos]SPMDLoopInfo` for SPMD loops (IsSpmd, LaneCount)
-  - `map[*types.Func]bool` for SPMD functions (has varying params)
-- [ ] Pass `SPMDInfo` to TinyGo's compiler alongside the SSA program
-  - Compiler correlates SSA instructions back to AST positions to retrieve SPMD metadata
-- [ ] **No custom SPMD opcodes in go/ssa** — all vectorization happens in TinyGo's compiler layer
-- [ ] **No fork of golang.org/x/tools** — SPMD metadata flows through AST + types, not SSA
+**Implementation** (in `compiler/spmd.go`):
+- [x] `extractSPMDLoops()`: Walks AST to find `RangeStmt` with `IsSpmd==true`, extracts `LaneCount` and `Constraint`
+- [x] `extractSPMDFuncs()`: Scans package scope for functions with `*types.SPMDType` parameters
+- [x] `analyzeSPMDSignature()`: Checks function signature for varying params/results
+- [x] `loadSPMDInfo()`: Orchestrator on `compilerContext`, builds sorted position ranges for binary search
+- [x] `SPMDInfo` side table: `map[token.Pos]*SPMDLoopInfo` + `map[*types.Func]*SPMDFuncInfo` + sorted `loopRanges`
+- [x] Query helpers: `isInSPMDLoop()` (binary search), `getSPMDLoopAt()`, `getSPMDFuncInfo()`, `isSPMDFunction()`, `hasSPMDCode()`
+- [x] Added `spmdInfo *SPMDInfo` field to `compilerContext` struct
+- [x] Added `c.loadSPMDInfo(pkg)` call in `CompilePackage()` after `loadASTComments()`
+- [x] 13 tests in `compiler/spmd_test.go` (all passing)
+- [x] **No custom SPMD opcodes in go/ssa** — all vectorization happens in TinyGo's compiler layer
+- [x] **No fork of golang.org/x/tools** — SPMD metadata flows through AST + types, not SSA
 
 ### 2.1 TinyGo Foundation Setup
 
@@ -850,7 +843,7 @@ Ported 10 `*_ext_spmd.go` files from types2 to go/types with full API translatio
     - 1.10j: ✅ lanes/reduce builtin call interception (16 functions -> SPMD opcodes, 7 deferred)
     - 1.10k: ❌ Remaining SSA integration (constrained varying)
     - 1.10L: ✅ Fix pre-existing all.bash failures (6 test suites)
-- **Phase 2**: 🚧 In Progress (stdlib porting nearing completion)
+- **Phase 2**: 🚧 In Progress (stdlib porting complete, first TinyGo compiler modification done)
   - TinyGo architecture explored and documented
   - Critical finding: TinyGo uses `golang.org/x/tools/go/ssa` (not `cmd/compile` SSA)
   - Critical finding: `go/parser`, `go/ast`, `go/types` lack SPMD support (must be ported first)
@@ -858,10 +851,11 @@ Ported 10 `*_ext_spmd.go` files from types2 to go/types with full API translatio
   - 2.0a: ✅ go/ast SPMD fields (IsSpmd, LaneCount on RangeStmt)
   - 2.0b: ✅ go/parser `go for` parsing + `range[N]` constraints + `Constraint` field on RangeStmt
   - 2.0c: ✅ go/types SPMD type checking (10 ext_spmd files, 6 test files, 5 commits)
+  - 2.0d: ✅ SPMD metadata extraction in TinyGo compiler (spmd.go + spmd_test.go, 13 tests)
 - **Phase 3**: ❌ Not Started
 
-**Last Completed**: Phase 2.0c - Port go/types SPMD type checking from types2 (2026-02-12)
-**Next Action**: Phase 2.0d - SPMD metadata extraction in TinyGo loader (or Phase 2.1 TinyGo foundation)
+**Last Completed**: Phase 2.0d - SPMD metadata extraction in TinyGo compiler (2026-02-12)
+**Next Action**: Phase 2.1 - TinyGo foundation setup (GOEXPERIMENT support + WASM SIMD128 target)
 
 ### Recent Major Achievements (Phase 1.5 Extensions)
 

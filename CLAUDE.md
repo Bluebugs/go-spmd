@@ -942,7 +942,12 @@ Go frontend implementation (Phase 1) is complete with 53 commits on the `spmd` b
      - `go/ast`: COMPLETED — `IsSpmd`, `LaneCount`, `Constraint` fields on `RangeStmt`
      - `go/parser`: COMPLETED — `go for` parsing + `range[N]` constraints (11 tests)
      - `go/types`: COMPLETED — 10 `*_ext_spmd.go` files ported from types2, 6 test files, 5 commits
-     - `go/ssa`: No changes needed — SPMD metadata extracted from typed AST in TinyGo's loader
+     - `go/ssa`: No changes needed — SPMD metadata extracted from typed AST in TinyGo's compiler
+   - **Phase 2.0d: COMPLETED** — SPMD metadata extraction in TinyGo compiler
+     - `compiler/spmd.go`: SPMDInfo side-table with loop/function metadata extraction from typed AST
+     - `compiler/spmd_test.go`: 13 tests (extraction, signature analysis, binary search queries)
+     - `compiler/compiler.go`: `spmdInfo` field on `compilerContext`, `loadSPMDInfo()` call in `CompilePackage()`
+     - Query helpers: `isInSPMDLoop()`, `getSPMDLoopAt()`, `getSPMDFuncInfo()`, `isSPMDFunction()`, `hasSPMDCode()`
    - **Phase 2.1-2.10: TinyGo Compiler Work**:
      - TinyGo uses `golang.org/x/tools/go/ssa` (NOT Go's `cmd/compile/internal/ssa`)
      - Type-level approach: detect `lanes.Varying[T]` → LLVM vector types
@@ -951,7 +956,7 @@ Go frontend implementation (Phase 1) is complete with 53 commits on the `spmd` b
      - Missing: GOEXPERIMENT support, WASM `+simd128` feature flag, vector type generation
 8. **Phase 3: NOT STARTED** - Validation and dual-mode testing
 
-Next priority: Phase 2.0d - SPMD metadata extraction in TinyGo loader (or Phase 2.1 TinyGo foundation)
+Next priority: Phase 2.1 - TinyGo foundation setup (GOEXPERIMENT support + WASM SIMD128 target)
 
 ## Proof of Concept Success Criteria
 

@@ -212,32 +212,30 @@ When implemented, it would compile with TinyGo targeting WebAssembly SIMD:
 
 This is a proof-of-concept implementation with the following status:
 
-### ✅ Completed
+### Completed
 
 - **Phase 0**: Foundation infrastructure (GOEXPERIMENT setup, test framework)
-- **Phase 1.1**: GOEXPERIMENT integration for SPMD flag
-- **Phase 1.2**: Lexer modifications for `uniform`/`varying` keywords with conditional recognition
+- **Phase 1.1-1.5**: Lexer, parser, type system, type checking (migrated from keywords to `lanes.Varying[T]`)
+- **Phase 1.6**: Migration to package-based types (`lanes.Varying[T]` replaces `varying` keyword)
+- **Phase 1.7**: SIMD lane count calculation and recording
+- **Phase 1.8**: `lanes` package with compiler builtin stubs
+- **Phase 1.10**: Go SSA generation for SPMD (42 vector opcodes, mask propagation, control flow)
+- **Phase 2.0a-c**: Go standard library SPMD porting (go/ast, go/parser, go/types)
+- **Phase 2.0d**: SPMD metadata extraction in TinyGo compiler (first TinyGo modification)
 - Repository structure and submodule setup
-- Basic project documentation and implementation planning
 
-**Phase 1.2 Key Achievement**: Context-sensitive lexer with GOEXPERIMENT integration. Architectural decision made to defer full backward compatibility to parser level (Phase 1.3).
+### In Progress
 
-### 🚧 In Progress  
+- **Phase 2.1+**: TinyGo LLVM backend with WASM SIMD128 target
 
-- **Phase 1.3**: Parser extensions for SPMD syntax constructs
+### Planned
 
-### 📋 Planned (Not Yet Started)
-
-- **Phase 1.4+**: Type system implementation and type checking rules
-- **Phase 1.7**: SPMD SSA generation with predicated operations
-- **Phase 1.8-1.9**: Standard library extensions (`lanes` and `reduce` packages)
-- **Phase 2**: TinyGo LLVM backend with dual SIMD/scalar code generation
-- WebAssembly SIMD code generation
+- LLVM vector type generation for `lanes.Varying[T]`
+- WASM SIMD128 instruction generation
+- Dual-mode compilation (SIMD + scalar fallback)
 - Cross-lane communication primitives
-- Advanced control flow masking
 - Performance optimization passes
-- Complete test suite
-- Real-world examples
+- Complete test suite with wasmer-go runtime validation
 
 ## Project Structure
 
