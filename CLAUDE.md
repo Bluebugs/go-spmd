@@ -953,15 +953,18 @@ Go frontend implementation (Phase 1) is complete with 53 commits on the `spmd` b
      - `compileopts/config.go`: GOExperiment() method, hasExperiment() helper, Features() auto-adds +simd128
      - `compileopts/config_spmd_test.go`: 12 test cases (auto-SIMD128 logic + accessor)
      - `main.go`: Wire GOExperiment from environment; `loader/list.go`: pass to go list subprocess
-   - **Phase 2.2-2.10: TinyGo Compiler Work**:
+   - **Phase 2.2: COMPLETED** — LLVM vector type generation for `lanes.Varying[T]`
+     - `compiler/spmd.go`: `spmdLaneCount()`, `splatScalar()`, `spmdBroadcastMatch()`, `createSPMDConst()`
+     - `compiler/compiler.go`: `*types.SPMDType` case in `makeLLVMType()`, bypass `typeutil.Map` for SPMDType in `getLLVMType()`, broadcast in `createBinOp()`, SPMD pre-check in `createConst()`, vector-safe `ConstNull`/`ConstAllOnes` in `createUnOp()`
+     - `compiler/spmd_llvm_test.go`: 6 tests, 34 cases (lane count, type mapping, constants, broadcast, splat, consistency)
+     - Key insight: `typeutil.Map` from `x/tools` can't hash `*types.SPMDType`; bypassed with direct `makeLLVMType()` call (LLVM memoizes vector types internally)
+   - **Phase 2.3-2.10: TinyGo Compiler Work**:
      - TinyGo uses `golang.org/x/tools/go/ssa` (NOT Go's `cmd/compile/internal/ssa`)
-     - Type-level approach: detect `lanes.Varying[T]` → LLVM vector types
      - LLVM auto-vectorizes: `CreateAdd(<4 x i32>, <4 x i32>)` → WASM `v128.add`
-     - Key integration points: `getLLVMType()` (compiler.go:387), `createBinOp()` (compiler.go:2559)
-     - Missing: vector type generation, lanes/reduce call interception, masking
+     - Missing: lanes/reduce call interception, SPMD loop lowering, control flow masking, function call mask insertion
 8. **Phase 3: NOT STARTED** - Validation and dual-mode testing
 
-Next priority: Phase 2.2 - LLVM vector type generation for lanes.Varying[T]
+Next priority: Phase 2.3 - lanes/reduce builtin call interception in TinyGo
 
 ## Proof of Concept Success Criteria
 

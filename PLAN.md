@@ -1,8 +1,8 @@
 # SPMD Implementation Plan for Go + TinyGo
 
-**Version**: 1.5
-**Last Updated**: 2026-02-12
-**Status**: Phase 1 Complete, Phase 2.0 stdlib porting complete, Phase 2.0d TinyGo metadata extraction complete
+**Version**: 1.6
+**Last Updated**: 2026-02-13
+**Status**: Phase 1 Complete, Phase 2.0 stdlib porting complete, Phase 2.2 LLVM vector type generation complete
 
 ## Project Overview
 
@@ -553,37 +553,43 @@ Ported 10 `*_ext_spmd.go` files from types2 to go/types with full API translatio
 - [x] **No custom SPMD opcodes in go/ssa** — all vectorization happens in TinyGo's compiler layer
 - [x] **No fork of golang.org/x/tools** — SPMD metadata flows through AST + types, not SSA
 
-### 2.1 TinyGo Foundation Setup
+### 2.1 TinyGo Foundation Setup ✅ COMPLETED
 
-- [ ] Add GOEXPERIMENT support to TinyGo compilation pipeline
-  - [ ] Read GOEXPERIMENT from environment in `goenv/goenv.go`
-  - [ ] Propagate SPMD experiment flag through `compileopts/config.go`
-  - [ ] Gate SPMD features behind experiment flag in compiler
-- [ ] Enable WASM SIMD128 in target configuration
-  - [ ] Add `+simd128` to features in `targets/wasm.json`, `wasip1.json`, `wasip2.json`
+- [x] Add GOEXPERIMENT support to TinyGo compilation pipeline
+  - [x] Read GOEXPERIMENT from environment in `goenv/goenv.go`
+  - [x] Propagate SPMD experiment flag through `compileopts/config.go`
+  - [x] Gate SPMD features behind experiment flag in compiler
+- [x] Enable WASM SIMD128 in target configuration
+  - [x] Auto-add `+simd128` to features when SPMD+WASM via `Features()` in `compileopts/config.go`
   - [ ] Add `-simd=true/false` build flag for dual-mode compilation
   - [ ] Create SIMD-disabled variant targets (features without `+simd128`)
-- [ ] Set up TinyGo build and test infrastructure
-  - [ ] Verify TinyGo builds with our modified Go toolchain
+- [x] Set up TinyGo build and test infrastructure
+  - [x] Verify TinyGo builds with our modified Go toolchain
+  - [x] 12 tests in `compileopts/config_spmd_test.go` (auto-SIMD128 logic + GOExperiment accessor)
   - [ ] Create SPMD-specific test harness for WASM output validation
   - [ ] Set up wasmer-go runtime for testing generated WASM
 
-### 2.2 SPMD Type Detection and Vector Type Generation (TinyGo)
+### 2.2 SPMD Type Detection and Vector Type Generation (TinyGo) ✅ COMPLETED
 
-**Key Function**: `getLLVMType()` / `makeLLVMType()` at `compiler/compiler.go:387`
+**Key Function**: `getLLVMType()` / `makeLLVMType()` at `compiler/compiler.go:391`
 
-- [ ] Detect `lanes.Varying[T]` in Go type system (via `*types.Named` wrapping the lanes.Varying struct)
-- [ ] Map varying types to LLVM vector types based on SIMD width:
+- [x] Detect `lanes.Varying[T]` in Go type system (via `*types.SPMDType` from our Go fork)
+- [x] Map varying types to LLVM vector types based on SIMD width:
   - `lanes.Varying[int32]` → `<4 x i32>` (WASM SIMD128: 128/32 = 4 lanes)
   - `lanes.Varying[float32]` → `<4 x float>` (4 lanes)
   - `lanes.Varying[int64]` → `<2 x i64>` (2 lanes)
   - `lanes.Varying[int8]` → `<16 x i8>` (16 lanes)
-  - `lanes.Varying[bool]` → `<N x i1>` (lane count from elem type context)
-- [ ] Handle scalar fallback mode: map `lanes.Varying[T]` to array types or scalar loops
-- [ ] Cache vector types in `compilerContext.llvmTypes` (existing `typeutil.Map`)
-- [ ] Add `isVaryingType()` helper to detect `lanes.Varying[T]` named types
-- [ ] Add `getVaryingElemType()` to extract element type from Varying struct
-- [ ] Add `getLaneCountForTarget()` based on target SIMD width and element size
+  - `lanes.Varying[bool]` → `<16 x i1>` (TypeAllocSize(i1) = 1 byte, 16 lanes)
+- [x] Bypass `typeutil.Map` cache for SPMDType (x/tools can't hash custom types; LLVM memoizes internally)
+- [x] Add `spmdLaneCount()` helper: 128-bit SIMD / element size
+- [x] Add `splatScalar()` for scalar-to-vector broadcast via insert+shuffle
+- [x] Add `spmdBroadcastMatch()` for mixed uniform/varying binary operations
+- [x] Add `createSPMDConst()` for splatted vector constants
+- [x] Add broadcast at entry of `createBinOp()` for automatic type matching
+- [x] Add SPMD pre-check in `createConst()` for varying constants
+- [x] Fix `createUnOp()` to use `ConstNull`/`ConstAllOnes` (vector-safe)
+- [x] 6 tests in `compiler/spmd_llvm_test.go` (34 test cases)
+- [ ] Handle scalar fallback mode: map `lanes.Varying[T]` to array types or scalar loops (deferred)
 
 ### 2.3 SPMD Loop Lowering (`go for`)
 
@@ -598,16 +604,17 @@ Ported 10 `*_ext_spmd.go` files from types2 to go/types with full API translatio
 - [ ] Initialize execution mask to all-true at loop entry
 - [ ] Reset continue mask per iteration
 
-### 2.4 Varying Arithmetic and Binary Operations
+### 2.4 Varying Arithmetic and Binary Operations ✅ COMPLETED (via Phase 2.2)
 
-**Key Function**: `createBinOp()` at `compiler/compiler.go:2559`
+**Key Function**: `createBinOp()` at `compiler/compiler.go:2570`
 
-- [ ] No changes needed for basic arithmetic! LLVM auto-vectorizes:
+- [x] LLVM auto-vectorizes when both operands are vectors (done via type mapping in 2.2):
   - `CreateAdd(<4 x i32>, <4 x i32>)` → `i32x4.add` (automatic)
   - `CreateFMul(<4 x float>, <4 x float>)` → `f32x4.mul` (automatic)
-- [ ] Add uniform-to-varying broadcast: `CreateVectorSplat(laneCount, scalarValue)`
-- [ ] Handle mixed varying/uniform binary operations (splat uniform operand)
-- [ ] Handle comparison operations producing vector masks (`<4 x i1>`)
+- [x] Add uniform-to-varying broadcast via `spmdBroadcastMatch()` at entry of `createBinOp()`
+- [x] Handle mixed varying/uniform binary operations (splat uniform operand automatically)
+- [x] Handle comparison operations producing vector masks (`<N x i1>`) — LLVM handles natively
+- [x] Unary operations: `ConstNull` for negation, `ConstAllOnes` for complement (vector-safe)
 
 ### 2.5 Control Flow Masking
 
@@ -853,10 +860,11 @@ Ported 10 `*_ext_spmd.go` files from types2 to go/types with full API translatio
   - 2.0c: ✅ go/types SPMD type checking (10 ext_spmd files, 6 test files, 5 commits)
   - 2.0d: ✅ SPMD metadata extraction in TinyGo compiler (spmd.go + spmd_test.go, 13 tests)
   - 2.1: ✅ GOEXPERIMENT support + auto-SIMD128 for WASM (6 files, 12 tests)
+  - 2.2: ✅ LLVM vector type generation for lanes.Varying[T] (3 files, 6 tests/34 cases)
 - **Phase 3**: ❌ Not Started
 
-**Last Completed**: Phase 2.1 - TinyGo GOEXPERIMENT support + auto-SIMD128 (2026-02-12)
-**Next Action**: Phase 2.2 - LLVM vector type generation for lanes.Varying[T]
+**Last Completed**: Phase 2.2 - LLVM vector type generation for lanes.Varying[T] (2026-02-13)
+**Next Action**: Phase 2.3 - lanes/reduce builtin call interception in TinyGo
 
 ### Recent Major Achievements (Phase 1.5 Extensions)
 

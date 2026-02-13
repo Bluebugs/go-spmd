@@ -223,15 +223,15 @@ This is a proof-of-concept implementation with the following status:
 - **Phase 2.0a-c**: Go standard library SPMD porting (go/ast, go/parser, go/types)
 - **Phase 2.0d**: SPMD metadata extraction in TinyGo compiler (first TinyGo modification)
 - **Phase 2.1**: GOEXPERIMENT support + auto-SIMD128 for WASM targets
+- **Phase 2.2**: LLVM vector type generation (`lanes.Varying[T]` → `<N x T>` vector types)
 - Repository structure and submodule setup
 
 ### In Progress
 
-- **Phase 2.2+**: TinyGo LLVM backend with WASM SIMD128 target
+- **Phase 2.3+**: TinyGo LLVM backend — lanes/reduce call interception, SPMD loop lowering
 
 ### Planned
 
-- LLVM vector type generation for `lanes.Varying[T]`
 - WASM SIMD128 instruction generation
 - Dual-mode compilation (SIMD + scalar fallback)
 - Cross-lane communication primitives
