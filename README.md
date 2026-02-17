@@ -228,11 +228,12 @@ This is a proof-of-concept implementation with the following status:
 - **Phase 2.5**: Control flow masking (varying if/else CFG linearization, phi-to-select)
 - **Phase 2.6**: SPMD function call handling (mask param in declarations, types, calls, entry)
 - **Phase 2.7**: lanes/reduce builtin interception (6 lanes + 13 reduce builtins → LLVM intrinsics)
+- **Phase 2.8**: Execution mask stack + vector memory operations (masked load/store, gather/scatter)
 - Repository structure and submodule setup
 
 ### In Progress
 
-- **Phase 2.8+**: TinyGo LLVM backend — memory operations, varying switch/for-loop masking, scalar fallback
+- **Phase 2.8b+**: TinyGo LLVM backend — range-over-slice detection, varying switch/for-loop masking, scalar fallback
 
 ### Planned
 

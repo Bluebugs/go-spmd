@@ -2,7 +2,7 @@
 
 **Version**: 1.7
 **Last Updated**: 2026-02-13
-**Status**: Phase 1 Complete, Phase 2.0 stdlib porting complete, Phase 2.5 control flow masking complete
+**Status**: Phase 1 Complete, Phase 2.0 stdlib porting complete, Phase 2.8 execution mask stack + vector memory ops complete
 
 ## Project Overview
 
@@ -687,13 +687,21 @@ Ported 10 `*_ext_spmd.go` files from types2 to go/types with full API translatio
 - [ ] Intercept `lanes.Rotate()` → `CreateShuffleVector` with rotated indices (deferred to Phase 2.7b)
 - [ ] Intercept `lanes.Swizzle()` → `CreateShuffleVector` with arbitrary indices (deferred to Phase 2.7b)
 
-### 2.8 Memory Operations
+### 2.8 Memory Operations ✅ COMPLETED
 
-- [ ] Implement `SPMDLoad`: vector load from contiguous memory
-- [ ] Implement `SPMDStore`: vector store to contiguous memory
-- [ ] Implement `SPMDMaskedLoad/MaskedStore`: conditional vector loads/stores
-- [ ] Handle `SPMDGather/Scatter`: indirect vector memory access
-- [ ] Array indexing with varying indices → gather/scatter pattern
+- [x] Implement execution mask stack (`spmdPushMask`/`spmdPopMask`/`spmdCurrentMask`) for correct stores in varying conditions
+- [x] Implement mask transitions at block boundaries (pushThen/swapElse/pop) via `spmdMaskTransitions` map
+- [x] Implement contiguous access detection for `data[i]` where `i` is SPMD loop iter phi
+- [x] Implement `spmdMaskedLoad`: `llvm.masked.load` for contiguous vector loads
+- [x] Implement `spmdMaskedStore`: `llvm.masked.store` for contiguous vector stores
+- [x] Implement `spmdMaskedGather`: `llvm.masked.gather` for non-contiguous (vector-of-pointers) loads
+- [x] Implement `spmdMaskedScatter`: `llvm.masked.scatter` for non-contiguous stores
+- [x] Handle array/slice indexing with varying indices → contiguous scalar GEP path + gather/scatter fallback
+- [x] Save scalar iter value before override for contiguous GEP computation
+- [x] Skip bounds checks for contiguous SPMD access (tail mask protects)
+- [x] 6 new tests (mask stack, masked load/store intrinsics, mask transitions, contiguous info, mask AND)
+
+**Deferred to Phase 2.8b**: Range-over-slice loop detection (`rangeindex.*` SSA pattern) — needed for ~42% of PoC examples that use `range slice` instead of `range N`
 
 ### 2.9 Scalar Fallback Mode
 
@@ -893,10 +901,11 @@ Ported 10 `*_ext_spmd.go` files from types2 to go/types with full API translatio
   - 2.5: ✅ Control flow masking — varying if/else linearization + phi→select (3 files, 4 tests)
   - 2.6: ✅ SPMD function call handling — mask param in decl/type/call/entry (5 files, 2 tests/9 cases)
   - 2.7: ✅ lanes/reduce builtin interception — 6 lanes + 13 reduce builtins (3 files, 9 tests/32 cases)
+  - 2.8: ✅ Execution mask stack + vector memory operations (3 files, 6 tests)
 - **Phase 3**: ❌ Not Started
 
-**Last Completed**: Phase 2.7 - lanes/reduce builtin interception (2026-02-13)
-**Next Action**: Phase 2.8 - Memory operations (vector load/store, gather/scatter)
+**Last Completed**: Phase 2.8 - Execution mask stack + vector memory operations (2026-02-13)
+**Next Action**: Phase 2.8b - Range-over-slice loop detection, or Phase 2.9 - Scalar fallback mode
 
 ### Recent Major Achievements (Phase 1.5 Extensions)
 

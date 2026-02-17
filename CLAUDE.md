@@ -985,13 +985,19 @@ Go frontend implementation (Phase 1) is complete with 53 commits on the `spmd` b
      - Implemented: 6 lanes builtins (Index, Count, Broadcast, ShiftLeft, ShiftRight, From) + 13 reduce builtins (Add, Mul, All, Any, Max, Min, Or, And, Xor, From, Count, FindFirstSet, Mask)
      - Key insight: LLVM float reductions (`fadd`/`fmul`) take extra start value parameter (0.0 for add, 1.0 for mul). Signed/unsigned dispatch for `smax`/`umax`/`fmax`. `fmax`/`fmin` are correct for Go semantics (IEEE maxNum, non-NaN propagating).
      - Deferred: `lanes.Rotate`, `lanes.Swizzle`, `lanes.FromConstrained`, `lanes.ToConstrained`
-   - **Phase 2.8-2.10: TinyGo Compiler Work (remaining)**:
+   - **Phase 2.8: COMPLETED** — Execution mask stack + vector memory operations
+     - `compiler/spmd.go`: `spmdMaskTransition` + `spmdContiguousInfo` types, mask stack ops (`spmdPushMask`/`spmdPopMask`/`spmdCurrentMask`), 4 LLVM intrinsic helpers (`spmdMaskedLoad`/`spmdMaskedStore`/`spmdMaskedGather`/`spmdMaskedScatter`), `spmdContiguousIndexAddr()`, `scalarIterVal` on `spmdActiveLoop`
+     - `compiler/compiler.go`: 3 new builder fields (`spmdMaskStack`, `spmdMaskTransitions`, `spmdContiguousPtr`), mask transition application in DomPreorder loop, mask stack initialization at body prologue, contiguous detection in `*ssa.IndexAddr`, contiguous load in `token.MUL` UnOp + gather fallback, contiguous store in `*ssa.Store` + scatter fallback
+     - `compiler/spmd_llvm_test.go`: 6 new tests (mask stack, masked load/store intrinsics, mask transitions, contiguous info, mask AND)
+     - Key insight: Phase 2.5 linearization is correct for value computation but wrong for side effects (stores) — both branches always execute, so stores write for ALL lanes. Mask stack fixes this by tracking active lanes through nested if/else. Contiguous `data[i]` uses scalar GEP + masked load/store; non-contiguous uses gather/scatter fallback.
+     - Deferred to Phase 2.8b: Range-over-slice loop detection (`rangeindex.*` SSA pattern) — needed for ~42% of PoC examples
+   - **Phase 2.9-2.10: TinyGo Compiler Work (remaining)**:
      - TinyGo uses `golang.org/x/tools/go/ssa` (NOT Go's `cmd/compile/internal/ssa`)
      - LLVM auto-vectorizes: `CreateAdd(<4 x i32>, <4 x i32>)` → WASM `v128.add`
-     - Missing: varying switch/for-loop masking, memory operations, scalar fallback mode
+     - Missing: range-over-slice detection (Phase 2.8b), varying switch/for-loop masking, scalar fallback mode
 8. **Phase 3: NOT STARTED** - Validation and dual-mode testing
 
-Next priority: Phase 2.8 - Memory operations (vector load/store, gather/scatter)
+Next priority: Phase 2.8b - Range-over-slice loop detection, or Phase 2.9 - Scalar fallback mode
 
 ## Proof of Concept Success Criteria
 
