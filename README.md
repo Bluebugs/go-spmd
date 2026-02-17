@@ -224,17 +224,20 @@ This is a proof-of-concept implementation with the following status:
 - **Phase 2.0d**: SPMD metadata extraction in TinyGo compiler (first TinyGo modification)
 - **Phase 2.1**: GOEXPERIMENT support + auto-SIMD128 for WASM targets
 - **Phase 2.2**: LLVM vector type generation (`lanes.Varying[T]` → `<N x T>` vector types)
+- **Phase 2.3**: SPMD loop lowering (lane indices, tail mask, +laneCount increment)
+- **Phase 2.5**: Control flow masking (varying if/else CFG linearization, phi-to-select)
+- **Phase 2.6**: SPMD function call handling (mask param in declarations, types, calls, entry)
+- **Phase 2.7**: lanes/reduce builtin interception (6 lanes + 13 reduce builtins → LLVM intrinsics)
 - Repository structure and submodule setup
 
 ### In Progress
 
-- **Phase 2.3+**: TinyGo LLVM backend — lanes/reduce call interception, SPMD loop lowering
+- **Phase 2.8+**: TinyGo LLVM backend — memory operations, varying switch/for-loop masking, scalar fallback
 
 ### Planned
 
-- WASM SIMD128 instruction generation
 - Dual-mode compilation (SIMD + scalar fallback)
-- Cross-lane communication primitives
+- Cross-lane communication primitives (`lanes.Rotate`, `lanes.Swizzle`)
 - Performance optimization passes
 - Complete test suite with wasmer-go runtime validation
 

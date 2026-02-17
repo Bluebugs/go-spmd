@@ -659,22 +659,33 @@ Ported 10 `*_ext_spmd.go` files from types2 to go/types with full API translatio
 - [x] Skip mask for exported SPMD functions (defensive, type checker forbids them)
 - [x] Tests: `TestSPMDMaskType` (5 cases), `TestSPMDCallMaskAllTrue` (4 cases)
 
-### 2.7 lanes/reduce Builtin Implementation
+### 2.7 lanes/reduce Builtin Implementation — COMPLETED
 
-**Key Pattern**: `compiler/intrinsics.go` (existing LLVM intrinsic wrappers)
+**Key Files**: `compiler/spmd.go`, `compiler/compiler.go`, `compiler/spmd_llvm_test.go`
 
-- [ ] Intercept `lanes.Index()` → generate lane index vector constant `<0, 1, 2, 3>`
-- [ ] Intercept `lanes.Count[T]()` → generate compile-time constant (e.g., 4 for i32 on SIMD128)
-- [ ] Intercept `lanes.Broadcast()` → `CreateShuffleVector` or `CreateVectorSplat`
-- [ ] Intercept `lanes.Rotate()` → `CreateShuffleVector` with rotated indices
-- [ ] Intercept `lanes.Swizzle()` → `CreateShuffleVector` with arbitrary indices
-- [ ] Intercept `lanes.ShiftLeft/ShiftRight()` → `CreateShuffleVector` with shifted indices
-- [ ] Intercept `reduce.Add()` → LLVM horizontal add reduction intrinsic
-- [ ] Intercept `reduce.All()` → vector `and` reduction + extract
-- [ ] Intercept `reduce.Any()` → vector `or` reduction + extract
-- [ ] Intercept `reduce.Max/Min()` → LLVM horizontal max/min reduction
-- [ ] Intercept `reduce.Or/And/Xor()` → LLVM bitwise reduction intrinsics
-- [ ] Intercept `reduce.From()` → extract vector elements to array/slice
+- [x] Intercept `lanes.Index()` → reuse `spmdLaneOffsetConst()` lane index vector constant `<0, 1, 2, ..., N-1>`
+- [x] Intercept `lanes.Count[T]()` → compile-time constant (e.g., 4 for i32 on SIMD128)
+- [x] Intercept `lanes.Broadcast[T]()` → `CreateExtractElement` + `splatScalar()`
+- [x] Intercept `lanes.ShiftLeft[T]()` → `CreateShl` (element-wise vector shift)
+- [x] Intercept `lanes.ShiftRight[T]()` → `CreateAShr`/`CreateLShr` (signed-aware element-wise shift)
+- [x] Intercept `lanes.From[T]()` → extract ptr from slice, `CreateLoad(vecType, ptr)` (unmasked vector load)
+- [x] Intercept `reduce.Add[T]()` → `llvm.vector.reduce.add` / `llvm.vector.reduce.fadd` intrinsic
+- [x] Intercept `reduce.Mul[T]()` → `llvm.vector.reduce.mul` / `llvm.vector.reduce.fmul` intrinsic
+- [x] Intercept `reduce.All()` → bitcast `<N x i1>` to `iN`, `icmp eq iN %val, -1`
+- [x] Intercept `reduce.Any()` → reuse `spmdVectorAnyTrue()` (bitcast + `icmp ne`)
+- [x] Intercept `reduce.Max[T]()` → `llvm.vector.reduce.smax`/`umax`/`fmax` (signed-aware dispatch)
+- [x] Intercept `reduce.Min[T]()` → `llvm.vector.reduce.smin`/`umin`/`fmin` (signed-aware dispatch)
+- [x] Intercept `reduce.Or[T]()` → `llvm.vector.reduce.or` intrinsic
+- [x] Intercept `reduce.And[T]()` → `llvm.vector.reduce.and` intrinsic
+- [x] Intercept `reduce.Xor[T]()` → `llvm.vector.reduce.xor` intrinsic
+- [x] Intercept `reduce.From[T]()` → extract elements to stack alloca → slice triple `{ptr, N, N}`
+- [x] Intercept `reduce.Count()` → bitcast `<N x i1>` to `iN`, `llvm.ctpop.iN`, zext to int
+- [x] Intercept `reduce.FindFirstSet()` → bitcast `<N x i1>` to `iN`, `llvm.cttz.iN`, zext to int
+- [x] Intercept `reduce.Mask()` → bitcast `<N x i1>` to `iN`, zext to int
+- [x] New helpers: `spmdVectorTypeSuffix()`, `spmdCallVectorReduce()`, `spmdCallVectorReduceFloat()`, `spmdIsSignedInt()`, `spmdIsFloat()`
+- [x] Tests: 9 new tests/32 cases (vector type suffix, vector reduce, float reduce, reduce all, reduce count, lanes index, lanes broadcast, is-signed-int, is-float)
+- [ ] Intercept `lanes.Rotate()` → `CreateShuffleVector` with rotated indices (deferred to Phase 2.7b)
+- [ ] Intercept `lanes.Swizzle()` → `CreateShuffleVector` with arbitrary indices (deferred to Phase 2.7b)
 
 ### 2.8 Memory Operations
 
@@ -867,7 +878,7 @@ Ported 10 `*_ext_spmd.go` files from types2 to go/types with full API translatio
     - 1.10j: ✅ lanes/reduce builtin call interception (16 functions -> SPMD opcodes, 7 deferred)
     - 1.10k: ❌ Remaining SSA integration (constrained varying)
     - 1.10L: ✅ Fix pre-existing all.bash failures (6 test suites)
-- **Phase 2**: 🚧 In Progress (stdlib porting complete, first TinyGo compiler modification done)
+- **Phase 2**: 🚧 In Progress (stdlib porting complete, TinyGo compiler through Phase 2.7)
   - TinyGo architecture explored and documented
   - Critical finding: TinyGo uses `golang.org/x/tools/go/ssa` (not `cmd/compile` SSA)
   - Critical finding: `go/parser`, `go/ast`, `go/types` lack SPMD support (must be ported first)
@@ -880,10 +891,12 @@ Ported 10 `*_ext_spmd.go` files from types2 to go/types with full API translatio
   - 2.2: ✅ LLVM vector type generation for lanes.Varying[T] (3 files, 6 tests/34 cases)
   - 2.3: ✅ SPMD loop lowering for go for range loops (3 files, 4 tests/14 cases)
   - 2.5: ✅ Control flow masking — varying if/else linearization + phi→select (3 files, 4 tests)
+  - 2.6: ✅ SPMD function call handling — mask param in decl/type/call/entry (5 files, 2 tests/9 cases)
+  - 2.7: ✅ lanes/reduce builtin interception — 6 lanes + 13 reduce builtins (3 files, 9 tests/32 cases)
 - **Phase 3**: ❌ Not Started
 
-**Last Completed**: Phase 2.5 - Control flow masking for varying if/else (2026-02-13)
-**Next Action**: Phase 2.6 - SPMD function call handling (or Phase 2.7 - lanes/reduce builtin implementation)
+**Last Completed**: Phase 2.7 - lanes/reduce builtin interception (2026-02-13)
+**Next Action**: Phase 2.8 - Memory operations (vector load/store, gather/scatter)
 
 ### Recent Major Achievements (Phase 1.5 Extensions)
 

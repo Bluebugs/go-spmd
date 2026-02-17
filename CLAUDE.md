@@ -126,7 +126,7 @@ Before TinyGo can compile any SPMD code, the standard library toolchain must be 
 - SPMD loop lowering: lane indices, tail mask, +laneCount increment — DONE (Phase 2.3)
 - Handle varying if/else via CFG linearization and LLVM select instructions — DONE (Phase 2.5)
 - Handle SPMD function call mask insertion — DONE (Phase 2.6)
-- Intercept lanes/reduce function calls and lower to LLVM vector intrinsics — TODO
+- Intercept lanes/reduce function calls and lower to LLVM vector intrinsics — DONE (Phase 2.7)
 - Key files: `compiler/compiler.go` (getLLVMType, createBinOp, createExpr, createFunction, *ssa.If/*ssa.Jump/*ssa.Phi), `compiler/spmd.go`, `compiler/symbol.go`, `compiler/func.go`
 
 ## SSA Generation Strategy (Following ISPC's Approach)
@@ -978,13 +978,20 @@ Go frontend implementation (Phase 1) is complete with 53 commits on the `spmd` b
      - `compiler/compiler.go`: `spmdEntryMask` field on builder, mask extraction in `createFunctionStart()`, mask insertion in `createFunctionCall()` with exported function guard
      - `compiler/spmd_llvm_test.go`: 2 new tests (mask type computation, all-ones mask creation) — 9 cases total
      - Key insight: Mask param must be consistently present/absent across declaration (`getFunction`), type (`getLLVMFunctionType`), definition (`createFunctionStart`), and call site (`createFunctionCall`). Exported SPMD functions are forbidden by type checker.
-   - **Phase 2.7-2.10: TinyGo Compiler Work (remaining)**:
+   - **Phase 2.7: COMPLETED** — lanes/reduce builtin interception
+     - `compiler/spmd.go`: `spmdVectorTypeSuffix()`, `spmdCallVectorReduce()`, `spmdCallVectorReduceFloat()`, `spmdIsSignedInt()`, `spmdIsFloat()`, `createLanesBuiltin()`, `createReduceBuiltin()`
+     - `compiler/compiler.go`: 2 new switch cases in `createFunctionCall()` — `lanes.*` and `reduce.*` prefix matching before SPMD mask insertion
+     - `compiler/spmd_llvm_test.go`: 9 new tests (vector type suffix, vector reduce, float reduce, reduce all, reduce count, lanes index, lanes broadcast, is-signed-int, is-float) — 32 cases total
+     - Implemented: 6 lanes builtins (Index, Count, Broadcast, ShiftLeft, ShiftRight, From) + 13 reduce builtins (Add, Mul, All, Any, Max, Min, Or, And, Xor, From, Count, FindFirstSet, Mask)
+     - Key insight: LLVM float reductions (`fadd`/`fmul`) take extra start value parameter (0.0 for add, 1.0 for mul). Signed/unsigned dispatch for `smax`/`umax`/`fmax`. `fmax`/`fmin` are correct for Go semantics (IEEE maxNum, non-NaN propagating).
+     - Deferred: `lanes.Rotate`, `lanes.Swizzle`, `lanes.FromConstrained`, `lanes.ToConstrained`
+   - **Phase 2.8-2.10: TinyGo Compiler Work (remaining)**:
      - TinyGo uses `golang.org/x/tools/go/ssa` (NOT Go's `cmd/compile/internal/ssa`)
      - LLVM auto-vectorizes: `CreateAdd(<4 x i32>, <4 x i32>)` → WASM `v128.add`
-     - Missing: lanes/reduce call interception, varying switch/for-loop masking
+     - Missing: varying switch/for-loop masking, memory operations, scalar fallback mode
 8. **Phase 3: NOT STARTED** - Validation and dual-mode testing
 
-Next priority: Phase 2.7 - lanes/reduce builtin implementation
+Next priority: Phase 2.8 - Memory operations (vector load/store, gather/scatter)
 
 ## Proof of Concept Success Criteria
 
