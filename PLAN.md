@@ -1,8 +1,8 @@
 # SPMD Implementation Plan for Go + TinyGo
 
-**Version**: 1.7
-**Last Updated**: 2026-02-13
-**Status**: Phase 1 Complete, Phase 2.0 stdlib porting complete, Phase 2.8 execution mask stack + vector memory ops complete
+**Version**: 1.8
+**Last Updated**: 2026-02-17
+**Status**: Phase 1 Complete, Phase 2.0 stdlib porting complete, Phase 2.8b range-over-slice loop detection complete
 
 ## Project Overview
 
@@ -701,7 +701,20 @@ Ported 10 `*_ext_spmd.go` files from types2 to go/types with full API translatio
 - [x] Skip bounds checks for contiguous SPMD access (tail mask protects)
 - [x] 6 new tests (mask stack, masked load/store intrinsics, mask transitions, contiguous info, mask AND)
 
-**Deferred to Phase 2.8b**: Range-over-slice loop detection (`rangeindex.*` SSA pattern) — needed for ~42% of PoC examples that use `range slice` instead of `range N`
+**Deferred to Phase 2.8b**: ~~Range-over-slice loop detection~~ — **COMPLETED** (see 2.8b below)
+
+### 2.8b Range-Over-Slice Loop Detection ✅ COMPLETED
+
+- [x] Extend `spmdActiveLoop` struct with rangeindex fields (`isRangeIndex`, `bodyIterValue`, `initEdgeIndex`)
+- [x] Add second detection pass in `analyzeSPMDLoops()` for `rangeindex.body` blocks
+- [x] Detect `"rangeindex"` phi in loop block (not body), find `incrBinOp` and bounds check
+- [x] Use body block instruction positions for SPMD loop membership (phi is in loop block)
+- [x] Register both `loopPhi` and `incrBinOp` in `activeLoops` map for contiguous detection
+- [x] Modify `emitSPMDBodyPrologue()` to use `bodyIterValue` (incrBinOp for rangeindex, iterPhi for rangeint)
+- [x] Add rangeindex body prologue trigger at block entry in `compiler.go` (body has no iter phi)
+- [x] Implement phi init override: change -1 to -laneCount on entry edge for rangeindex loops
+- [x] 3 new tests (rangeindex fields, body iter value, phi init override)
+- [x] All existing Phase 2.8 infrastructure (contiguous detection, masked load/store, gather/scatter, mask stack) works automatically
 
 ### 2.9 Scalar Fallback Mode
 
@@ -902,10 +915,11 @@ Ported 10 `*_ext_spmd.go` files from types2 to go/types with full API translatio
   - 2.6: ✅ SPMD function call handling — mask param in decl/type/call/entry (5 files, 2 tests/9 cases)
   - 2.7: ✅ lanes/reduce builtin interception — 6 lanes + 13 reduce builtins (3 files, 9 tests/32 cases)
   - 2.8: ✅ Execution mask stack + vector memory operations (3 files, 6 tests)
+  - 2.8b: ✅ Range-over-slice loop detection (3 files, 3 tests)
 - **Phase 3**: ❌ Not Started
 
-**Last Completed**: Phase 2.8 - Execution mask stack + vector memory operations (2026-02-13)
-**Next Action**: Phase 2.8b - Range-over-slice loop detection, or Phase 2.9 - Scalar fallback mode
+**Last Completed**: Phase 2.8b - Range-over-slice SPMD loop detection (2026-02-17)
+**Next Action**: Phase 2.9 - Scalar fallback mode, or varying switch/for-loop masking
 
 ### Recent Major Achievements (Phase 1.5 Extensions)
 
