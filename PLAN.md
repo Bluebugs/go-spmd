@@ -1,8 +1,8 @@
 # SPMD Implementation Plan for Go + TinyGo
 
-**Version**: 2.0
+**Version**: 2.1
 **Last Updated**: 2026-02-18
-**Status**: Phase 1 Complete, Phase 2.0 stdlib porting complete, Phase 2.8b complete, x-tools patched for SPMDType hashing, E2E integration testing in progress
+**Status**: Phase 1 Complete, Phase 2.0 stdlib porting complete, Phase 2.8b complete, x-tools patched for SPMDType hashing + go/ssa substitution, E2E infrastructure working (6/32 tests passing)
 
 ## Project Overview
 
@@ -719,6 +719,20 @@ Ported 10 `*_ext_spmd.go` files from types2 to go/types with full API translatio
 - [x] 3 new tests (rangeindex fields, body iter value, phi init override)
 - [x] All existing Phase 2.8 infrastructure (contiguous detection, masked load/store, gather/scatter, mask stack) works automatically
 
+### E2E Test Infrastructure ✅ COMPLETED
+
+- [x] Fix GOEXPERIMENT passthrough in `loader/list.go` (was stripping `spmd` from `go list` subprocess)
+- [x] Add `*types.SPMDType` support to `x-tools-spmd/go/ssa/subst.go` (generic instantiation for reduce/lanes)
+- [x] Create Node.js WASI WASM runner (`test/e2e/run-wasm.mjs`) with asyncify stubs
+- [x] Create progressive E2E test script (`test/e2e/spmd-e2e-test.sh`) with 7 test levels
+- [x] Validate 6 core programs compile + run correctly (stores, conditionals, functions, reduce, lanes, varying vars)
+- [x] Validate all 11 illegal examples correctly rejected by type checker
+
+**E2E Test Results (32 tests)**:
+- 6 PASS: L0_store (12), L0_cond (4), L0_func (12), L1_reduce_add (360), L2_lanes_index (6), L3_varying_var (28)
+- 11 REJECT OK: All illegal examples correctly rejected
+- 15 COMPILE FAIL: createConvert panic (2), Varying[[]T] type (3), constrained Varying[T,N] (4), test program issues (4), other (2)
+
 ### 2.9 Scalar Fallback Mode
 
 - [ ] When `-simd=false`, map `lanes.Varying[T]` to scalar loops instead of vectors
@@ -919,10 +933,11 @@ Ported 10 `*_ext_spmd.go` files from types2 to go/types with full API translatio
   - 2.7: ✅ lanes/reduce builtin interception — 6 lanes + 13 reduce builtins (3 files, 9 tests/32 cases)
   - 2.8: ✅ Execution mask stack + vector memory operations (3 files, 6 tests)
   - 2.8b: ✅ Range-over-slice loop detection (3 files, 3 tests)
+  - E2E: ✅ Test infrastructure (GOEXPERIMENT fix, go/ssa SPMDType, Node.js runner, 32-test script)
 - **Phase 3**: ❌ Not Started
 
-**Last Completed**: Patched x-tools for SPMDType hash support in typeutil.Map (2026-02-18)
-**Next Action**: Phase 2.9 - Scalar fallback mode, or varying switch/for-loop masking
+**Last Completed**: E2E test infrastructure with 6 passing SPMD→WASM→execute programs (2026-02-18)
+**Next Action**: Fix createConvert panic for SPMDType, or fix Varying[[]T] range-over-slice type bug
 
 ### Recent Major Achievements (Phase 1.5 Extensions)
 

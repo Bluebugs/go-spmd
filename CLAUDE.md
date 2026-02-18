@@ -9,7 +9,7 @@ This workspace implements Single Program Multiple Data (SPMD) support for Go, si
 - **Frontend**: Full lexer, parser, and type checker support for SPMD constructs
 - **Backend**: TinyGo LLVM integration with dual code generation: SIMD128 and scalar fallback
 - **Standard Library**: `lanes` and `reduce` packages with all functions needed for examples
-- **Testing**: wasmer-go runtime execution with SIMD detection and performance benchmarking
+- **Testing**: Node.js WASI runtime execution (test/e2e/), with planned wasmer-go integration and performance benchmarking
 - **Goal**: Compile ALL examples to both SIMD and scalar WASM, enabling browser-side SIMD detection and performance comparison
 
 ## Key Concepts
@@ -997,13 +997,26 @@ Go frontend implementation (Phase 1) is complete with 53 commits on the `spmd` b
      - `compiler/compiler.go`: Rangeindex body prologue trigger at block entry (body has no iter phi), phi init override (-1 to -laneCount on entry edge)
      - `compiler/spmd_llvm_test.go`: 3 new tests (rangeindex fields, body iter value, phi init override)
      - Key insight: rangeindex phi is in loop block (not body), starts at -1 (pre-increment), body uses `incr` BinOp as index. Both `loopPhi` and `incrBinOp` registered in `activeLoops` for contiguous detection. All Phase 2.8 infrastructure (masked load/store, gather/scatter, mask stack) works automatically.
+   - **E2E Infrastructure: COMPLETED** — GOEXPERIMENT passthrough fix + go/ssa SPMDType support + Node.js test runner
+     - `tinygo/loader/list.go`: Fixed GOEXPERIMENT stripping that prevented `lanes.go`/`reduce.go` from being visible to `go list`
+     - `x-tools-spmd/go/ssa/subst.go`: Added `*types.SPMDType` cases to `subster.typ()` and `reaches()` for generic instantiation
+     - `test/e2e/run-wasm.mjs`: Node.js WASI WASM runner with asyncify stubs for TinyGo
+     - `test/e2e/spmd-e2e-test.sh`: Progressive 7-level E2E test script (32 tests: 6 pass, 11 reject OK, 15 compile fail)
+   - **E2E Test Results** (6 working programs):
+     - L0_store (array stores), L0_cond (varying if/else), L0_func (SPMD function calls with mask)
+     - L1_reduce_add (reduce.Add builtin), L2_lanes_index (lanes.Index builtin), L3_varying_var (varying accumulator + reduce)
+   - **Known E2E Failures** (categorized):
+     - createConvert panic: SPMDType in ssa.Convert/ChangeType (2 programs)
+     - Varying[[]T] type bug: range-over-slice wraps element type incorrectly (3 programs)
+     - Constrained Varying[T,N]: TinyGo go/parser doesn't handle range[N] (4 programs)
+     - Test program issues: undefined functions, wrong API (4 programs)
    - **Phase 2.9-2.10: TinyGo Compiler Work (remaining)**:
      - TinyGo uses `golang.org/x/tools/go/ssa` (NOT Go's `cmd/compile/internal/ssa`)
      - LLVM auto-vectorizes: `CreateAdd(<4 x i32>, <4 x i32>)` → WASM `v128.add`
-     - Missing: varying switch/for-loop masking, lanes.Rotate/Swizzle, scalar fallback mode
+     - Missing: varying switch/for-loop masking, lanes.Rotate/Swizzle, scalar fallback mode, createConvert SPMDType handling
 8. **Phase 3: NOT STARTED** - Validation and dual-mode testing
 
-Next priority: Phase 2.9 - Scalar fallback mode, or varying switch/for-loop masking
+Next priority: Fix createConvert panic for SPMDType, or fix Varying[[]T] range-over-slice type bug
 
 ## Proof of Concept Success Criteria
 
