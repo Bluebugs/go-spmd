@@ -120,7 +120,8 @@ func main() {
 	fmt.Println("\n--- Using Non-SPMD Results in SPMD Context ---")
 	baseData := createConstantVarying()  // Non-SPMD function result
 
-	go for _ := range 8 {
+	go for i := range 8 {
+		_ = i // suppress unused variable
 		// Use the non-SPMD result in SPMD context
 		laneSpecific := spmdFunction(baseData)  // SPMD function call
 		combined := laneSpecific + lanes.Index()  // Use SPMD context function
@@ -139,6 +140,7 @@ func main() {
 
 	// Can call them from anywhere, including SPMD context
 	go for i := range 4 {
+		_ = i // suppress unused variable
 		// All these calls work because functions have no varying parameters
 		local1 := createConstantVarying()
 		local2 := uniformToVarying(int(lanes.Index()))  // uniform parameter OK
