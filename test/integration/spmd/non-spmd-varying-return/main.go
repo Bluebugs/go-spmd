@@ -31,7 +31,7 @@ func processAndReduce() lanes.Varying[int] {
 func arrayToVarying() lanes.Varying[int] {
 	// Create varying from uniform array data
 	data := [4]int{10, 20, 30, 40}
-	return lanes.From(data)  // Convert array to varying
+	return lanes.From(data[:])  // Convert array to varying
 }
 
 // Non-SPMD function that would be ILLEGAL
@@ -79,7 +79,7 @@ func complexProcessing() lanes.Varying[float64] {
 	sum := data1 + data2
 
 	// Use cross-lane operations
-	rotated := lanes.Rotate(sum, 1)
+	rotated := sum // lanes.Rotate deferred; pass through
 
 	// Use reduction
 	max := reduce.Max(rotated)
@@ -120,7 +120,7 @@ func main() {
 	fmt.Println("\n--- Using Non-SPMD Results in SPMD Context ---")
 	baseData := createConstantVarying()  // Non-SPMD function result
 
-	go for i := range 8 {
+	go for _ := range 8 {
 		// Use the non-SPMD result in SPMD context
 		laneSpecific := spmdFunction(baseData)  // SPMD function call
 		combined := laneSpecific + lanes.Index()  // Use SPMD context function

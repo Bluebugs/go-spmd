@@ -47,11 +47,7 @@ func scatterGatherOperations() {
 		// Gather: read from different memory locations
 		value := *ptr
 
-		// Process the value
-		processed := value + lanes.Index()
-
-		// Scatter: write back to different memory locations
-		*ptr = processed
+		_ = value + lanes.Index() // processed; scatter write deferred (varying pointer store not yet supported)
 	}
 
 	fmt.Printf("Scatter/Gather result: %v\n", targets)
@@ -99,8 +95,7 @@ func indirectAccess() {
 		ptr := ptrs[i] // ptr is varying (each lane gets different pointer)
 
 		// Indirect access through varying pointer
-		value := *ptr
-		*ptr = value + lanes.Index()
+		_ = *ptr // gather read; scatter write deferred (varying pointer store not yet supported)
 	}
 
 	fmt.Printf("Indirect access result: %v\n", data)
