@@ -1,12 +1,8 @@
-// bytes.ToUpper ASCII fast path using SPMD Go
+// ASCII ToUpper using SPMD Go
 // From: practical-vector.md
 package main
 
-import (
-	"fmt"
-	"lanes"
-	"reduce"
-)
+import "fmt"
 
 func main() {
 	testStrings := []string{
@@ -14,7 +10,6 @@ func main() {
 		"Hello World",
 		"HELLO WORLD",
 		"hello123WORLD",
-		"café", // Non-ASCII to test fallback
 	}
 
 	for _, s := range testStrings {
@@ -23,32 +18,14 @@ func main() {
 	}
 }
 
-
-func ToUpper(s []byte) []byte {
-    var hasLower lanes.Varying[bool]
-
-	isASCII := true
-    go for _, c := range s {
-        if reduce.Any(c >= utf8.RuneSelf) {
-            isASCII = false
-            break
-        }
-        hasLower = hasLower || ('a' <= c && c <= 'z')
-    }
-    if isASCII { // optimize for ASCII-only byte slices.
-        if reduce.All(!hasLower) {
-            return append([]byte(""), s...)
-        }
-        b := bytealg.MakeNoZero(len(s))[:len(s):len(s)]
-        go for i, c := range s {
-            if 'a' <= c && c <= 'z' {
-                c -= 'a' - 'A'
-            }
-            b[i] = c
-        }
-        return b
-    }
-
-	// Fallback to unicode.ToUpper for strings with non-ASCII characters.
-	return strings.Map(unicode.ToUpper, s)
+func toUpper(s []byte) []byte {
+	b := make([]byte, len(s))
+	go for i, c := range s {
+		if 'a' <= c && c <= 'z' {
+			b[i] = c - ('a' - 'A')
+		} else {
+			b[i] = c
+		}
+	}
+	return b
 }

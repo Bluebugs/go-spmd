@@ -4,8 +4,6 @@ package main
 
 import (
 	"fmt"
-	"lanes"
-	"reduce"
 )
 
 func main() {
