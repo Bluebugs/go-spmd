@@ -153,6 +153,15 @@ func (subst *subster) typ(t types.Type) (res types.Type) {
 	case *opaqueType:
 		return t // opaque types are never substituted
 
+	case *types.SPMDType:
+		if r := subst.typ(t.Elem()); r != t.Elem() {
+			if t.IsConstrained() {
+				return types.NewVaryingConstrained(r, t.Constraint())
+			}
+			return types.NewVarying(r)
+		}
+		return t
+
 	default:
 		panic("unreachable")
 	}
@@ -635,6 +644,8 @@ func reaches(t types.Type, c map[types.Type]bool) (res bool) {
 		}
 	case *types.Named, *types.Alias:
 		return reaches(t.Underlying(), c)
+	case *types.SPMDType:
+		return reaches(t.Elem(), c)
 	default:
 		panic("unreachable")
 	}
