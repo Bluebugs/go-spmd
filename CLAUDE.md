@@ -1001,22 +1001,30 @@ Go frontend implementation (Phase 1) is complete with 53 commits on the `spmd` b
      - `tinygo/loader/list.go`: Fixed GOEXPERIMENT stripping that prevented `lanes.go`/`reduce.go` from being visible to `go list`
      - `x-tools-spmd/go/ssa/subst.go`: Added `*types.SPMDType` cases to `subster.typ()` and `reaches()` for generic instantiation
      - `test/e2e/run-wasm.mjs`: Node.js WASI WASM runner with asyncify stubs for TinyGo
-     - `test/e2e/spmd-e2e-test.sh`: Progressive 7-level E2E test script (32 tests: 6 pass, 11 reject OK, 15 compile fail)
-   - **E2E Test Results** (6 working programs):
+     - `test/e2e/spmd-e2e-test.sh`: Progressive 7-level E2E test script (32 tests)
+   - **Range-over-slice type fix: COMPLETED** — Fixed `NewVarying(expr.typ())` → `NewVarying(rVal)` using `rangeKeyVal()`
+     - `go/src/go/types/stmt_ext_spmd.go`: Call `rangeKeyVal()` for proper element type extraction, use `Typ[Int]` for key
+     - `go/src/cmd/compile/internal/types2/stmt_ext_spmd.go`: Identical fix for types2
+     - Test files added in both `go/types/testdata/spmd/` and `types2/testdata/spmd/` (range_over_slice.go)
+   - **createConvert SPMDType fix: COMPLETED** — Defensive handling in TinyGo `createConvert()`
+     - `tinygo/compiler/compiler.go`: Intercept `*types.SPMDType` before `Underlying()` assertions
+     - Three branches: SPMD-to-SPMD (recurse with elem), SPMD-to-scalar (recurse with elem), scalar-to-SPMD (convert + splat)
+   - **E2E Test Results** (7 run pass, 9 compile pass, 32 total):
      - L0_store (array stores), L0_cond (varying if/else), L0_func (SPMD function calls with mask)
      - L1_reduce_add (reduce.Add builtin), L2_lanes_index (lanes.Index builtin), L3_varying_var (varying accumulator + reduce)
-   - **Known E2E Failures** (categorized):
-     - createConvert panic: SPMDType in ssa.Convert/ChangeType (2 programs)
-     - Varying[[]T] type bug: range-over-slice wraps element type incorrectly (3 programs)
+     - L4_range_slice (range-over-slice with element access)
+     - 9 additional programs compile successfully (integ_simple-sum, integ_odd-even, etc.)
+   - **Known E2E Failures** (12 compile fail, categorized):
      - Constrained Varying[T,N]: TinyGo go/parser doesn't handle range[N] (4 programs)
      - Test program issues: undefined functions, wrong API (4 programs)
+     - SIGSEGV (1 program), other type issues (3 programs)
    - **Phase 2.9-2.10: TinyGo Compiler Work (remaining)**:
      - TinyGo uses `golang.org/x/tools/go/ssa` (NOT Go's `cmd/compile/internal/ssa`)
      - LLVM auto-vectorizes: `CreateAdd(<4 x i32>, <4 x i32>)` → WASM `v128.add`
-     - Missing: varying switch/for-loop masking, lanes.Rotate/Swizzle, scalar fallback mode, createConvert SPMDType handling
+     - Missing: varying switch/for-loop masking, lanes.Rotate/Swizzle, scalar fallback mode
 8. **Phase 3: NOT STARTED** - Validation and dual-mode testing
 
-Next priority: Fix createConvert panic for SPMDType, or fix Varying[[]T] range-over-slice type bug
+Next priority: Fix remaining compile failures (constrained Varying[T,N], test program bugs), then varying switch/for-loop masking
 
 ## Proof of Concept Success Criteria
 

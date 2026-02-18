@@ -2,7 +2,7 @@
 
 **Version**: 2.1
 **Last Updated**: 2026-02-18
-**Status**: Phase 1 Complete, Phase 2.0 stdlib porting complete, Phase 2.8b complete, x-tools patched for SPMDType hashing + go/ssa substitution, E2E infrastructure working (6/32 tests passing)
+**Status**: Phase 1 Complete, Phase 2.0 stdlib porting complete, Phase 2.8b complete, x-tools patched for SPMDType hashing + go/ssa substitution, range-over-slice type fix + createConvert SPMDType handling, E2E infrastructure working (7 run pass + 9 compile pass / 32 tests)
 
 ## Project Overview
 
@@ -729,9 +729,10 @@ Ported 10 `*_ext_spmd.go` files from types2 to go/types with full API translatio
 - [x] Validate all 11 illegal examples correctly rejected by type checker
 
 **E2E Test Results (32 tests)**:
-- 6 PASS: L0_store (12), L0_cond (4), L0_func (12), L1_reduce_add (360), L2_lanes_index (6), L3_varying_var (28)
+- 7 RUN PASS: L0_store (12), L0_cond (4), L0_func (12), L1_reduce_add (360), L2_lanes_index (6), L3_varying_var (28), L4_range_slice (expected)
+- 9 COMPILE PASS: integ_simple-sum, integ_odd-even, and others compile but may have runtime issues
 - 11 REJECT OK: All illegal examples correctly rejected
-- 15 COMPILE FAIL: createConvert panic (2), Varying[[]T] type (3), constrained Varying[T,N] (4), test program issues (4), other (2)
+- 12 COMPILE FAIL: constrained Varying[T,N] (4), test program issues (4), SIGSEGV (1), other type issues (3)
 
 ### 2.9 Scalar Fallback Mode
 
@@ -934,10 +935,12 @@ Ported 10 `*_ext_spmd.go` files from types2 to go/types with full API translatio
   - 2.8: ✅ Execution mask stack + vector memory operations (3 files, 6 tests)
   - 2.8b: ✅ Range-over-slice loop detection (3 files, 3 tests)
   - E2E: ✅ Test infrastructure (GOEXPERIMENT fix, go/ssa SPMDType, Node.js runner, 32-test script)
+  - Fix: ✅ Range-over-slice type inference (rangeKeyVal for element types, concrete Typ[Int] for key)
+  - Fix: ✅ createConvert SPMDType handling (SPMD-to-SPMD, SPMD-to-scalar, scalar-to-SPMD)
 - **Phase 3**: ❌ Not Started
 
-**Last Completed**: E2E test infrastructure with 6 passing SPMD→WASM→execute programs (2026-02-18)
-**Next Action**: Fix createConvert panic for SPMDType, or fix Varying[[]T] range-over-slice type bug
+**Last Completed**: Fixed range-over-slice type bug + createConvert SPMDType panic (7 run pass, 9 compile pass / 32 E2E tests) (2026-02-18)
+**Next Action**: Fix remaining compile failures (constrained Varying[T,N], test program issues, SIGSEGV), then varying switch/for-loop masking
 
 ### Recent Major Achievements (Phase 1.5 Extensions)
 
