@@ -128,7 +128,8 @@ Before TinyGo can compile any SPMD code, the standard library toolchain must be 
 - Handle SPMD function call mask insertion — DONE (Phase 2.6)
 - Intercept lanes/reduce function calls and lower to LLVM vector intrinsics — DONE (Phase 2.7)
 - Patched `x/tools` (`x-tools-spmd/`) so `typeutil.Map` can hash `*types.SPMDType` — DONE (SPMDType cases in hash/shallowHash, prime 9181, `go.mod` replace directive)
-- Key files: `compiler/compiler.go` (getLLVMType, createBinOp, createExpr, createFunction, *ssa.If/*ssa.Jump/*ssa.Phi), `compiler/spmd.go`, `compiler/symbol.go`, `compiler/func.go`
+- Constrained `Varying[T, N]` → `<N x T>` vector types with `spmdEffectiveLaneCount()` — DONE (Phase 2.8c)
+- Key files: `compiler/compiler.go` (getLLVMType, createBinOp, createExpr, createFunction, createConvert, *ssa.If/*ssa.Jump/*ssa.Phi), `compiler/spmd.go`, `compiler/symbol.go`, `compiler/func.go`, `compiler/interface.go`
 
 ## SSA Generation Strategy (Following ISPC's Approach)
 
@@ -997,6 +998,12 @@ Go frontend implementation (Phase 1) is complete with 53 commits on the `spmd` b
      - `compiler/compiler.go`: Rangeindex body prologue trigger at block entry (body has no iter phi), phi init override (-1 to -laneCount on entry edge)
      - `compiler/spmd_llvm_test.go`: 3 new tests (rangeindex fields, body iter value, phi init override)
      - Key insight: rangeindex phi is in loop block (not body), starts at -1 (pre-increment), body uses `incr` BinOp as index. Both `loopPhi` and `incrBinOp` registered in `activeLoops` for contiguous detection. All Phase 2.8 infrastructure (masked load/store, gather/scatter, mask stack) works automatically.
+   - **Phase 2.8c: COMPLETED** — Constrained Varying[T,N] backend support
+     - `compiler/spmd.go`: `spmdEffectiveLaneCount()` respects constraint N from `Varying[T, N]`, `arrayToVector()` converts `[N]T` to `<N x T>`, fixed `spmdMaskTypeFromSig()` to use effective lane count
+     - `compiler/compiler.go`: `makeLLVMType()` and `createDIType()` use `spmdEffectiveLaneCount()`, `createConvert()` array-to-SPMD path with bounds check
+     - `compiler/interface.go`: `getTypeCode()` uses `spmdEffectiveLaneCount()` for interface boxing
+     - `compiler/spmd_llvm_test.go`: 5 new tests (constrained lane count, effective lane count, array-to-vector, constrained const, constrained mask type)
+     - Key insight: Backend support is complete but 3 E2E programs using constrained types fail at go/parser level (`expected type, found 2`) because multi-arg index expressions in standalone type contexts aren't supported. Backend works correctly for constrained types that reach it.
    - **E2E Infrastructure: COMPLETED** — GOEXPERIMENT passthrough fix + go/ssa SPMDType support + Node.js test runner
      - `tinygo/loader/list.go`: Fixed GOEXPERIMENT stripping that prevented `lanes.go`/`reduce.go` from being visible to `go list`
      - `x-tools-spmd/go/ssa/subst.go`: Added `*types.SPMDType` cases to `subster.typ()` and `reaches()` for generic instantiation
@@ -1008,7 +1015,7 @@ Go frontend implementation (Phase 1) is complete with 53 commits on the `spmd` b
      - Test files added in both `go/types/testdata/spmd/` and `types2/testdata/spmd/` (range_over_slice.go)
    - **createConvert SPMDType fix: COMPLETED** — Defensive handling in TinyGo `createConvert()`
      - `tinygo/compiler/compiler.go`: Intercept `*types.SPMDType` before `Underlying()` assertions
-     - Three branches: SPMD-to-SPMD (recurse with elem), SPMD-to-scalar (recurse with elem), scalar-to-SPMD (convert + splat)
+     - Four branches: SPMD-to-SPMD (recurse with elem), SPMD-to-scalar (recurse with elem), array-to-SPMD (arrayToVector), scalar-to-SPMD (convert + splat)
    - **E2E Test Results** (7 run pass, 12 compile pass, 32 total):
      - L0_store (array stores), L0_cond (varying if/else), L0_func (SPMD function calls with mask)
      - L1_reduce_add (reduce.Add builtin), L2_lanes_index (lanes.Index builtin), L3_varying_var (varying accumulator + reduce)
@@ -1031,16 +1038,16 @@ Go frontend implementation (Phase 1) is complete with 53 commits on the `spmd` b
      - `tinygo/compiler/spmd_llvm_test.go`: 3 new test cases (narrower_wins, resize_vector_truncate, same_width_noop)
      - Fixes `to-upper` ICmp type mismatch: byte constants get 16 lanes (128/8) but loop effective lane count is 4 (128/32)
    - **Known E2E Failures** (9 compile fail, categorized):
-     - Constrained Varying[T,N]: TinyGo go/parser doesn't handle range[N] (4 programs)
-     - Compiler bugs: SIGSEGV on nested varying slices (1), SIGSEGV in spmd-call-contexts (1)
-     - Other: type casting issues (1), pointer-varying complex patterns (1), non-spmd-varying-return vector-in-scalar-context (1)
+     - Constrained Varying[T,N] parsing: go/parser doesn't handle multi-arg index in variable declarations (3 programs: type-casting-varying, varying-array-iteration, mandelbrot)
+     - Compiler bugs: SIGSEGV on nested varying slices (1: array-counting), SIGSEGV in spmd-call-contexts (1)
+     - Other: bit-counting untyped int in makeLLVMType (1), pointer-varying complex patterns (1), type-switch-varying constrained parsing (1), non-spmd-varying-return call param mismatch (1)
    - **Phase 2.9-2.10: TinyGo Compiler Work (remaining)**:
      - TinyGo uses `golang.org/x/tools/go/ssa` (NOT Go's `cmd/compile/internal/ssa`)
      - LLVM auto-vectorizes: `CreateAdd(<4 x i32>, <4 x i32>)` → WASM `v128.add`
      - Missing: varying switch/for-loop masking, lanes.Rotate/Swizzle, scalar fallback mode
 8. **Phase 3: NOT STARTED** - Validation and dual-mode testing
 
-Next priority: Fix remaining compiler bugs (SIGSEGV in array-counting/spmd-call-contexts, pointer-varying complex patterns), then varying switch/for-loop masking
+Next priority: Fix remaining compiler bugs (SIGSEGV in array-counting/spmd-call-contexts, bit-counting untyped int, pointer-varying complex patterns), then varying switch/for-loop masking
 
 ## Proof of Concept Success Criteria
 

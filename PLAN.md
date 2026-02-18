@@ -2,7 +2,7 @@
 
 **Version**: 2.1
 **Last Updated**: 2026-02-18
-**Status**: Phase 1 Complete, Phase 2.0 stdlib porting complete, Phase 2.8b complete, x-tools patched for SPMDType hashing + go/ssa substitution, range-over-slice type fix + createConvert SPMDType handling, SPMDType interface boxing + vector width mismatch fixes, E2E infrastructure working (7 run pass + 12 compile pass / 32 tests)
+**Status**: Phase 1 Complete, Phase 2.0 stdlib porting complete, Phase 2.8c complete, x-tools patched for SPMDType hashing + go/ssa substitution, range-over-slice type fix + createConvert SPMDType handling, SPMDType interface boxing + vector width mismatch fixes, constrained Varying[T,N] backend support, E2E infrastructure working (7 run pass + 12 compile pass / 32 tests)
 
 ## Project Overview
 
@@ -730,9 +730,22 @@ Ported 10 `*_ext_spmd.go` files from types2 to go/types with full API translatio
 
 **E2E Test Results (32 tests)**:
 - 7 RUN PASS: L0_store (12), L0_cond (4), L0_func (12), L1_reduce_add (360), L2_lanes_index (6), L3_varying_var (28), L4_range_slice (expected)
-- 10 COMPILE PASS: integ_simple-sum, integ_odd-even, integ_hex-encode, and others compile but may have runtime issues
+- 12 COMPILE PASS: integ_simple-sum, integ_odd-even, integ_hex-encode, integ_to-upper, integ_debug-varying, and others
 - 11 REJECT OK: All illegal examples correctly rejected
-- 11 COMPILE FAIL: constrained Varying[T,N] (4), compiler bugs (3: SIGSEGV on nested varying slices, ICmp type mismatch, SPMDType in getTypeCodeName), other issues (4: SIGSEGV, type casting, pointer-varying, inference)
+- 9 COMPILE FAIL: constrained Varying[T,N] parsing (3: type-casting-varying, varying-array-iteration, mandelbrot — go/parser doesn't handle multi-arg index in variable declarations), compiler bugs (2: SIGSEGV on nested varying slices, SIGSEGV spmd-call-contexts), other issues (4: bit-counting untyped int, pointer-varying complex patterns, type-switch-varying constrained parsing, non-spmd-varying-return call param mismatch)
+
+### 2.8c Constrained Varying Type Support ✅ COMPLETED
+
+- [x] Add `spmdEffectiveLaneCount()` helper: uses constraint N from `Varying[T, N]` when present
+- [x] Update `makeLLVMType()` to use constrained lane count for LLVM vector type generation
+- [x] Update `createDIType()` to use constrained lane count for DWARF debug info
+- [x] Update `getTypeCode()` to use constrained lane count for interface boxing
+- [x] Fix `spmdMaskTypeFromSig()` to respect constrained lane count for mask parameters
+- [x] Add `arrayToVector()` helper: converts `[N]T` array to `<N x T>` vector for `Varying[T,N]([N]T{...})`
+- [x] Add array-to-SPMD path in `createConvert()` with bounds check
+- [x] 4 new tests + 1 enhanced test (constrained lane count, effective lane count, array-to-vector, constrained const, constrained mask type)
+
+**NOTE**: 3 E2E programs using constrained types (`type-casting-varying`, `varying-array-iteration`, `mandelbrot`) still fail at **parsing** (not the backend). The `go/parser` doesn't handle `Varying[T, N]` in variable declarations when used as type expressions with multi-argument indexing. Backend support is complete and ready.
 
 ### 2.9 Scalar Fallback Mode
 
