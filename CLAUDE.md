@@ -1009,27 +1009,38 @@ Go frontend implementation (Phase 1) is complete with 53 commits on the `spmd` b
    - **createConvert SPMDType fix: COMPLETED** — Defensive handling in TinyGo `createConvert()`
      - `tinygo/compiler/compiler.go`: Intercept `*types.SPMDType` before `Underlying()` assertions
      - Three branches: SPMD-to-SPMD (recurse with elem), SPMD-to-scalar (recurse with elem), scalar-to-SPMD (convert + splat)
-   - **E2E Test Results** (7 run pass, 10 compile pass, 32 total):
+   - **E2E Test Results** (7 run pass, 12 compile pass, 32 total):
      - L0_store (array stores), L0_cond (varying if/else), L0_func (SPMD function calls with mask)
      - L1_reduce_add (reduce.Add builtin), L2_lanes_index (lanes.Index builtin), L3_varying_var (varying accumulator + reduce)
      - L4_range_slice (range-over-slice with element access)
-     - 10 additional programs compile successfully (integ_simple-sum, integ_odd-even, integ_hex-encode, etc.)
-   - **Test program fixes: COMPLETED** — Fixed 4 buggy test programs (hex-encode, array-counting, to-upper, debug-varying)
+     - 12 additional programs compile successfully (integ_simple-sum, integ_odd-even, integ_hex-encode, integ_to-upper, integ_debug-varying, etc.)
+   - **Test program fixes: COMPLETED** — Fixed 4 buggy test programs + 3 more syntax fixes
      - hex-encode: removed phantom `lanes.Encode` call (now compiles)
      - array-counting: removed unused imports (still fails — nested varying slice iteration)
-     - to-upper: rewrote as self-contained ASCII SPMD (still fails — ICmp type mismatch from bool lane count)
-     - debug-varying: removed unused import (still fails — `getTypeCodeName` can't handle SPMDType)
-   - **Known E2E Failures** (11 compile fail, categorized):
+     - to-upper: rewrote as self-contained ASCII SPMD (now compiles after vector width fix)
+     - debug-varying: removed unused import (now compiles after SPMDType interface boxing fix)
+     - bit-counting: fixed `reduce.Add(count)` return type (uint8 vs int)
+     - pointer-varying: suppressed unused variables from deferred scatter writes
+     - non-spmd-varying-return: fixed `lanes.From(array)` → `lanes.From(array[:])`, deferred `lanes.Rotate`, fixed `go for` unused var syntax
+   - **SPMDType interface boxing fix: COMPLETED** — TinyGo `getTypeCode()` now handles `*types.SPMDType`
+     - `tinygo/compiler/interface.go`: Intercept SPMDType in `getTypeCode()`, redirect to `[laneCount]T` array representation
+     - Defensive fallbacks in `getTypeCodeName()` and `typestring()` for `*types.SPMDType`
+     - Fixes `debug-varying` panic when passing `lanes.Varying[int]` to `fmt.Printf("%v", ...)`
+   - **Vector width mismatch fix: COMPLETED** — `spmdBroadcastMatch()` handles vector-vector width normalization
+     - `tinygo/compiler/spmd.go`: Extended `spmdBroadcastMatch()` with vector-vector width case, added `spmdResizeVector()` (shuffle-based truncation)
+     - `tinygo/compiler/spmd_llvm_test.go`: 3 new test cases (narrower_wins, resize_vector_truncate, same_width_noop)
+     - Fixes `to-upper` ICmp type mismatch: byte constants get 16 lanes (128/8) but loop effective lane count is 4 (128/32)
+   - **Known E2E Failures** (9 compile fail, categorized):
      - Constrained Varying[T,N]: TinyGo go/parser doesn't handle range[N] (4 programs)
-     - Compiler bugs revealed by fixed tests: SIGSEGV on nested varying slices (1), ICmp type mismatch (1), SPMDType in getTypeCodeName (1)
-     - Other: SIGSEGV (1 program), type casting issues (1), pointer-varying assignment (1), non-spmd-varying-return inference (1)
+     - Compiler bugs: SIGSEGV on nested varying slices (1), SIGSEGV in spmd-call-contexts (1)
+     - Other: type casting issues (1), pointer-varying complex patterns (1), non-spmd-varying-return vector-in-scalar-context (1)
    - **Phase 2.9-2.10: TinyGo Compiler Work (remaining)**:
      - TinyGo uses `golang.org/x/tools/go/ssa` (NOT Go's `cmd/compile/internal/ssa`)
      - LLVM auto-vectorizes: `CreateAdd(<4 x i32>, <4 x i32>)` → WASM `v128.add`
      - Missing: varying switch/for-loop masking, lanes.Rotate/Swizzle, scalar fallback mode
 8. **Phase 3: NOT STARTED** - Validation and dual-mode testing
 
-Next priority: Fix remaining compiler bugs (ICmp type mismatch, SPMDType in getTypeCodeName, SIGSEGV), then varying switch/for-loop masking
+Next priority: Fix remaining compiler bugs (SIGSEGV in array-counting/spmd-call-contexts, pointer-varying complex patterns), then varying switch/for-loop masking
 
 ## Proof of Concept Success Criteria
 

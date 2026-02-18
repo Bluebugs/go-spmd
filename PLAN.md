@@ -2,7 +2,7 @@
 
 **Version**: 2.1
 **Last Updated**: 2026-02-18
-**Status**: Phase 1 Complete, Phase 2.0 stdlib porting complete, Phase 2.8b complete, x-tools patched for SPMDType hashing + go/ssa substitution, range-over-slice type fix + createConvert SPMDType handling, E2E test program fixes, E2E infrastructure working (7 run pass + 10 compile pass / 32 tests)
+**Status**: Phase 1 Complete, Phase 2.0 stdlib porting complete, Phase 2.8b complete, x-tools patched for SPMDType hashing + go/ssa substitution, range-over-slice type fix + createConvert SPMDType handling, SPMDType interface boxing + vector width mismatch fixes, E2E infrastructure working (7 run pass + 12 compile pass / 32 tests)
 
 ## Project Overview
 
@@ -938,10 +938,13 @@ Ported 10 `*_ext_spmd.go` files from types2 to go/types with full API translatio
   - Fix: ✅ Range-over-slice type inference (rangeKeyVal for element types, concrete Typ[Int] for key)
   - Fix: ✅ createConvert SPMDType handling (SPMD-to-SPMD, SPMD-to-scalar, scalar-to-SPMD)
   - Fix: ✅ E2E test program bugs (hex-encode, array-counting, to-upper, debug-varying)
+  - Fix: ✅ Additional test program bugs (bit-counting return type, pointer-varying scatter, non-spmd-varying-return syntax)
+  - Fix: ✅ SPMDType interface boxing — getTypeCode() redirects to [laneCount]T array representation
+  - Fix: ✅ Vector width mismatch — spmdBroadcastMatch() handles vector-vector width normalization via shuffle
 - **Phase 3**: ❌ Not Started
 
-**Last Completed**: Fixed 4 buggy E2E test programs — hex-encode now compiles, 3 others reveal real compiler bugs (7 run pass, 10 compile pass / 32 E2E tests) (2026-02-18)
-**Next Action**: Fix remaining compiler bugs (ICmp type mismatch in to-upper, SPMDType in getTypeCodeName for debug-varying, SIGSEGV in array-counting/spmd-call-contexts), then varying switch/for-loop masking
+**Last Completed**: Fixed SPMDType interface boxing (debug-varying compiles), vector width mismatch (to-upper compiles), 3 test program bugs — (7 run pass, 12 compile pass / 32 E2E tests) (2026-02-18)
+**Next Action**: Fix remaining compiler bugs (SIGSEGV in array-counting/spmd-call-contexts, pointer-varying complex patterns, non-spmd-varying-return vector-in-scalar-context), then varying switch/for-loop masking
 
 ### Recent Major Achievements (Phase 1.5 Extensions)
 
