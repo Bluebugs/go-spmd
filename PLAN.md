@@ -2,7 +2,7 @@
 
 **Version**: 2.1
 **Last Updated**: 2026-02-18
-**Status**: Phase 1 Complete, Phase 2.0 stdlib porting complete, Phase 2.8b complete, x-tools patched for SPMDType hashing + go/ssa substitution, range-over-slice type fix + createConvert SPMDType handling, E2E infrastructure working (7 run pass + 9 compile pass / 32 tests)
+**Status**: Phase 1 Complete, Phase 2.0 stdlib porting complete, Phase 2.8b complete, x-tools patched for SPMDType hashing + go/ssa substitution, range-over-slice type fix + createConvert SPMDType handling, E2E test program fixes, E2E infrastructure working (7 run pass + 10 compile pass / 32 tests)
 
 ## Project Overview
 
@@ -730,9 +730,9 @@ Ported 10 `*_ext_spmd.go` files from types2 to go/types with full API translatio
 
 **E2E Test Results (32 tests)**:
 - 7 RUN PASS: L0_store (12), L0_cond (4), L0_func (12), L1_reduce_add (360), L2_lanes_index (6), L3_varying_var (28), L4_range_slice (expected)
-- 9 COMPILE PASS: integ_simple-sum, integ_odd-even, and others compile but may have runtime issues
+- 10 COMPILE PASS: integ_simple-sum, integ_odd-even, integ_hex-encode, and others compile but may have runtime issues
 - 11 REJECT OK: All illegal examples correctly rejected
-- 12 COMPILE FAIL: constrained Varying[T,N] (4), test program issues (4), SIGSEGV (1), other type issues (3)
+- 11 COMPILE FAIL: constrained Varying[T,N] (4), compiler bugs (3: SIGSEGV on nested varying slices, ICmp type mismatch, SPMDType in getTypeCodeName), other issues (4: SIGSEGV, type casting, pointer-varying, inference)
 
 ### 2.9 Scalar Fallback Mode
 
@@ -937,10 +937,11 @@ Ported 10 `*_ext_spmd.go` files from types2 to go/types with full API translatio
   - E2E: ✅ Test infrastructure (GOEXPERIMENT fix, go/ssa SPMDType, Node.js runner, 32-test script)
   - Fix: ✅ Range-over-slice type inference (rangeKeyVal for element types, concrete Typ[Int] for key)
   - Fix: ✅ createConvert SPMDType handling (SPMD-to-SPMD, SPMD-to-scalar, scalar-to-SPMD)
+  - Fix: ✅ E2E test program bugs (hex-encode, array-counting, to-upper, debug-varying)
 - **Phase 3**: ❌ Not Started
 
-**Last Completed**: Fixed range-over-slice type bug + createConvert SPMDType panic (7 run pass, 9 compile pass / 32 E2E tests) (2026-02-18)
-**Next Action**: Fix remaining compile failures (constrained Varying[T,N], test program issues, SIGSEGV), then varying switch/for-loop masking
+**Last Completed**: Fixed 4 buggy E2E test programs — hex-encode now compiles, 3 others reveal real compiler bugs (7 run pass, 10 compile pass / 32 E2E tests) (2026-02-18)
+**Next Action**: Fix remaining compiler bugs (ICmp type mismatch in to-upper, SPMDType in getTypeCodeName for debug-varying, SIGSEGV in array-counting/spmd-call-contexts), then varying switch/for-loop masking
 
 ### Recent Major Achievements (Phase 1.5 Extensions)
 
