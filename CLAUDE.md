@@ -127,6 +127,7 @@ Before TinyGo can compile any SPMD code, the standard library toolchain must be 
 - Handle varying if/else via CFG linearization and LLVM select instructions — DONE (Phase 2.5)
 - Handle SPMD function call mask insertion — DONE (Phase 2.6)
 - Intercept lanes/reduce function calls and lower to LLVM vector intrinsics — DONE (Phase 2.7)
+- Patched `x/tools` (`x-tools-spmd/`) so `typeutil.Map` can hash `*types.SPMDType` — DONE (SPMDType cases in hash/shallowHash, prime 9181, `go.mod` replace directive)
 - Key files: `compiler/compiler.go` (getLLVMType, createBinOp, createExpr, createFunction, *ssa.If/*ssa.Jump/*ssa.Phi), `compiler/spmd.go`, `compiler/symbol.go`, `compiler/func.go`
 
 ## SSA Generation Strategy (Following ISPC's Approach)
@@ -959,7 +960,7 @@ Go frontend implementation (Phase 1) is complete with 53 commits on the `spmd` b
      - `compiler/spmd.go`: `spmdLaneCount()`, `splatScalar()`, `spmdBroadcastMatch()`, `createSPMDConst()`
      - `compiler/compiler.go`: `*types.SPMDType` case in `makeLLVMType()`, bypass `typeutil.Map` for SPMDType in `getLLVMType()`, broadcast in `createBinOp()`, SPMD pre-check in `createConst()`, vector-safe `ConstNull`/`ConstAllOnes` in `createUnOp()`
      - `compiler/spmd_llvm_test.go`: 6 tests, 34 cases (lane count, type mapping, constants, broadcast, splat, consistency)
-     - Key insight: `typeutil.Map` from `x/tools` can't hash `*types.SPMDType`; bypassed with direct `makeLLVMType()` call (LLVM memoizes vector types internally)
+     - `typeutil.Map` from `x/tools` can't hash `*types.SPMDType`; **fixed** with patched x-tools copy at `x-tools-spmd/` (SPMDType cases in hash()/shallowHash(), prime 9181). TinyGo `go.mod` has `replace golang.org/x/tools v0.30.0 => ../x-tools-spmd`. The `getLLVMType()` bypass remains as defense-in-depth.
    - **Phase 2.3: COMPLETED** — SPMD loop lowering (`go for` range loops)
      - `compiler/spmd.go`: `analyzeSPMDLoops()` detects rangeint SSA patterns, `emitSPMDBodyPrologue()` generates lane indices + tail mask
      - `compiler/compiler.go`: `spmdLoopState`/`spmdValueOverride` fields, `getValue()` override, `createFunction()` hooks, BinOp `+1` → `+laneCount`

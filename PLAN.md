@@ -1,8 +1,8 @@
 # SPMD Implementation Plan for Go + TinyGo
 
-**Version**: 1.9
-**Last Updated**: 2026-02-17
-**Status**: Phase 1 Complete, Phase 2.0 stdlib porting complete, Phase 2.8b complete, E2E integration testing in progress
+**Version**: 2.0
+**Last Updated**: 2026-02-18
+**Status**: Phase 1 Complete, Phase 2.0 stdlib porting complete, Phase 2.8b complete, x-tools patched for SPMDType hashing, E2E integration testing in progress
 
 ## Project Overview
 
@@ -581,6 +581,7 @@ Ported 10 `*_ext_spmd.go` files from types2 to go/types with full API translatio
   - `lanes.Varying[int8]` → `<16 x i8>` (16 lanes)
   - `lanes.Varying[bool]` → `<16 x i1>` (TypeAllocSize(i1) = 1 byte, 16 lanes)
 - [x] Bypass `typeutil.Map` cache for SPMDType (x/tools can't hash custom types; LLVM memoizes internally)
+- [x] **FIXED**: Patched `x/tools` copy at `x-tools-spmd/` with SPMDType cases in `hash()`/`shallowHash()` (prime 9181). TinyGo `go.mod` has `replace golang.org/x/tools v0.30.0 => ../x-tools-spmd`. The `getLLVMType()` bypass remains as defense-in-depth.
 - [x] Add `spmdLaneCount()` helper: 128-bit SIMD / element size
 - [x] Add `splatScalar()` for scalar-to-vector broadcast via insert+shuffle
 - [x] Add `spmdBroadcastMatch()` for mixed uniform/varying binary operations
@@ -589,6 +590,8 @@ Ported 10 `*_ext_spmd.go` files from types2 to go/types with full API translatio
 - [x] Add SPMD pre-check in `createConst()` for varying constants
 - [x] Fix `createUnOp()` to use `ConstNull`/`ConstAllOnes` (vector-safe)
 - [x] 6 tests in `compiler/spmd_llvm_test.go` (34 test cases)
+- [x] Patched `x/tools` at `x-tools-spmd/` with SPMDType hash support in `typeutil.Map` — `hash()` and `shallowHash()` cases added (prime 9181)
+- [x] TinyGo `go.mod` replace directive: `replace golang.org/x/tools v0.30.0 => ../x-tools-spmd`
 - [ ] Handle scalar fallback mode: map `lanes.Varying[T]` to array types or scalar loops (deferred)
 
 ### 2.3 SPMD Loop Lowering (`go for`) ✅ COMPLETED
@@ -918,7 +921,7 @@ Ported 10 `*_ext_spmd.go` files from types2 to go/types with full API translatio
   - 2.8b: ✅ Range-over-slice loop detection (3 files, 3 tests)
 - **Phase 3**: ❌ Not Started
 
-**Last Completed**: Phase 2.8b - Range-over-slice SPMD loop detection (2026-02-17)
+**Last Completed**: Patched x-tools for SPMDType hash support in typeutil.Map (2026-02-18)
 **Next Action**: Phase 2.9 - Scalar fallback mode, or varying switch/for-loop masking
 
 ### Recent Major Achievements (Phase 1.5 Extensions)
