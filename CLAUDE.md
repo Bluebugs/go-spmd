@@ -944,7 +944,7 @@ Go frontend implementation (Phase 1) is complete with 53 commits on the `spmd` b
 7. **Phase 2: IN PROGRESS** - TinyGo LLVM backend with WASM SIMD128 target
    - **Phase 2.0: Go Standard Library Porting** (prerequisite before TinyGo work):
      - `go/ast`: COMPLETED — `IsSpmd`, `LaneCount`, `Constraint` fields on `RangeStmt`
-     - `go/parser`: COMPLETED — `go for` parsing + `range[N]` constraints (11 tests)
+     - `go/parser`: COMPLETED — `go for` parsing + `range[N]` constraints + `Varying[T, N]` type expressions (17 tests)
      - `go/types`: COMPLETED — 10 `*_ext_spmd.go` files ported from types2, 6 test files, 5 commits
      - `go/ssa`: No changes needed — SPMD metadata extracted from typed AST in TinyGo's compiler
    - **Phase 2.0d: COMPLETED** — SPMD metadata extraction in TinyGo compiler
@@ -1037,8 +1037,11 @@ Go frontend implementation (Phase 1) is complete with 53 commits on the `spmd` b
      - `tinygo/compiler/spmd.go`: Extended `spmdBroadcastMatch()` with vector-vector width case, added `spmdResizeVector()` (shuffle-based truncation)
      - `tinygo/compiler/spmd_llvm_test.go`: 3 new test cases (narrower_wins, resize_vector_truncate, same_width_noop)
      - Fixes `to-upper` ICmp type mismatch: byte constants get 16 lanes (128/8) but loop effective lane count is 4 (128/32)
-   - **Known E2E Failures** (9 compile fail, categorized):
-     - Constrained Varying[T,N] parsing: go/parser doesn't handle multi-arg index in variable declarations (3 programs: type-casting-varying, varying-array-iteration, mandelbrot)
+   - **Constrained Varying[T,N] parser fix: COMPLETED** — `parseTypeInstance()` supports non-type arguments
+     - `go/src/go/parser/parser.go`: SPMD-gated fallback in bracket argument loop (tryIdentOrType + parseRhs)
+     - `go/src/go/parser/parser_spmd_test.go`: 6 new test cases (var decl, func param, return type, type alias, byte/int variants)
+     - Unblocks 3 E2E programs (type-casting-varying, varying-array-iteration, mandelbrot) past parse stage
+   - **Known E2E Failures** (6 compile fail, categorized):
      - Compiler bugs: SIGSEGV on nested varying slices (1: array-counting), SIGSEGV in spmd-call-contexts (1)
      - Other: bit-counting untyped int in makeLLVMType (1), pointer-varying complex patterns (1), type-switch-varying constrained parsing (1), non-spmd-varying-return call param mismatch (1)
    - **Phase 2.9-2.10: TinyGo Compiler Work (remaining)**:
@@ -1047,7 +1050,7 @@ Go frontend implementation (Phase 1) is complete with 53 commits on the `spmd` b
      - Missing: varying switch/for-loop masking, lanes.Rotate/Swizzle, scalar fallback mode
 8. **Phase 3: NOT STARTED** - Validation and dual-mode testing
 
-Next priority: Fix remaining compiler bugs (SIGSEGV in array-counting/spmd-call-contexts, bit-counting untyped int, pointer-varying complex patterns), then varying switch/for-loop masking
+Next priority: Re-run E2E tests to measure impact of Varying[T,N] parser fix, then fix remaining compiler bugs (SIGSEGV in array-counting/spmd-call-contexts, bit-counting untyped int, pointer-varying complex patterns), then varying switch/for-loop masking
 
 ## Proof of Concept Success Criteria
 

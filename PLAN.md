@@ -2,7 +2,7 @@
 
 **Version**: 2.1
 **Last Updated**: 2026-02-18
-**Status**: Phase 1 Complete, Phase 2.0 stdlib porting complete, Phase 2.8c complete, x-tools patched for SPMDType hashing + go/ssa substitution, range-over-slice type fix + createConvert SPMDType handling, SPMDType interface boxing + vector width mismatch fixes, constrained Varying[T,N] backend support, E2E infrastructure working (7 run pass + 12 compile pass / 32 tests)
+**Status**: Phase 1 Complete, Phase 2.0 stdlib porting complete, Phase 2.8c complete, x-tools patched for SPMDType hashing + go/ssa substitution, range-over-slice type fix + createConvert SPMDType handling, SPMDType interface boxing + vector width mismatch fixes, constrained Varying[T,N] backend + parser support, E2E infrastructure working (7 run pass + 12 compile pass / 32 tests)
 
 ## Project Overview
 
@@ -451,7 +451,7 @@ Fixed all 6 accumulated test failures from Phase 1.1-1.10:
 **Critical Architecture Note**: TinyGo uses `golang.org/x/tools/go/ssa` (NOT Go's `cmd/compile/internal/ssa`). The 42 SPMD opcodes from Phase 1.10c are invisible to TinyGo. Phase 2 must work at the **type level**: detect `lanes.Varying[T]` types and lower them to LLVM vector types directly in TinyGo's compiler. LLVM builder calls like `CreateAdd(<4 x i32>, <4 x i32>)` automatically generate the correct WASM SIMD128 instructions.
 
 **Critical Prerequisite**: TinyGo uses `go/parser` + `go/types` + `go/ssa` (standard library), NOT the compiler-internal packages. Current status:
-- ✅ `go/parser` can parse `go for` syntax with `range[N]` constraints (Phase 2.0b)
+- ✅ `go/parser` can parse `go for` syntax with `range[N]` constraints + `Varying[T, N]` type expressions (Phase 2.0b)
 - ✅ `go/ast` has SPMD fields (`RangeStmt` has `IsSpmd`, `LaneCount`, `Constraint`)
 - ✅ `go/types` has full SPMD type checking (10 ext_spmd files ported from types2, Phase 2.0c)
 - `go/ssa` has no SPMD metadata (not needed — metadata extracted from typed AST in TinyGo's loader)
@@ -460,7 +460,7 @@ All standard library porting for SPMD is complete. TinyGo compiler work (Phase 2
 
 **Key Go Standard Library Files** (to port):
 - `go/ast/ast.go`: ✅ AST node definitions (SPMD fields added)
-- `go/parser/parser.go`: ✅ Parser (`go for` syntax + `range[N]` constraints)
+- `go/parser/parser.go`: ✅ Parser (`go for` syntax + `range[N]` constraints + `Varying[T, N]` type exprs)
 - `go/types/*_ext_spmd.go`: ✅ 10 real implementations (ported from types2)
 - `go/types/spmd.go`: ✅ SPMDType struct with constructors and helpers
 
@@ -484,7 +484,7 @@ All standard library porting for SPMD is complete. TinyGo compiler work (Phase 2
 | Package | Current State | Target State | Lines to Port |
 |---------|--------------|--------------|---------------|
 | `go/ast` | ✅ `IsSpmd`, `LaneCount`, `Constraint` on `RangeStmt` | Done | 3 fields |
-| `go/parser` | ✅ `go for` + `range[N]` parsing | Done | ~130 lines |
+| `go/parser` | ✅ `go for` + `range[N]` + `Varying[T, N]` type exprs | Done | ~140 lines |
 | `go/types` | ✅ 10 ext_spmd files (1,600+ lines) | Done | Ported from types2 |
 | `go/ssa` | No SPMD metadata | Not needed (extract from typed AST) | 0 |
 
@@ -507,7 +507,9 @@ All standard library porting for SPMD is complete. TinyGo compiler work (Phase 2
 - [x] Updated `go/ast.Walk` to traverse `Constraint` before `X` and `Body`
 - [x] Updated `go/build/deps_test.go` to allow `go/parser` to import `internal/buildcfg`
 - [x] Added 11 parser tests in `go/parser/parser_spmd_test.go`
-- Note: `looksLikeSPMDType()` not needed — `lanes.Varying[int32, 4]` already parses as `ast.IndexListExpr` via standard Go generics syntax
+- [x] Extended `parseTypeInstance()` to support `Varying[T, N]` in standalone type expressions (var decls, func params, return types, type aliases)
+- [x] Added 6 constrained type tests (17 total) in `go/parser/parser_spmd_test.go`
+- Note: `looksLikeSPMDType()` not needed — `lanes.Varying[int32, 4]` now parses as `ast.IndexListExpr` via SPMD-gated fallback in `parseTypeInstance()`
 
 #### 2.0c Port go/types SPMD Type Checking ✅ COMPLETED
 
@@ -732,7 +734,8 @@ Ported 10 `*_ext_spmd.go` files from types2 to go/types with full API translatio
 - 7 RUN PASS: L0_store (12), L0_cond (4), L0_func (12), L1_reduce_add (360), L2_lanes_index (6), L3_varying_var (28), L4_range_slice (expected)
 - 12 COMPILE PASS: integ_simple-sum, integ_odd-even, integ_hex-encode, integ_to-upper, integ_debug-varying, and others
 - 11 REJECT OK: All illegal examples correctly rejected
-- 9 COMPILE FAIL: constrained Varying[T,N] parsing (3: type-casting-varying, varying-array-iteration, mandelbrot — go/parser doesn't handle multi-arg index in variable declarations), compiler bugs (2: SIGSEGV on nested varying slices, SIGSEGV spmd-call-contexts), other issues (4: bit-counting untyped int, pointer-varying complex patterns, type-switch-varying constrained parsing, non-spmd-varying-return call param mismatch)
+- 6 COMPILE FAIL (was 9 — 3 fixed by Varying[T,N] parser fix): compiler bugs (2: SIGSEGV on nested varying slices, SIGSEGV spmd-call-contexts), other issues (4: bit-counting untyped int, pointer-varying complex patterns, type-switch-varying constrained parsing, non-spmd-varying-return call param mismatch)
+- NOTE: type-casting-varying, varying-array-iteration, mandelbrot now advance past parsing (may still fail at later stages — needs E2E re-test)
 
 ### 2.8c Constrained Varying Type Support ✅ COMPLETED
 
@@ -745,7 +748,7 @@ Ported 10 `*_ext_spmd.go` files from types2 to go/types with full API translatio
 - [x] Add array-to-SPMD path in `createConvert()` with bounds check
 - [x] 4 new tests + 1 enhanced test (constrained lane count, effective lane count, array-to-vector, constrained const, constrained mask type)
 
-**NOTE**: 3 E2E programs using constrained types (`type-casting-varying`, `varying-array-iteration`, `mandelbrot`) still fail at **parsing** (not the backend). The `go/parser` doesn't handle `Varying[T, N]` in variable declarations when used as type expressions with multi-argument indexing. Backend support is complete and ready.
+**NOTE**: Parser fix for constrained `Varying[T, N]` in type expressions is DONE. The 3 programs (`type-casting-varying`, `varying-array-iteration`, `mandelbrot`) now advance past parsing. Backend support was already complete. E2E re-test needed to check if they compile/run successfully.
 
 ### 2.9 Scalar Fallback Mode
 
@@ -936,7 +939,7 @@ Ported 10 `*_ext_spmd.go` files from types2 to go/types with full API translatio
   - Critical finding: `go/parser`, `go/ast`, `go/types` lack SPMD support (must be ported first)
   - Phase 2 plan rewritten: 2.0 (stdlib porting) + 2.1-2.10 (TinyGo compiler work)
   - 2.0a: ✅ go/ast SPMD fields (IsSpmd, LaneCount on RangeStmt)
-  - 2.0b: ✅ go/parser `go for` parsing + `range[N]` constraints + `Constraint` field on RangeStmt
+  - 2.0b: ✅ go/parser `go for` parsing + `range[N]` constraints + `Constraint` field + `Varying[T, N]` type expressions (17 tests)
   - 2.0c: ✅ go/types SPMD type checking (10 ext_spmd files, 6 test files, 5 commits)
   - 2.0d: ✅ SPMD metadata extraction in TinyGo compiler (spmd.go + spmd_test.go, 13 tests)
   - 2.1: ✅ GOEXPERIMENT support + auto-SIMD128 for WASM (6 files, 12 tests)
