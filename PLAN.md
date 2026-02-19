@@ -1,8 +1,8 @@
 # SPMD Implementation Plan for Go + TinyGo
 
-**Version**: 2.2
-**Last Updated**: 2026-02-18
-**Status**: Phase 1 Complete, Phase 2.0-2.8c complete, E2E infrastructure working (7 run pass + 14 compile pass / 43 tests), all examples/docs/tests fully migrated from keyword syntax to package-based types (lanes.Varying[T]) across 5 commits, 9 example program bugs fixed, E2E suite expanded from 32 to 43 tests, 2 compiler quick-fixes (getPointerBitmap vector types, makeLLVMType untyped int)
+**Version**: 2.3
+**Last Updated**: 2026-02-19
+**Status**: Phase 1 Complete, Phase 2.0-2.8c complete, E2E infrastructure working (7 run pass + 14 compile pass / 43 tests), syntax migration complete, 7 example program bugs fixed, E2E suite expanded (32 → 43 tests), 3 compiler bug fixes (getPointerBitmap vector types, makeLLVMType untyped int, nested loop deduplication in analyzeSPMDLoops)
 
 ## Project Overview
 
@@ -957,10 +957,15 @@ Ported 10 `*_ext_spmd.go` files from types2 to go/types with full API translatio
   - Fix: ✅ Additional test program bugs (bit-counting return type, pointer-varying scatter, non-spmd-varying-return syntax)
   - Fix: ✅ SPMDType interface boxing — getTypeCode() redirects to [laneCount]T array representation
   - Fix: ✅ Vector width mismatch — spmdBroadcastMatch() handles vector-vector width normalization via shuffle
+  - Fix: ✅ Example program bugs — 7 programs fixed (hex-encode, bit-counting, map-restrictions, defer-varying, select-with-varying-channels, to-upper, mandelbrot)
+  - Fix: ✅ E2E suite expansion — 11 programs added to spmd-e2e-test.sh (32 → 43 tests)
+  - Fix: ✅ getPointerBitmap vector types — VectorTypeKind added to no-pointer case (unblocked goroutine-varying)
+  - Fix: ✅ makeLLVMType untyped int — UntypedInt added to Int/Uint case
+  - Fix: ✅ Nested loop deduplication — seenLoopInfo map in analyzeSPMDLoops() prevents nested regular for loops from being vectorized
 - **Phase 3**: ❌ Not Started
 
-**Last Completed**: Fixed SPMDType interface boxing (debug-varying compiles), vector width mismatch (to-upper compiles), 3 test program bugs — (7 run pass, 12 compile pass / 32 E2E tests) (2026-02-18)
-**Next Action**: Fix remaining compiler bugs (SIGSEGV in array-counting/spmd-call-contexts, pointer-varying complex patterns, non-spmd-varying-return vector-in-scalar-context), then varying switch/for-loop masking
+**Last Completed**: Nested loop deduplication fix in analyzeSPMDLoops, 3 compiler quick-fixes, 7 example bugs fixed, E2E expanded to 43 tests — (7 run pass, 14 compile pass / 43 E2E tests) (2026-02-19)
+**Next Action**: Fix shift bounds check vector support (bit-counting), fix SIGSEGV (array-counting, spmd-call-contexts), then varying switch/for-loop masking
 
 ### Recent Major Achievements (Phase 1.5 Extensions)
 

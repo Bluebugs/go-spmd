@@ -1008,7 +1008,7 @@ Go frontend implementation (Phase 1) is complete with 53 commits on the `spmd` b
      - `tinygo/loader/list.go`: Fixed GOEXPERIMENT stripping that prevented `lanes.go`/`reduce.go` from being visible to `go list`
      - `x-tools-spmd/go/ssa/subst.go`: Added `*types.SPMDType` cases to `subster.typ()` and `reaches()` for generic instantiation
      - `test/e2e/run-wasm.mjs`: Node.js WASI WASM runner with asyncify stubs for TinyGo
-     - `test/e2e/spmd-e2e-test.sh`: Progressive 7-level E2E test script (32 tests)
+     - `test/e2e/spmd-e2e-test.sh`: Progressive 7-level E2E test script (43 tests)
    - **Range-over-slice type fix: COMPLETED** — Fixed `NewVarying(expr.typ())` → `NewVarying(rVal)` using `rangeKeyVal()`
      - `go/src/go/types/stmt_ext_spmd.go`: Call `rangeKeyVal()` for proper element type extraction, use `Typ[Int]` for key
      - `go/src/cmd/compile/internal/types2/stmt_ext_spmd.go`: Identical fix for types2
@@ -1016,19 +1016,28 @@ Go frontend implementation (Phase 1) is complete with 53 commits on the `spmd` b
    - **createConvert SPMDType fix: COMPLETED** — Defensive handling in TinyGo `createConvert()`
      - `tinygo/compiler/compiler.go`: Intercept `*types.SPMDType` before `Underlying()` assertions
      - Four branches: SPMD-to-SPMD (recurse with elem), SPMD-to-scalar (recurse with elem), array-to-SPMD (arrayToVector), scalar-to-SPMD (convert + splat)
-   - **E2E Test Results** (7 run pass, 12 compile pass, 32 total):
+   - **E2E Test Results** (7 run pass, 14 compile pass, 43 total):
      - L0_store (array stores), L0_cond (varying if/else), L0_func (SPMD function calls with mask)
      - L1_reduce_add (reduce.Add builtin), L2_lanes_index (lanes.Index builtin), L3_varying_var (varying accumulator + reduce)
      - L4_range_slice (range-over-slice with element access)
-     - 12 additional programs compile successfully (integ_simple-sum, integ_odd-even, integ_hex-encode, integ_to-upper, integ_debug-varying, etc.)
-   - **Test program fixes: COMPLETED** — Fixed 4 buggy test programs + 3 more syntax fixes
+     - 14 additional programs compile successfully (integ_simple-sum, integ_odd-even, integ_hex-encode, integ_to-upper, integ_debug-varying, integ_goroutine-varying, integ_lanes-index-restrictions, etc.)
+   - **Test program fixes: COMPLETED** — Fixed 7 buggy example programs across 5 commits
      - hex-encode: removed phantom `lanes.Encode` call (now compiles)
-     - array-counting: removed unused imports (still fails — nested varying slice iteration)
-     - to-upper: rewrote as self-contained ASCII SPMD (now compiles after vector width fix)
-     - debug-varying: removed unused import (now compiles after SPMDType interface boxing fix)
      - bit-counting: fixed `reduce.Add(count)` return type (uint8 vs int)
-     - pointer-varying: suppressed unused variables from deferred scatter writes
-     - non-spmd-varying-return: fixed `lanes.From(array)` → `lanes.From(array[:])`, deferred `lanes.Rotate`, fixed `go for` unused var syntax
+     - map-restrictions: fixed undefined `values` var, split if-init scope issue
+     - defer-varying: fixed `reduce.From` → `reduce.Add`, `allocateResource` signature type mismatch
+     - select-with-varying-channels: fixed `chan int` → `chan string`, unused variable in `go for`
+     - to-upper: rewrote as self-contained ASCII SPMD (now compiles after vector width fix)
+     - mandelbrot: fixed `cIm`/`zIm` param types, `benchmark()` missing return type
+     - All examples/ synced with test/integration/spmd/ copies
+   - **E2E suite expanded: COMPLETED** — Added 11 missing programs to spmd-e2e-test.sh (32 → 43 tests)
+   - **Compiler quick-fixes: COMPLETED** — 2 TinyGo compiler fixes
+     - `compiler/llvm.go`: Added `llvm.VectorTypeKind` to `getPointerBitmap()` no-pointer case (unblocked goroutine-varying)
+     - `compiler/compiler.go`: Added `types.UntypedInt` to `makeLLVMType()` Int/Uint case
+   - **Nested loop deduplication: COMPLETED** — Fixed `analyzeSPMDLoops()` incorrectly vectorizing nested regular `for` loops
+     - `compiler/spmd.go`: Added unified `seenLoopInfo` deduplication map shared across rangeint/rangeindex passes
+     - Only the first (outermost) body block per `SPMDLoopInfo` is registered; nested regular loops are skipped
+     - Handles cross-pattern nesting (rangeint outer + rangeindex inner, or vice versa)
    - **SPMDType interface boxing fix: COMPLETED** — TinyGo `getTypeCode()` now handles `*types.SPMDType`
      - `tinygo/compiler/interface.go`: Intercept SPMDType in `getTypeCode()`, redirect to `[laneCount]T` array representation
      - Defensive fallbacks in `getTypeCodeName()` and `typestring()` for `*types.SPMDType`
@@ -1041,13 +1050,16 @@ Go frontend implementation (Phase 1) is complete with 53 commits on the `spmd` b
      - `go/src/go/parser/parser.go`: SPMD-gated fallback in bracket argument loop (tryIdentOrType + parseRhs)
      - `go/src/go/parser/parser_spmd_test.go`: 6 new test cases (var decl, func param, return type, type alias, byte/int variants)
      - Unblocks 3 E2E programs (type-casting-varying, varying-array-iteration, mandelbrot) past parse stage
-   - **Known E2E Failures** (6 compile fail, categorized):
-     - Compiler bugs: SIGSEGV on nested varying slices (1: array-counting), SIGSEGV in spmd-call-contexts (1)
-     - Other: bit-counting untyped int in makeLLVMType (1), pointer-varying complex patterns (1), type-switch-varying constrained parsing (1), non-spmd-varying-return call param mismatch (1)
+   - **Known E2E Failures** (18 compile fail, categorized):
+     - Shift bounds check vector mismatch: bit-counting (scalar bounds check on broadcast shift amount)
+     - SIGSEGV: array-counting (CreateExtractValue on vector), spmd-call-contexts, printf-verbs (nil pointer)
+     - LLVM verification: defer-varying (wrong arg count), panic-recover-varying (invalid intrinsic use), non-spmd-varying-return (call param type mismatch)
+     - Frontend/type errors: mandelbrot, map-restrictions, select-with-varying-channels, pointer-varying, type-switch-varying, base64-decoder, type-casting-varying, varying-array-iteration, union-type-generics, varying-universal-constrained
+     - Missing package: ipv4-parser (bits package not in TinyGo std)
    - **Phase 2.9-2.10: TinyGo Compiler Work (remaining)**:
      - TinyGo uses `golang.org/x/tools/go/ssa` (NOT Go's `cmd/compile/internal/ssa`)
      - LLVM auto-vectorizes: `CreateAdd(<4 x i32>, <4 x i32>)` → WASM `v128.add`
-     - Missing: varying switch/for-loop masking, lanes.Rotate/Swizzle, scalar fallback mode
+     - Missing: shift bounds check vector support, varying switch/for-loop masking, lanes.Rotate/Swizzle, scalar fallback mode
 8. **Phase 3: NOT STARTED** - Validation and dual-mode testing
 
    - **Syntax Migration: COMPLETED** — All examples, docs, and tests migrated from old keyword syntax to package-based types
@@ -1056,7 +1068,7 @@ Go frontend implementation (Phase 1) is complete with 53 commits on the `spmd` b
      - Legacy backward-compat files intentionally preserved (use `varying`/`uniform` as identifiers)
      - `reduce.Uniform[T]` type alias skipped (Go 1.27dev rejects `type Uniform[T any] = T` with MisplacedTypeParam)
 
-Next priority: Re-run E2E tests to measure impact of Varying[T,N] parser fix, then fix remaining compiler bugs (SIGSEGV in array-counting/spmd-call-contexts, bit-counting untyped int, pointer-varying complex patterns), then varying switch/for-loop masking
+Next priority: Fix shift bounds check vector support (unblocks bit-counting), fix SIGSEGV in array-counting/spmd-call-contexts, then varying switch/for-loop masking
 
 ## Proof of Concept Success Criteria
 
