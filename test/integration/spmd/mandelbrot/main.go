@@ -45,7 +45,7 @@ func mandelSerial(cRe, cIm float32, maxIter int) int {
 // SPMD version of mandelbrot computation (varying parameters)
 func mandelSPMD(cRe lanes.Varying[float32], cIm float32, maxIter int) lanes.Varying[int] {
 	var zRe lanes.Varying[float32] = cRe
-	var zIm lanes.Varying[float32] = cIm
+	var zIm float32 = cIm
 	var iterations lanes.Varying[int] = maxIter  // Start with max, reduce when diverged
 
 	for iter := range maxIter {
@@ -222,8 +222,8 @@ func demonstrateVaryingParameters() {
 	fmt.Println("\n=== Varying Parameter Demonstration ===")
 
 	// Create varying coordinates for different mandelbrot points
-	var xCoords lanes.Varying[float32] = lanes.Varying[float32, 4]([4]float32{-0.5, 0.0, -0.75, 0.25})
-	var yCoords lanes.Varying[float32] = lanes.Varying[float32, 4]([4]float32{0.0, 0.5, 0.1, -0.25})
+	var xCoords lanes.Varying[float32] = lanes.From([]float32{-0.5, 0.0, -0.75, 0.25})
+	var yCoords lanes.Varying[float32] = lanes.From([]float32{0.0, 0.5, 0.1, -0.25})
 
 	fmt.Printf("Testing points: x=%v, y=%v\n", xCoords, yCoords)
 

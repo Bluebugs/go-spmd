@@ -127,9 +127,9 @@ func errorHandlingExample(data []int) {
 		// Simulate different error conditions
 		switch {
 		case value < 0:
-			panic(lanes.Varying[int](-value))  // panic explicitly supports varying int
+			panic(-value)  // panic with the negated value (already varying in SPMD context)
 		case value == 13:
-			panic(lanes.Varying[string]("unlucky number"))  // panic explicitly supports varying string
+			panic("unlucky number")  // panic with string (already varying in SPMD context)
 		case value > 50:
 			panic("regular panic")  // Regular uniform panic
 		default:

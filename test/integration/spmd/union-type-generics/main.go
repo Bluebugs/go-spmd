@@ -14,11 +14,11 @@ import (
 func demonstrateReduceGenerics() {
 	fmt.Println("=== Reduce Functions with Union Type Generics ===")
 
-	// Test with unconstrained varying
+	// Test with unconstrained varying (broadcasts)
 	fmt.Println("\n--- Unconstrained Varying ---")
-	unconstrainedInt := lanes.Varying[int](42)
-	unconstrainedFloat := lanes.Varying[float64](3.14)
-	unconstrainedBool := lanes.Varying[bool](true)
+	unconstrainedInt := lanes.Varying[int](42)      // broadcast 42 to all lanes
+	unconstrainedFloat := lanes.Varying[float64](3.14)  // broadcast 3.14
+	unconstrainedBool := lanes.Varying[bool](true)   // broadcast true
 
 	// All reduce functions automatically inlined for performance
 	intSum := reduce.Add(unconstrainedInt)
@@ -33,9 +33,9 @@ func demonstrateReduceGenerics() {
 
 	// Test with constrained varying
 	fmt.Println("\n--- Constrained Varying ---")
-	constrainedInt4 := lanes.Varying[int, 4]([4]int{10, 20, 30, 40})
-	constrainedFloat8 := lanes.Varying[float64, 8]([8]float64{1.1, 2.2, 3.3, 4.4, 5.5, 6.6, 7.7, 8.8})
-	constrainedBool16 := lanes.Varying[bool, 16]([16]bool{true, false, true, true, false, true, false, false, true, true, false, true, true, false, true, false})
+	constrainedInt4 := lanes.From([]int{10, 20, 30, 40})
+	constrainedFloat8 := lanes.From([]float64{1.1, 2.2, 3.3, 4.4, 5.5, 6.6, 7.7, 8.8})
+	constrainedBool16 := lanes.From([]bool{true, false, true, true, false, true, false, false, true, true, false, true, true, false, true, false})
 
 	// Same functions work with constrained varying
 	int4Sum := reduce.Add(constrainedInt4)
@@ -53,10 +53,10 @@ func demonstrateReduceGenerics() {
 func demonstrateBitwiseOperations() {
 	fmt.Println("\n=== Bitwise Operations with Integer Union Types ===")
 
-	// Test with unconstrained varying integers
+	// Test with unconstrained varying integers (broadcasts)
 	fmt.Println("\n--- Unconstrained Integer Operations ---")
-	unconstrainedInt := lanes.Varying[int](0b1010)      // 10 in binary
-	unconstrainedUint32 := lanes.Varying[uint32](uint32(0b1100))  // 12 in binary
+	unconstrainedInt := lanes.Varying[int](0b1010)           // broadcast 10 in binary
+	unconstrainedUint32 := lanes.Varying[uint32](uint32(0b1100))  // broadcast 12 in binary
 
 	intOr := reduce.Or(unconstrainedInt)
 	uint32And := reduce.And(unconstrainedUint32)
@@ -68,8 +68,8 @@ func demonstrateBitwiseOperations() {
 
 	// Test with constrained varying integers
 	fmt.Println("\n--- Constrained Integer Operations ---")
-	constrainedInt8 := lanes.Varying[int, 8]([8]int{1, 2, 4, 8, 16, 32, 64, 128})
-	constrainedUint16 := lanes.Varying[uint16, 16]([16]uint16{0x1, 0x2, 0x4, 0x8, 0x10, 0x20, 0x40, 0x80, 0x100, 0x200, 0x400, 0x800, 0x1000, 0x2000, 0x4000, 0x8000})
+	constrainedInt8 := lanes.From([]int{1, 2, 4, 8, 16, 32, 64, 128})
+	constrainedUint16 := lanes.From([]uint16{0x1, 0x2, 0x4, 0x8, 0x10, 0x20, 0x40, 0x80, 0x100, 0x200, 0x400, 0x800, 0x1000, 0x2000, 0x4000, 0x8000})
 
 	int8Or := reduce.Or(constrainedInt8)
 	uint16And := reduce.And(constrainedUint16)
@@ -84,9 +84,9 @@ func demonstrateBitwiseOperations() {
 func demonstrateLanesGenerics() {
 	fmt.Println("\n=== Lanes Functions with Union Type Generics ===")
 
-	// Test with unconstrained varying
+	// Test with unconstrained varying (broadcast)
 	fmt.Println("\n--- Unconstrained Lanes Operations ---")
-	unconstrainedData := lanes.Varying[int](100)
+	unconstrainedData := lanes.Varying[int](100)  // broadcast 100
 
 	// Automatically inlined lanes operations
 	broadcasted := lanes.Broadcast(unconstrainedData, 0)
@@ -97,8 +97,8 @@ func demonstrateLanesGenerics() {
 
 	// Test with constrained varying
 	fmt.Println("\n--- Constrained Lanes Operations ---")
-	constrainedData4 := lanes.Varying[string, 4]([4]string{"A", "B", "C", "D"})
-	constrainedData8 := lanes.Varying[float32, 8]([8]float32{1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0})
+	constrainedData4 := lanes.From([]string{"A", "B", "C", "D"})
+	constrainedData8 := lanes.From([]float32{1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0})
 
 	// Same functions work with constrained varying
 	stringBroadcast := lanes.Broadcast(constrainedData4, 2)  // Broadcast "C" to all lanes
@@ -114,16 +114,16 @@ func demonstrateSwizzleOperations() {
 
 	// Create source data and index patterns
 	fmt.Println("\n--- Swizzle with Different Types ---")
-	sourceInts := lanes.Varying[int, 4]([4]int{10, 20, 30, 40})
-	indices4 := lanes.Varying[int, 4]([4]int{3, 0, 2, 1})  // Reverse and swap
+	sourceInts := lanes.From([]int{10, 20, 30, 40})
+	indices4 := lanes.From([]int{3, 0, 2, 1})  // Reverse and swap
 
 	// Swizzle with constrained types
 	swizzledInts := lanes.Swizzle(sourceInts, indices4)
 	fmt.Printf("Swizzled constrained[4] ints: %v\n", swizzledInts)
 
-	// Works with unconstrained types too
-	sourceFloats := lanes.Varying[float64](2.5)
-	indices := lanes.Varying[int](0)  // All lanes access index 0
+	// Works with unconstrained types too (broadcasts)
+	sourceFloats := lanes.Varying[float64](2.5)  // broadcast 2.5
+	indices := lanes.Varying[int](0)             // broadcast 0 — all lanes access index 0
 
 	swizzledFloats := lanes.Swizzle(sourceFloats, indices)
 	fmt.Printf("Swizzled unconstrained floats: %v\n", swizzledFloats)
@@ -133,10 +133,10 @@ func demonstrateSwizzleOperations() {
 func demonstrateShiftOperations() {
 	fmt.Println("\n=== Shift Operations with Integer Union Types ===")
 
-	// Test with unconstrained varying
+	// Test with unconstrained varying (broadcasts)
 	fmt.Println("\n--- Unconstrained Shift Operations ---")
-	unconstrainedValue := lanes.Varying[int](0b11110000)  // 240 in binary
-	unconstrainedShift := lanes.Varying[int](2)
+	unconstrainedValue := lanes.Varying[int](0b11110000)  // broadcast 240 in binary
+	unconstrainedShift := lanes.Varying[int](2)           // broadcast 2
 
 	leftShifted := lanes.ShiftLeft(unconstrainedValue, unconstrainedShift)
 	rightShifted := lanes.ShiftRight(unconstrainedValue, unconstrainedShift)
@@ -146,8 +146,8 @@ func demonstrateShiftOperations() {
 
 	// Test with constrained varying
 	fmt.Println("\n--- Constrained Shift Operations ---")
-	constrainedValues := lanes.Varying[uint16, 4]([4]uint16{0x00FF, 0x0F0F, 0xF0F0, 0xFF00})
-	constrainedShifts := lanes.Varying[int, 4]([4]int{1, 2, 3, 4})
+	constrainedValues := lanes.From([]uint16{0x00FF, 0x0F0F, 0xF0F0, 0xFF00})
+	constrainedShifts := lanes.From([]int{1, 2, 3, 4})
 
 	constrainedLeft := lanes.ShiftLeft(constrainedValues, constrainedShifts)
 	constrainedRight := lanes.ShiftRight(constrainedValues, constrainedShifts)
@@ -157,7 +157,9 @@ func demonstrateShiftOperations() {
 }
 
 // Generic function accepting union types
-func processAnyVarying[T Numeric](data VaryingNumeric[T]) {
+// NOTE: VaryingNumeric type constraint is a conceptual placeholder;
+// in the package-based syntax these would be lanes.Varying[T] with standard Go generics.
+func processAnyVarying[T int | float64](data lanes.Varying[T]) {
 	fmt.Printf("\n--- Generic Processing of %T ---\n", data)
 
 	// Works with both constrained and unconstrained
@@ -179,7 +181,7 @@ func demonstratePerformanceOptimization() {
 	fmt.Println("\n=== Performance Optimization (Automatic Inlining) ===")
 
 	// All these operations are automatically inlined by the compiler
-	data := lanes.Varying[int, 8]([8]int{1, 2, 3, 4, 5, 6, 7, 8})
+	data := lanes.From([]int{1, 2, 3, 4, 5, 6, 7, 8})
 
 	// Chain of operations - all inlined for optimal performance
 	step1 := lanes.Broadcast(data, 0)
@@ -211,17 +213,17 @@ func main() {
 
 	// Test 6: Generic function processing
 	fmt.Println("\n=== Generic Function Processing ===")
-	processAnyVarying(lanes.Varying[int](42))
-	processAnyVarying(lanes.Varying[float64, 4]([4]float64{1.1, 2.2, 3.3, 4.4}))
-	processAnyVarying(lanes.Varying[int, 8]([8]int{10, 20, 30, 40, 50, 60, 70, 80}))
+	processAnyVarying(lanes.Varying[int](42))                                // broadcast
+	processAnyVarying(lanes.From([]float64{1.1, 2.2, 3.3, 4.4}))
+	processAnyVarying(lanes.From([]int{10, 20, 30, 40, 50, 60, 70, 80}))
 
 	// Test 7: Performance optimization demonstration
 	demonstratePerformanceOptimization()
 
 	fmt.Println("\n=== Summary ===")
-	fmt.Println("✓ reduce functions work with VaryingBool, VaryingNumeric, VaryingInteger, VaryingComparable")
-	fmt.Println("✓ lanes functions work with VaryingAny, VaryingInteger for type-specific operations")
-	fmt.Println("✓ All functions accept both constrained (lanes.Varying[T, n]) and unconstrained (lanes.Varying[T]) types")
+	fmt.Println("✓ reduce functions work with lanes.Varying[bool/numeric/integer/comparable]")
+	fmt.Println("✓ lanes functions work with lanes.Varying[T] for type-specific operations")
+	fmt.Println("✓ All functions accept both constrained (Varying[T, N]) and unconstrained (Varying[T]) types")
 	fmt.Println("✓ All reduce and lanes operations are automatically inlined for optimal performance")
 	fmt.Println("✓ Type-safe operations prevent incorrect usage (e.g., bitwise ops only on integers)")
 	fmt.Println("✓ Union type generics provide flexibility while maintaining compile-time type safety")

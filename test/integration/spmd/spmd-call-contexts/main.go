@@ -34,8 +34,8 @@ func advancedProcess(data lanes.Varying[int], multiplier lanes.Varying[int]) lan
 func nonSPMDCaller() {
 	fmt.Println("\n=== Non-SPMD Context Calls ===")
 
-	// Create varying data in non-SPMD context
-	data := lanes.Varying[int](50)
+	// Create varying data in non-SPMD context (broadcast)
+	data := lanes.Varying[int](50)  // broadcast 50 to all lanes
 
 	// LEGAL: Call SPMD function from non-SPMD context
 	// Mask implicitly set to all lanes active
@@ -47,7 +47,7 @@ func nonSPMDCaller() {
 	fmt.Printf("Sum from non-SPMD context: %d\n", sum)
 
 	// LEGAL: Call SPMD function with multiple varying parameters
-	multiplier := lanes.Varying[int](3)
+	multiplier := lanes.Varying[int](3)  // broadcast 3 to all lanes
 	advanced := advancedProcess(data, multiplier)
 	fmt.Printf("Advanced processing: %v\n", advanced)
 
@@ -62,7 +62,7 @@ func demonstrateCapturedMask() {
 	fmt.Println("\n=== Captured Mask Behavior ===")
 
 	go for i := range 8 {
-		data := lanes.Varying[int](i * 10)
+		data := i * 10  // varying value (i is varying in go for)
 
 		// Create conditional mask
 		if data > 30 {  // Only lanes with data > 30 are active
@@ -97,7 +97,7 @@ func demonstrateSPMDCalls() {
 	fmt.Println("\n=== SPMD Context Calls ===")
 
 	go for i := range 6 {
-		data := lanes.Varying[int](i * 5)
+		data := i * 5  // varying
 
 		// LEGAL: Call SPMD function from SPMD context
 		// Inherits current execution mask (all lanes active initially)
@@ -124,8 +124,8 @@ func demonstrateSPMDCalls() {
 // Demonstrate nested SPMD function calls
 func nestedSPMDProcessing(base lanes.Varying[int], factor lanes.Varying[int]) lanes.Varying[int] {
 	// SPMD function that calls other SPMD functions
-	step1 := processData(base)         // First SPMD call
-	step2 := advancedProcess(step1, factor)  // Second SPMD call
+	step1 := processData(base)              // First SPMD call
+	step2 := advancedProcess(step1, factor) // Second SPMD call
 
 	// Use reduce within SPMD function
 	if reduce.All(step2 > 0) {
@@ -137,17 +137,17 @@ func nestedSPMDProcessing(base lanes.Varying[int], factor lanes.Varying[int]) la
 func demonstrateNestedCalls() {
 	fmt.Println("\n=== Nested SPMD Function Calls ===")
 
-	// From non-SPMD context
-	base := lanes.Varying[int](15)
-	factor := lanes.Varying[int](2)
+	// From non-SPMD context (broadcasts)
+	base := lanes.Varying[int](15)   // broadcast 15 to all lanes
+	factor := lanes.Varying[int](2)  // broadcast 2 to all lanes
 
 	result := nestedSPMDProcessing(base, factor)
 	fmt.Printf("Nested result from non-SPMD: %v\n", result)
 
 	// From SPMD context
 	go for i := range 4 {
-		localBase := lanes.Varying[int](i * 8)
-		localFactor := lanes.Varying[int](3)
+		localBase := i * 8   // varying
+		localFactor := lanes.Varying[int](3)  // broadcast 3
 
 		nestedResult := nestedSPMDProcessing(localBase, localFactor)
 		fmt.Printf("Lane %v nested result: %v\n", lanes.Index(), nestedResult)
@@ -165,8 +165,8 @@ func demonstrateNestedCalls() {
 func demonstrateReduceEverywhere() {
 	fmt.Println("\n=== Reduce Functions in All Contexts ===")
 
-	// 1. Reduce in non-SPMD context
-	data := lanes.Varying[int](100)
+	// 1. Reduce in non-SPMD context (broadcasts)
+	data := lanes.Varying[int](100)  // broadcast 100
 	sum1 := reduce.Add(data)
 	max1 := reduce.Max(data)
 	any1 := reduce.Any(data > 50)
@@ -177,7 +177,7 @@ func demonstrateReduceEverywhere() {
 
 	// 2. Reduce in SPMD context
 	go for i := range 5 {
-		localData := lanes.Varying[int](i * 20)
+		localData := i * 20  // varying
 
 		// These work in SPMD context with current mask
 		localSum := reduce.Add(localData)
@@ -196,7 +196,7 @@ func demonstrateReduceEverywhere() {
 
 	// 3. Reduce with captured varying (defer)
 	go for i := range 3 {
-		iterData := lanes.Varying[int](i * 30)
+		iterData := i * 30  // varying
 
 		if iterData > 15 {
 			defer func(captured lanes.Varying[int]) {

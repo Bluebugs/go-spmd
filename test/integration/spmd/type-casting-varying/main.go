@@ -29,9 +29,9 @@ func demonstrateValidCasting() {
 	fmt.Printf("float64 → float32: %.15f → %.7f\n", doublePrecision, singlePrecision)
 
 	// Demonstrate with constrained varying
-	var constrainedWide lanes.Varying[uint32, 2] = lanes.Varying[uint32, 2]([2]uint32{0xAABBCCDD, 0x11223344})
+	var constrainedWide lanes.Varying[uint32, 2] = lanes.From([]uint32{0xAABBCCDD, 0x11223344})
 	var constrainedNarrow lanes.Varying[uint16, 2] = lanes.Varying[uint16, 2](constrainedWide)  // Valid
-	fmt.Printf("lanes.Varying[uint32, 2] → lanes.Varying[uint16, 2]: %v → %v\n", constrainedWide, constrainedNarrow)
+	fmt.Printf("Varying[uint32, 2] → uint16: %v → %v\n", constrainedWide, constrainedNarrow)
 }
 
 // Demonstrate register capacity constraints
@@ -39,22 +39,22 @@ func demonstrateRegisterConstraints() {
 	fmt.Println("\n=== SIMD Register Capacity Analysis ===")
 
 	// Show bit usage for different types (WASM SIMD128 = 128 bits)
-	var v4_uint32 lanes.Varying[uint32, 4] = lanes.Varying[uint32, 4]([4]uint32{1, 2, 3, 4})
-	fmt.Printf("lanes.Varying[uint32, 4]: 4 × 32 = %d bits (fits in 128-bit SIMD)\n", 4*32)
+	var v4_uint32 lanes.Varying[uint32, 4] = lanes.From([]uint32{1, 2, 3, 4})
+	fmt.Printf("Varying[uint32, 4]: 4 × 32 = %d bits (fits in 128-bit SIMD)\n", 4*32)
 	fmt.Printf("Data: %v\n", v4_uint32)
 
-	var v8_uint16 lanes.Varying[uint16, 8] = lanes.Varying[uint16, 8]([8]uint16{1, 2, 3, 4, 5, 6, 7, 8})
-	fmt.Printf("lanes.Varying[uint16, 8]: 8 × 16 = %d bits (fits in 128-bit SIMD)\n", 8*16)
+	var v8_uint16 lanes.Varying[uint16, 8] = lanes.From([]uint16{1, 2, 3, 4, 5, 6, 7, 8})
+	fmt.Printf("Varying[uint16, 8]: 8 × 16 = %d bits (fits in 128-bit SIMD)\n", 8*16)
 	fmt.Printf("Data: %v\n", v8_uint16)
 
-	var v16_uint8 lanes.Varying[uint8, 16] = lanes.Varying[uint8, 16]([16]uint8{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16})
-	fmt.Printf("lanes.Varying[uint8, 16]: 16 × 8 = %d bits (fits in 128-bit SIMD)\n", 16*8)
+	var v16_uint8 lanes.Varying[uint8, 16] = lanes.From([]uint8{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16})
+	fmt.Printf("Varying[uint8, 16]: 16 × 8 = %d bits (fits in 128-bit SIMD)\n", 16*8)
 	fmt.Printf("Data: %v\n", v16_uint8)
 
 	// This would exceed capacity if upcasting were allowed:
 	fmt.Printf("\nWhy upcasting is prohibited:\n")
-	fmt.Printf("lanes.Varying[uint32, 4] → uint64 would need: 4 × 64 = %d bits (exceeds 128-bit limit!)\n", 4*64)
-	fmt.Printf("lanes.Varying[uint16, 8] → uint32 would need: 8 × 32 = %d bits (exceeds 128-bit limit!)\n", 8*32)
+	fmt.Printf("Varying[uint32, 4] → uint64 would need: 4 × 64 = %d bits (exceeds 128-bit limit!)\n", 4*64)
+	fmt.Printf("Varying[uint16, 8] → uint32 would need: 8 × 32 = %d bits (exceeds 128-bit limit!)\n", 8*32)
 }
 
 // Demonstrate practical downcasting use cases
@@ -85,12 +85,12 @@ func demonstrateCrossTypeOperations() {
 	fmt.Println("\n=== Cross-Type Operations After Casting ===")
 
 	// Original data in different sizes
-	var wide lanes.Varying[uint32, 4] = lanes.Varying[uint32, 4]([4]uint32{0x12345678, 0x9ABCDEF0, 0x13579BDF, 0x2468ACE0})
-	var narrow lanes.Varying[uint16, 8] = lanes.Varying[uint16, 8]([8]uint16{0x1111, 0x2222, 0x3333, 0x4444, 0x5555, 0x6666, 0x7777, 0x8888})
+	var wide lanes.Varying[uint32, 4] = lanes.From([]uint32{0x12345678, 0x9ABCDEF0, 0x13579BDF, 0x2468ACE0})
+	var narrow lanes.Varying[uint16, 8] = lanes.From([]uint16{0x1111, 0x2222, 0x3333, 0x4444, 0x5555, 0x6666, 0x7777, 0x8888})
 
 	// Cast down to same size for operations
 	var wideAsNarrow lanes.Varying[uint16, 4] = lanes.Varying[uint16, 4](wide)   // Downcast 32→16
-	var narrowSlice lanes.Varying[uint16, 4] = lanes.Varying[uint16, 4]([4]uint16{narrow[0], narrow[1], narrow[2], narrow[3]})  // Take first 4 elements
+	var narrowSlice lanes.Varying[uint16, 4] = lanes.From([]uint16{narrow[0], narrow[1], narrow[2], narrow[3]})  // Take first 4 elements
 
 	// Now both are uint16, can combine
 	var combined lanes.Varying[uint16, 4] = wideAsNarrow + narrowSlice
@@ -125,7 +125,7 @@ func main() {
 	fmt.Println("")
 	fmt.Println("✗ Upcasting (smaller → larger): PROHIBITED")
 	fmt.Println("  - Would exceed SIMD register capacity")
-	fmt.Println("  - lanes.Varying[uint32, 4] (128 bits) → lanes.Varying[uint64, 4] (256 bits)")
+	fmt.Println("  - Varying[uint32, 4] (128 bits) → Varying[uint64, 4] (256 bits)")
 	fmt.Println("  - WASM SIMD128 only provides 128-bit registers")
 	fmt.Println("  - Future: may be supported via lanes operations with register splitting")
 	fmt.Println("")

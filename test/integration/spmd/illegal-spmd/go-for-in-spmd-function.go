@@ -2,8 +2,10 @@
 
 package main
 
-import "lanes"
-import "reduce"
+import (
+	"lanes"
+	"reduce"
+)
 
 // SPMD function (takes varying parameter)
 func processSPMDData(data lanes.Varying[int]) lanes.Varying[int] {
@@ -36,7 +38,7 @@ func main() {
 	// This go for is valid (top-level)
 	go for _, v := range data {
 		// Calling SPMD function is fine, but the function itself is invalid due to internal go for
-		results = processSPMDData(lanes.Varying[int](v))
+		results = processSPMDData(v)
 
 		// Calling regular function with go for is perfectly fine
 		_ = processRegularData(reduce.From(v))

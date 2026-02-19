@@ -20,9 +20,9 @@ func basicSelectExample() {
 	outputCh := make(chan lanes.Varying[int], 5)
 
 	// Send some varying data to the input channel
-	inputCh <- lanes.Varying[int, 4]([4]int{1, 2, 3, 4})
-	inputCh <- lanes.Varying[int, 4]([4]int{10, 20, 30, 40})
-	inputCh <- lanes.Varying[int, 4]([4]int{100, 200, 300, 400})
+	inputCh <- lanes.From([]int{1, 2, 3, 4})
+	inputCh <- lanes.From([]int{10, 20, 30, 40})
+	inputCh <- lanes.From([]int{100, 200, 300, 400})
 	close(inputCh)
 
 	// Process data using select statement
@@ -80,7 +80,7 @@ func infiniteLoopExample() {
 	// Launch a goroutine to send test data
 	go func() {
 		for i := 0; i < 3; i++ {
-			data := lanes.Varying[int, 4]([4]int{i*10 + 1, i*10 + 2, i*10 + 3, i*10 + 4})
+			data := lanes.From([]int{i*10 + 1, i*10 + 2, i*10 + 3, i*10 + 4})
 			dataCh <- data
 			time.Sleep(100 * time.Millisecond)
 		}
@@ -90,7 +90,7 @@ func infiniteLoopExample() {
 	}()
 
 	// Process data in infinite SPMD loop
-	var totalProcessed lanes.Varying[int] = lanes.Varying[int](0)
+	var totalProcessed lanes.Varying[int] = 0  // broadcast 0 to all lanes
 
 	go for {  // Infinite SPMD loop
 		select {
@@ -98,7 +98,7 @@ func infiniteLoopExample() {
 			fmt.Printf("Processing varying data in infinite loop: %v\n", data)
 
 			// SPMD processing of the varying data
-			processed := data * lanes.Varying[int](3)  // Triple all values
+			processed := data * 3  // Triple all values (3 broadcasts to all lanes)
 			totalProcessed = totalProcessed + processed
 
 			fmt.Printf("Processed result: %v\n", processed)
@@ -137,7 +137,7 @@ func pipelineExample() {
 	go func() {
 		defer close(stage1Ch)
 		for i := 0; i < 4; i++ {
-			data := lanes.Varying[int, 4]([4]int{i*4 + 1, i*4 + 2, i*4 + 3, i*4 + 4})
+			data := lanes.From([]int{i*4 + 1, i*4 + 2, i*4 + 3, i*4 + 4})
 			stage1Ch <- data
 			fmt.Printf("Stage 1 generated: %v\n", data)
 		}
@@ -155,7 +155,7 @@ func pipelineExample() {
 				}
 
 				// SPMD processing: add 10 to each lane
-				processed := data + lanes.Varying[int](10)
+				processed := data + 10  // 10 broadcasts to all lanes
 				stage2Ch <- processed
 				fmt.Printf("Stage 2 processed: %v\n", processed)
 
@@ -179,7 +179,7 @@ func pipelineExample() {
 				}
 
 				// SPMD processing: multiply by 2
-				final := data * lanes.Varying[int](2)
+				final := data * 2  // 2 broadcasts to all lanes
 				stage3Ch <- final
 				fmt.Printf("Stage 3 final: %v\n", final)
 
@@ -215,9 +215,9 @@ func mixedChannelExample() {
 	controlCh := make(chan string, 1)
 
 	// Send test data
-	varyingCh <- lanes.Varying[int, 4]([4]int{1, 2, 3, 4})
+	varyingCh <- lanes.From([]int{1, 2, 3, 4})
 	uniformCh <- 100
-	varyingCh <- lanes.Varying[int, 4]([4]int{5, 6, 7, 8})
+	varyingCh <- lanes.From([]int{5, 6, 7, 8})
 	controlCh <- "finish"
 
 	// Process with mixed channel types
@@ -227,14 +227,14 @@ func mixedChannelExample() {
 			fmt.Printf("Received varying data: %v\n", vData)
 			// Process varying data in SPMD context
 			go for i := range lanes.Count(vData) {
-				result := vData + lanes.Varying[int](50)
+				result := vData + 50  // 50 broadcasts to all lanes
 				fmt.Printf("Varying processed: %v\n", result)
 			}
 
 		case uData := <-uniformCh:
 			fmt.Printf("Received uniform data: %d\n", uData)
 			// Process uniform data (can be broadcast to varying if needed)
-			vData := lanes.Varying[int](uData)
+			vData := lanes.Varying[int](uData)  // broadcast uniform to all lanes
 			fmt.Printf("Uniform converted to varying: %v\n", vData)
 
 		case cmd := <-controlCh:

@@ -28,7 +28,7 @@ func spmdWithLanesIndex(data lanes.Varying[int]) lanes.Varying[int] {
 // VALID: Non-SPMD function using other lanes functions
 func nonSPMDWithOtherLanes() lanes.Varying[int] {
 	// OK: Most lanes functions work without SPMD context
-	data := lanes.Varying[int](100)
+	data := lanes.Varying[int](100)  // broadcast 100 to all lanes
 	broadcasted := lanes.Broadcast(data, 0)
 
 	// OK: reduce functions work anywhere
@@ -56,8 +56,8 @@ func directGoForUsage() {
 func demonstrateSPMDFromNonSPMD() {
 	fmt.Println("\n=== SPMD Function from Non-SPMD Context ===")
 
-	// Create varying data in non-SPMD context
-	data := lanes.Varying[int](50)
+	// Create varying data in non-SPMD context (broadcast)
+	data := lanes.Varying[int](50)  // broadcast 50 to all lanes
 
 	// OK: SPMD function can use lanes.Index() even when called from non-SPMD context
 	// because it can infer lane count from the varying parameter
@@ -66,7 +66,7 @@ func demonstrateSPMDFromNonSPMD() {
 
 	// OK: Call SPMD function multiple times
 	for i := 0; i < 3; i++ {
-		input := lanes.Varying[int](i * 20)
+		input := lanes.Varying[int](i * 20)  // broadcast to all lanes
 		output := spmdWithLanesIndex(input)
 		total := reduce.Add(output)
 		fmt.Printf("Non-SPMD call %d: total = %d\n", i, total)
@@ -78,8 +78,8 @@ func demonstrateSPMDFromGoFor() {
 	fmt.Println("\n=== SPMD Function from go for Context ===")
 
 	go for i := range 4 {
-		// Create varying data in SPMD context
-		data := lanes.Varying[int](i * 15)
+		// Create varying data in SPMD context (i is already varying)
+		data := i * 15
 
 		// OK: SPMD function called from go for context
 		result := spmdWithLanesIndex(data)
@@ -103,16 +103,16 @@ func nestedSPMDFunction(base lanes.Varying[int], multiplier lanes.Varying[int]) 
 func demonstrateNestedSPMD() {
 	fmt.Println("\n=== Nested SPMD Functions ===")
 
-	// From non-SPMD context
-	base := lanes.Varying[int](10)
-	multiplier := lanes.Varying[int](3)
+	// From non-SPMD context (broadcasts)
+	base := lanes.Varying[int](10)        // broadcast 10
+	multiplier := lanes.Varying[int](3)   // broadcast 3
 	result := nestedSPMDFunction(base, multiplier)
 	fmt.Printf("Nested result: %v\n", result)
 
 	// From go for context
 	go for i := range 3 {
-		localBase := lanes.Varying[int](i * 5)
-		localMult := lanes.Varying[int](2)
+		localBase := i * 5             // varying (i is varying in go for)
+		localMult := lanes.Varying[int](2)  // broadcast 2
 		nestedResult := nestedSPMDFunction(localBase, localMult)
 		total := reduce.Add(nestedResult)
 		fmt.Printf("go for nested total: %d\n", total)
@@ -164,9 +164,9 @@ func processBatch(items lanes.Varying[int], offset lanes.Varying[int]) lanes.Var
 func demonstrateBatchProcessing() {
 	fmt.Println("\n=== Batch Processing with lanes.Index() ===")
 
-	// Called from different contexts
-	items := lanes.Varying[int](100)
-	offset := lanes.Varying[int](10)
+	// Called from different contexts (broadcasts)
+	items := lanes.Varying[int](100)  // broadcast 100
+	offset := lanes.Varying[int](10)  // broadcast 10
 
 	// From non-SPMD context - still works!
 	result1 := processBatch(items, offset)
@@ -174,8 +174,8 @@ func demonstrateBatchProcessing() {
 
 	// From go for context
 	go for i := range 2 {
-		batchItems := lanes.Varying[int](i * 50)
-		batchOffset := lanes.Varying[int](5)
+		batchItems := i * 50             // varying
+		batchOffset := lanes.Varying[int](5)  // broadcast 5
 		result2 := processBatch(batchItems, batchOffset)
 		total := reduce.Add(result2)
 		fmt.Printf("go for context total: %d\n", total)

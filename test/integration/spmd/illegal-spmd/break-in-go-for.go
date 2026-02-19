@@ -1,63 +1,71 @@
-// ILLEGAL: Break statements are not allowed in SPMD go for loops
-// Expected error: "break statement not allowed in SPMD for loop"
+// ILLEGAL: Break/return statements under varying conditions in SPMD go for loops
+// Following ISPC approach: forbidden only under varying conditions
+// Expected error: "break/return statement not allowed under varying conditions in SPMD for loop"
 package main
 
-import "lanes"
-import "reduce"
+import (
+	"lanes"
+	"reduce"
+)
 
 func main() {
 	data := []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
 
-	// ILLEGAL: Direct break in go for loop
+	// ILLEGAL: Break under varying condition
 	go for i := range data {
-		if data[i] > 5 {
-			break  // ERROR: break statement not allowed in SPMD for loop
+		if data[i] > 5 { // varying condition
+			break  // ERROR: varying condition forbids break
 		}
 		data[i] *= 2
 	}
 
-	// ILLEGAL: Break in nested structure within go for
+	// ILLEGAL: Return under varying condition
 	go for i := range data {
-		switch data[i] {
+		if data[i] < 0 { // varying condition
+			return  // ERROR: varying condition forbids return
+		}
+		data[i] *= 2
+	}
+
+	// ILLEGAL: Break in nested varying condition
+	go for i := range data {
+		switch data[i] { // varying condition
 		case 1:
 			data[i] = 10
 		case 2:
-			break  // ERROR: break statement not allowed in SPMD for loop
+			break  // ERROR: varying condition (switch on varying) forbids break
 		default:
 			data[i] += 1
 		}
 	}
 
-	// ILLEGAL: Labeled break targeting go for loop
-	outer:
+	// ILLEGAL: Nested varying conditions make return/break forbidden
 	go for i := range data {
-		for j := 0; j < 3; j++ {
-			if data[i]*j > 10 {
-				break outer  // ERROR: break statement not allowed in SPMD for loop
-			}
-		}
-	}
-
-	// ILLEGAL: Break in nested go for loop (nesting prohibited for now)
-	go for i := range data {
-		go for j := range 5 { // ERROR: nested `go for` loop (prohibited for now)
-			if i*j > 10 {
-				break  // ERROR: break statement not allowed in SPMD for loop
+		uniformCondition := true
+		if uniformCondition { // uniform condition - return/break would be OK here
+			if data[i] > 5 { // varying condition - now return/break forbidden
+				return  // ERROR: enclosing varying condition forbids return
 			}
 		}
 	}
 }
 
-// ILLEGAL: Break with condition in go for
+// ILLEGAL: Break with varying condition in go for
 func conditionalBreak() {
 	data := make([]int, 100)
 
 	go for i := range data {
+		// Even with reduction producing uniform result, the condition is varying
 		var condition lanes.Varying[bool] = (data[i] > 50)
 
-		// Even with reduction, break is not allowed
-		if reduce.Any(condition) {
-			break  // ERROR: break statement not allowed in SPMD for loop
+		if condition { // varying condition
+			if reduce.Any(condition) { // uniform result, but in varying context
+				break  // ERROR: still considered under varying context
+			}
+		}
+		if reduce.All(!condition) {
+			// All lanes false - uniform context - loop would exit here, but this is OK
+			return  // LEGAL: all lanes return is OK
 		}
 
 		data[i] = process(data[i])
@@ -68,15 +76,34 @@ func process(x int) int {
 	return x * 2
 }
 
-// LEGAL: Continue statements are allowed (for comparison)
+// LEGAL: Continue statements are always allowed (for comparison)
 func legalContinue() {
 	data := []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
 
 	go for i := range data {
-		if data[i]%2 == 0 {
-			continue  // LEGAL: continue is allowed in go for loops
+		if data[i]%2 == 0 { // varying condition
+			continue  // LEGAL: continue always allowed, even under varying conditions
 		}
 		data[i] *= 3
+	}
+}
+
+// LEGAL: Return/break under uniform conditions
+func legalUniformExit() {
+	data := []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
+	threshold := 15
+
+	go for i := range data {
+		// LEGAL: Uniform condition allows return/break
+		if threshold < 0 {
+			return  // LEGAL: uniform condition
+		}
+
+		if threshold > 20 {
+			break  // LEGAL: uniform condition
+		}
+
+		data[i] *= 2
 	}
 }
 

@@ -2,8 +2,10 @@
 
 package main
 
-import "lanes"
-import "reduce"
+import (
+	"lanes"
+	"reduce"
+)
 
 // ILLEGAL: Public functions cannot have varying parameters
 func ProcessData(data lanes.Varying[int]) lanes.Varying[int] {  // ERROR "varying parameters not allowed in public functions"
@@ -31,7 +33,7 @@ func PublicFunction(data []int) int {
 
 	go for i := range len(data) {
 		// Use private SPMD functions internally
-		processed := processData(lanes.Varying[int](data[i]))
+		processed := processData(data[i])
 		total += reduce.Add(processed)
 	}
 
