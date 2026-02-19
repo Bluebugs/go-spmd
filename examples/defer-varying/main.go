@@ -15,7 +15,7 @@ func cleanup(resources int) {
 	fmt.Printf("Cleaning up resources: %d\n", resources)
 }
 
-func allocateResource(id int) int {
+func allocateResource(id lanes.Varying[int]) lanes.Varying[int] {
 	// Simulate allocation (in real code, this might allocate memory, files, etc.)
 	return id * 100 // Return resource handle
 }

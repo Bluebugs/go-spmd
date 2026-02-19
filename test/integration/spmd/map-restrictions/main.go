@@ -31,10 +31,11 @@ func validMapUsage() {
 		counts[uniformKey] = value * 2
 
 		// ✓ ALLOWED: Read with uniform key (returns varying value)
-		stored := counts[uniformKey]
+		_ = counts[uniformKey]
 
 		// ✓ ALLOWED: Check existence with uniform key
-		if storedVal, exists := counts[uniformKey]; exists {
+		storedVal, exists := counts[uniformKey]
+		if exists {
 			// Convert varying to uniform for printing
 			values := reduce.From(storedVal)
 			fmt.Printf("Key %s has value: %d\n", uniformKey, values)
