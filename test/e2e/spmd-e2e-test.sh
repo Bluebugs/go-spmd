@@ -278,7 +278,9 @@ printf "\n${BLUE}--- Level 5: Integration examples (compile only) ---${NC}\n"
 
 INTEG="$SPMD_ROOT/test/integration/spmd"
 for dir in simple-sum odd-even bit-counting array-counting hex-encode to-upper \
-           type-casting-varying varying-array-iteration mandelbrot; do
+           type-casting-varying varying-array-iteration mandelbrot \
+           map-restrictions defer-varying printf-verbs goroutine-varying \
+           panic-recover-varying select-with-varying-channels; do
     if [ -f "$INTEG/$dir/main.go" ]; then
         test_compile "integ_$dir" "$INTEG/$dir/main.go"
     fi
@@ -288,7 +290,9 @@ done
 printf "\n${BLUE}--- Level 6: Complex patterns (compile only) ---${NC}\n"
 
 for dir in pointer-varying type-switch-varying non-spmd-varying-return \
-           spmd-call-contexts debug-varying; do
+           spmd-call-contexts debug-varying \
+           base64-decoder ipv4-parser lanes-index-restrictions \
+           union-type-generics varying-universal-constrained; do
     if [ -f "$INTEG/$dir/main.go" ]; then
         test_compile "integ_$dir" "$INTEG/$dir/main.go"
     fi
