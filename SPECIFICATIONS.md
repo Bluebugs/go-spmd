@@ -61,9 +61,9 @@ Two new type qualifiers modify the semantics of existing Go types:
 #### Uniform Types
 
 ```go
-var x uniform int      // Scalar integer, same value across all lanes
-var f uniform func()   // Function pointer, same across all lanes
-var s uniform []byte   // Slice header, same across all lanes
+var x int              // Scalar integer, same value across all lanes
+var f func()           // Function pointer, same across all lanes
+var s []byte           // Slice header, same across all lanes
 ```
 
 **Uniform types** represent values that are identical across all SIMD lanes. They correspond to traditional Go types and consume the same memory as their unqualified equivalents. `uniform` is entirely optional and match exactly match unqualified type. They exist for better readability.
@@ -71,26 +71,26 @@ var s uniform []byte   // Slice header, same across all lanes
 #### Varying Types
 
 ```go
-var y varying int      // Vector integer, potentially different per lane  
-var a varying [4]byte  // Vector array, different per lane
-var p varying *Data    // Vector of pointers, different per lane
+var y lanes.Varying[int]      // Vector integer, potentially different per lane
+var a lanes.Varying[[4]byte]  // Vector array, different per lane
+var p lanes.Varying[*Data]    // Vector of pointers, different per lane
 ```
 
 **Varying types** represent values that may differ across SIMD lanes. They are implemented as vectors with one element per lane. The number of lanes is determined by the target architecture and can be queried using `lanes.Count()`.
 
-**Constrained Varying Types** specify lane count requirements using the syntax `varying[n]`:
+**Constrained Varying Types** specify lane count requirements using the syntax `lanes.Varying[T, n]`:
 
 ```go
-var data varying[4] byte    // Lane count must be multiple of 4
-var mask varying[8] bool    // Lane count must be multiple of 8  
+var data lanes.Varying[byte, 4]    // Lane count must be multiple of 4
+var mask lanes.Varying[bool, 8]    // Lane count must be multiple of 8
 ```
 
-**Universal Constrained Varying** accepts any constrained varying using the syntax `varying[]`:
+**Universal Constrained Varying** accepts any constrained varying:
 
 ```go
-func processAnyConstrained(data varying[] byte) {
-    // Accepts varying[4] byte, varying[8] byte, varying[16] byte, etc.
-    // Does NOT accept unconstrained varying byte
+func processAnyConstrained(data lanes.Varying[byte]) {
+    // Accepts lanes.Varying[byte, 4], lanes.Varying[byte, 8], lanes.Varying[byte, 16], etc.
+    // Does NOT accept unconstrained lanes.Varying[byte]
 }
 ```
 
@@ -98,8 +98,8 @@ func processAnyConstrained(data varying[] byte) {
 
 **Semantics**:
 
-- `varying[4] int` requires the SIMD width to be a multiple of 4 (e.g., 4, 8, 12, 16 lanes)
-- `varying[8] bool` requires the SIMD width to be a multiple of 8 (e.g., 8, 16, 24, 32 lanes)
+- `lanes.Varying[int, 4]` requires the SIMD width to be a multiple of 4 (e.g., 4, 8, 12, 16 lanes)
+- `lanes.Varying[bool, 8]` requires the SIMD width to be a multiple of 8 (e.g., 8, 16, 24, 32 lanes)
 - This enables algorithms that process data in specific group sizes (like base64's 4:3 transformation)
 
 **Hardware Independence**:
@@ -113,16 +113,16 @@ Constrained varying types are **independent of hardware capabilities**. The comp
 
 ```go
 // These are valid regardless of hardware SIMD width:
-var data1 varying[4] int     // ✓ Always valid
-var data2 varying[8] int     // ✓ Always valid  
-var data3 varying[16] int    // ✓ Always valid
-var data4 varying[32] int    // ✓ Valid (compiler handles with unrolling/masking)
+var data1 lanes.Varying[int, 4]     // ✓ Always valid
+var data2 lanes.Varying[int, 8]     // ✓ Always valid
+var data3 lanes.Varying[int, 16]    // ✓ Always valid
+var data4 lanes.Varying[int, 32]    // ✓ Valid (compiler handles with unrolling/masking)
 
-// On WASM SIMD128 (4 lanes), varying[8] int is implemented as:
+// On WASM SIMD128 (4 lanes), lanes.Varying[int, 8] is implemented as:
 // - 2 SIMD registers or 2 unrolled loop iterations
-// On AVX2 (8 lanes), varying[16] int is implemented as:
-// - 2 SIMD registers or 2  unrolled loop iterations
-// On scalar hardware, varying[4] int is implemented as:
+// On AVX2 (8 lanes), lanes.Varying[int, 16] is implemented as:
+// - 2 SIMD registers or 2 unrolled loop iterations
+// On scalar hardware, lanes.Varying[int, 4] is implemented as:
 // - 4 scalar operations or an unrolled loop with 4 iterations
 ```
 
@@ -130,10 +130,10 @@ var data4 varying[32] int    // ✓ Valid (compiler handles with unrolling/maski
 To ensure reasonable compilation times and memory usage:
 
 - **Maximum constraint**: 512 bits total
-- `varying[64] byte` (64×8 = 512 bits) - maximum for 8-bit types
-- `varying[32] uint16` (32×16 = 512 bits) - maximum for 16-bit types  
-- `varying[16] uint32` (16×32 = 512 bits) - maximum for 32-bit types
-- `varying[8] uint64` (8×64 = 512 bits) - maximum for 64-bit types
+- `lanes.Varying[byte, 64]` (64×8 = 512 bits) - maximum for 8-bit types
+- `lanes.Varying[uint16, 32]` (32×16 = 512 bits) - maximum for 16-bit types
+- `lanes.Varying[uint32, 16]` (16×32 = 512 bits) - maximum for 32-bit types
+- `lanes.Varying[uint64, 8]` (8×64 = 512 bits) - maximum for 64-bit types
 
 #### Pointer Support for Varying Types
 
@@ -141,15 +141,15 @@ SPMD supports both pointers to varying values and varying pointers, enabling fle
 
 ```go
 // Pointer to varying value (single pointer, varying data)
-var dataPtr *varying int        // Pointer to varying int data
-var arrayPtr *varying [4]int    // Pointer to varying array
+var dataPtr *lanes.Varying[int]        // Pointer to varying int data
+var arrayPtr *lanes.Varying[[4]int]    // Pointer to varying array
 
 // Varying pointers (different pointers per lane)
-var varyingPtrs varying *int    // Each lane has different pointer
-var varyingArrayPtrs varying *[4]int  // Each lane points to different arrays
+var varyingPtrs lanes.Varying[*int]             // Each lane has different pointer
+var varyingArrayPtrs lanes.Varying[*[4]int]     // Each lane points to different arrays
 
 // Mixed pointer patterns
-var mixedPtr *varying *int      // Pointer to varying pointers
+var mixedPtr *lanes.Varying[*int]      // Pointer to varying pointers
 ```
 
 **Pointer Semantics**:
@@ -173,7 +173,7 @@ var mixedPtr *varying *int      // Pointer to varying pointers
 
 ```go
 // Example 1: Pointer to varying array for bulk operations
-func processVaryingArray(data *varying [16]int) {
+func processVaryingArray(data *lanes.Varying[[16]int]) {
     go for i := range 16 {
         // Access varying array through pointer
         (*data)[i] *= 2
@@ -181,7 +181,7 @@ func processVaryingArray(data *varying [16]int) {
 }
 
 // Example 2: Varying pointers for scatter access
-func scatterGather(ptrs varying *int, values varying int) {
+func scatterGather(ptrs lanes.Varying[*int], values lanes.Varying[int]) {
     go for i := range len(values) {
         // Each lane writes to its own memory location
         *ptrs = values  // Scatter operation
@@ -190,9 +190,9 @@ func scatterGather(ptrs varying *int, values varying int) {
 
 // Example 3: Mixed pointer operations
 func complexPointerOps() {
-    var data varying [4]int = [4]int{1, 2, 3, 4}
-    var dataPtr *varying [4]int = &data
-    
+    var data lanes.Varying[[4]int] = [4]int{1, 2, 3, 4}
+    var dataPtr *lanes.Varying[[4]int] = &data
+
     go for i := range 4 {
         // Access through pointer to varying array
         (*dataPtr)[i] += lanes.Index()
@@ -202,16 +202,16 @@ func complexPointerOps() {
 
 ### Type Qualification Rules
 
-1. **Default qualification**: All existing Go types are implicitly `uniform`
-2. **Explicit qualification**: Types may be explicitly qualified with `uniform` or `varying`
+1. **Default qualification**: All existing Go types are implicitly uniform (scalar)
+2. **Explicit qualification**: Varying types use the `lanes.Varying[T]` generic type
 3. **Nested qualification**: Qualification applies to the immediate type, not nested elements
-   - `varying []uniform int` - varying slice of uniform integers
-   - `uniform []varying int` - uniform slice of varying integers
+   - `lanes.Varying[[]int]` - varying slice of uniform integers
+   - `[]lanes.Varying[int]` - uniform slice of varying integers
 
 ### Type Compatibility
 
-- `uniform T` and `T` are identical types
-- `varying T` is a distinct type from `T` and `uniform T`
+- Uniform `T` and regular `T` are identical types (uniform is the default)
+- `lanes.Varying[T]` is a distinct type from `T`
 - Conversions between qualified types follow assignment rules (see [Type System Rules](#type-system-rules))
 
 ## Variables
@@ -222,9 +222,9 @@ Variables may be declared with type qualifiers:
 
 ```go
 var (
-    a uniform int = 42        // Scalar, same across lanes
-    b varying int = data[i]   // Vector, different per lane  
-    c int = 10               // Implicitly uniform
+    a int = 42                        // Scalar, same across lanes
+    b lanes.Varying[int] = data[i]    // Vector, different per lane
+    c int = 10                        // Implicitly uniform
 )
 ```
 
@@ -233,9 +233,9 @@ var (
 Type qualification is inferred from the right-hand side:
 
 ```go
-a := uniform(42)    // uniform int
-b := varying(data)  // varying []ElementType  
-c := lanes.Index()  // varying int (from built-in)
+a := 42             // int (uniform)
+b := lanes.From(data)  // lanes.Varying[ElementType]
+c := lanes.Index()     // lanes.Varying[int] (from built-in)
 ```
 
 ### Zero Values
@@ -307,10 +307,10 @@ go for i := range[4] data {  // Process in groups of multiples of 4
 }
 
 // Range over array of varying values
-go for idx, varyingData := range []varying int{values1, values2, values3} {
+go for idx, varyingData := range []lanes.Varying[int]{values1, values2, values3} {
     // idx is uniform (processing one varying at a time): 0, then 1, then 2
     // varyingData is varying (each array element is a complete varying value)
-    processed := varyingData * varying(2)  // SPMD operations on each varying
+    processed := varyingData * lanes.Varying[int](2)  // SPMD operations on each varying
 }
 
 // Infinite SPMD loop
@@ -383,7 +383,7 @@ func main() {
 
 ```go
 go for i := range len(data) {
-    var values varying int = data[i]
+    var values lanes.Varying[int] = data[i]
     
     // ✓ ALLOWED: lanes and reduce package functions (builtin public SPMD functions)
     laneId := lanes.Index()
@@ -465,10 +465,10 @@ Goroutines can be launched with varying values, with a single goroutine processi
 
 ```go
 go for i := range len(data) {
-    var results varying int = compute(data[i])
-    
+    var results lanes.Varying[int] = compute(data[i])
+
     // Single goroutine launched with all lane values
-    go func(values varying int) {
+    go func(values lanes.Varying[int]) {
         // Process all lanes within the goroutine
         processed := processAsync(values)  // SPMD function
         // Store results back (implementation-dependent)
@@ -491,7 +491,7 @@ go for i := range len(data) {
 go for i := range len(data) {
     if data[i] > 0 {  // Creates execution mask
         // Only positive data values are passed to goroutine
-        go processPositive(varying(data[i]))  // Masked varying value
+        go processPositive(lanes.Varying[int](data[i]))  // Masked varying value
     }
 }
 ```
@@ -502,13 +502,13 @@ Defer statements can capture and use varying values, with each deferred function
 
 ```go
 go for i := range len(data) {
-    var results varying int = process(data[i])
-    
+    var results lanes.Varying[int] = process(data[i])
+
     // Defer function with varying parameter
-    defer func(values varying int) {
+    defer func(values lanes.Varying[int]) {
         cleanup(values)  // SPMD function processes all lanes
     }(results)
-    
+
     // Direct defer call with varying arguments
     defer finalizeResults(results)
 }
@@ -527,14 +527,14 @@ go for i := range len(data) {
 ```go
 go for i := range len(data) {
     if data[i] > threshold {  // Creates execution mask
-        var temp varying int = allocateTemp(data[i])
-        
+        var temp lanes.Varying[int] = allocateTemp(data[i])
+
         // Only lanes where data[i] > threshold register this defer
-        defer func(allocated varying int) {
+        defer func(allocated lanes.Varying[int]) {
             releaseTemp(allocated)  // Cleanup only for active lanes
         }(temp)
     }
-    
+
     // Process data...
 }
 ```
@@ -624,30 +624,30 @@ Type switches with varying values are **allowed anywhere in the code** when usin
 func processInterface(value interface{}) {
     // Type switch with varying value - can be used anywhere, not just in SPMD context
     switch v := value.(type) {
-    case varying int:
+    case lanes.Varying[int]:
         // Handle varying int - each lane processes its own int value
         result := v * 2
         fmt.Printf("Varying int: %v\n", result)
-        
-    case varying string:
+
+    case lanes.Varying[string]:
         // Handle varying string - each lane processes its own string
         length := len(v)
         fmt.Printf("Varying string length: %v\n", length)
-        
-    case varying [4]byte:
+
+    case lanes.Varying[[4]byte]:
         // Handle varying constrained array - each lane processes its own array
         sum := v[0] + v[1] + v[2] + v[3]
         fmt.Printf("Array sum: %v\n", sum)
-        
-    case varying[8] int:
+
+    case lanes.Varying[int, 8]:
         // Handle constrained varying type - requires multiple of 8 lanes
         processed := v + 100
         fmt.Printf("Constrained varying: %v\n", processed)
-        
+
     case int:
         // Handle uniform int type
         fmt.Printf("Uniform int: %d\n", v)
-        
+
     default:
         // Handle other types uniformly
         fmt.Printf("Unknown type: %T\n", v)
@@ -657,15 +657,15 @@ func processInterface(value interface{}) {
 // Type switches work in both SPMD and non-SPMD contexts
 func demonstrateTypeSwitches() {
     // Outside SPMD context
-    var varyingInt varying int = 42
+    var varyingInt lanes.Varying[int] = 42
     var uniformInt int = 24
-    
+
     processInterface(varyingInt)  // Works with varying interface{}
     processInterface(uniformInt)  // Works with uniform interface{}
-    
+
     // Inside SPMD context
     go for i := range 4 {
-        var dynamicValue varying interface{} = i * 10
+        var dynamicValue lanes.Varying[interface{}] = i * 10
         processInterface(dynamicValue)  // Works in SPMD context too
     }
 }
@@ -673,26 +673,26 @@ func demonstrateTypeSwitches() {
 
 **Type Switch Rules**:
 
-1. **Explicit Varying Cases**: Cases must explicitly specify `varying T` for varying values
-2. **Constrained Varying**: Cases can specify `varying[n] T` for constrained types  
+1. **Explicit Varying Cases**: Cases must explicitly specify `lanes.Varying[T]` for varying values
+2. **Constrained Varying**: Cases can specify `lanes.Varying[T, n]` for constrained types
 3. **Type Safety**: Each case receives the correctly typed varying value
 4. **Mixed Cases**: Can mix varying and uniform type cases in same switch
 5. **Context Independent**: Type switches work in both SPMD and non-SPMD contexts
-6. **Interface Conversion**: `varying interface{}` can hold both varying and uniform values
+6. **Interface Conversion**: `lanes.Varying[interface{}]` can hold both varying and uniform values
 
 **Invalid Type Switch Examples**:
 
 ```go
 // ✗ PROHIBITED: Implicit varying types in cases when value is varying interface{}
-var varyingInterface varying interface{} = varying(42)
+var varyingInterface lanes.Varying[interface{}] = lanes.Varying[int](42)
 switch varyingInterface.(type) {
 case int:          // ERROR: Cannot match varying interface{} with uniform int
-    // Must use: case varying int:
+    // Must use: case lanes.Varying[int]:
 }
 
 // ✗ PROHIBITED: Type assertion without explicit varying
-var v varying interface{} = varying(42)
-x := v.(int)       // ERROR: Must use v.(varying int)
+var v lanes.Varying[interface{}] = lanes.Varying[int](42)
+x := v.(int)       // ERROR: Must use v.(lanes.Varying[int])
 ```
 
 ### Map Restrictions
@@ -705,13 +705,13 @@ Maps have strict restrictions regarding varying types to maintain deterministic 
 
 ```go
 // ✗ PROHIBITED: Varying keys at declaration
-var m1 map[varying int]string           // ERROR: varying map keys not allowed
-var m2 map[varying string]int           // ERROR: varying map keys not allowed
+var m1 map[lanes.Varying[int]]string           // ERROR: varying map keys not allowed
+var m2 map[lanes.Varying[string]]int           // ERROR: varying map keys not allowed
 
 // ✗ PROHIBITED: Varying keys at access sites
 go for i := range len(data) {
-    var key varying string = data[i]
-    
+    var key lanes.Varying[string] = data[i]
+
     value := someMap[key]               // ERROR: varying key in map access
     someMap[key] = newValue             // ERROR: varying key in map assignment
     delete(someMap, key)                // ERROR: varying key in map delete
@@ -725,12 +725,12 @@ go for i := range len(data) {
 
 ```go
 // ✓ ALLOWED: Uniform keys with varying values
-var validMap map[string]varying int     // OK: uniform keys, varying values
+var validMap map[string]lanes.Varying[int]     // OK: uniform keys, varying values
 
 // ✓ ALLOWED: Access with uniform keys
 go for i := range len(data) {
     uniformKey := "key" + strconv.Itoa(i)
-    validMap[uniformKey] = varying(data[i])  // OK: uniform key
+    validMap[uniformKey] = lanes.Varying[int](data[i])  // OK: uniform key
 }
 ```
 
@@ -742,16 +742,16 @@ Select statements can operate on channels that carry varying values, enabling SP
 
 ```go
 func spmdChannelProcessor() {
-    inputCh := make(chan varying int, 10)
-    outputCh := make(chan varying int, 10)
+    inputCh := make(chan lanes.Varying[int], 10)
+    outputCh := make(chan lanes.Varying[int], 10)
     terminateCh := make(chan bool)
-    
+
     // SPMD infinite loop with channel processing
     go for {
         select {
         case data := <-inputCh:
-            // data is varying int - process all lanes simultaneously
-            processed := data * varying(2)
+            // data is lanes.Varying[int] - process all lanes simultaneously
+            processed := data * lanes.Varying[int](2)
             select {
             case outputCh <- processed:
                 // Successfully sent varying result
@@ -772,7 +772,7 @@ func spmdChannelProcessor() {
 
 **Select Rules with Varying:**
 
-1. **Channel Types**: Channels can carry `varying T` or `uniform T` values
+1. **Channel Types**: Channels can carry `lanes.Varying[T]` or uniform `T` values
 2. **Lane Coordination**: All lanes participate in the same select operation
 3. **Channel Operations**: Send/receive operations work per-lane for varying channels
 4. **Blocking Behavior**: Select blocks until at least one channel operation can proceed on any lane
@@ -781,7 +781,7 @@ func spmdChannelProcessor() {
 
 ### Lane Information
 
-#### `lanes.Count(type) uniform int`
+#### `lanes.Count(type) int`
 
 Returns the number of SIMD lanes for the given type.
 
@@ -790,7 +790,7 @@ width := lanes.Count(int32{})  // e.g., 4 for 128-bit SIMD
 count := lanes.Count(byte{})   // e.g., 16 for 128-bit SIMD
 ```
 
-#### `lanes.Index() varying int`
+#### `lanes.Index() lanes.Varying[int]`
 
 Returns the current lane index within an SPMD context. **IMPORTANT**: `lanes.Index()` can **only** be called from within `go for` loops and is enforced at compile time.
 
@@ -819,21 +819,21 @@ func validUsage() {
 
 ### Cross-Lane Operations
 
-#### `lanes.Broadcast[T any](value VaryingAny[T], lane uniform int) VaryingAny[T]`
+#### `lanes.Broadcast[T any](value VaryingAny[T], lane int) VaryingAny[T]`
 
 Broadcasts the value from the specified lane to all lanes.
 
 ```go
-// Broadcast lane 0's value to all lanes - works with varying T or varying[] T
+// Broadcast lane 0's value to all lanes - works with lanes.Varying[T] or lanes.Varying[T, N]
 broadcastValue := lanes.Broadcast(varyingData, 0)
 ```
 
-#### `lanes.Rotate[T any](value VaryingAny[T], offset uniform int) VaryingAny[T]`
+#### `lanes.Rotate[T any](value VaryingAny[T], offset int) VaryingAny[T]`
 
 Rotates values across lanes by the specified offset.
 
 ```go
-// Each lane gets value from (current_lane - 1) % lane_count - works with varying T or varying[] T
+// Each lane gets value from (current_lane - 1) % lane_count - works with lanes.Varying[T] or lanes.Varying[T, N]
 rotated := lanes.Rotate(varyingData, 1)
 ```
 
@@ -842,7 +842,7 @@ rotated := lanes.Rotate(varyingData, 1)
 Performs arbitrary permutation of values across lanes.
 
 ```go
-// Each lane accesses value[indices[lane]] - works with varying T or varying[] T  
+// Each lane accesses value[indices[lane]] - works with lanes.Varying[T] or lanes.Varying[T, N]
 permuted := lanes.Swizzle(sourceData, indexPattern)
 ```
 
@@ -865,7 +865,7 @@ The built-in `panic` function is explicitly designed to handle varying values in
 ```go
 go for i := range len(data) {
     if data[i] < 0 {
-        panic(varying("negative value"))  // Can panic with varying data
+        panic(lanes.Varying[string]("negative value"))  // Can panic with varying data
     }
 }
 ```
@@ -885,7 +885,7 @@ defer func() {
 
 ### Data Construction
 
-#### `lanes.From[T any](slice []T) varying T`
+#### `lanes.From[T any](slice []T) lanes.Varying[T]`
 
 Creates varying data from a uniform slice.
 
@@ -896,15 +896,15 @@ varyingLUT := lanes.From(lookupTable)  // Ready for swizzle operations
 
 ### Constrained Varying Conversion
 
-#### `lanes.FromConstrained[T any](data varying[] T) ([]varying T, []varying bool)`
+#### `lanes.FromConstrained[T any](data lanes.Varying[T]) ([]lanes.Varying[T], []lanes.Varying[bool])`
 
-Converts universal constrained varying (`varying[]`) to unconstrained varying with explicit mask.
+Converts universal constrained varying to unconstrained varying with explicit mask.
 
 ```go
-func processUniversalConstrained(data varying[] int) {
+func processUniversalConstrained(data lanes.Varying[int]) {
     // Convert constrained varying to unconstrained varying + mask
     values, masks := lanes.FromConstrained(data)
-    
+
     // Now can work with unconstrained varying and explicit masks
     for i, value := range values {
         mask := masks[i]
@@ -914,26 +914,26 @@ func processUniversalConstrained(data varying[] int) {
 }
 ```
 
-**Important Restrictions for `varying[]`:**
+**Important Restrictions for universal constrained varying:**
 
-1. **Assignment**: Cannot assign unconstrained `varying T` to `varying[] T`
-2. **Operations**: Most operations fail at type checking on `varying[]` without size
-3. **Control Flow**: if/for/switch statements fail on `varying[]` without conversion
+1. **Assignment**: Cannot assign unconstrained `lanes.Varying[T]` to a constrained `lanes.Varying[T, N]`
+2. **Operations**: Most operations fail at type checking without an explicit constraint
+3. **Control Flow**: if/for/switch statements require a known constraint
 4. **Type Switch Only**: Only way to convert back to sized constrained varying
 
 ```go
-func handleConstrainedVarying(data varying[] byte) {
-    // ILLEGAL: Direct operations on varying[] 
-    // result := data + 10        // ERROR: no operations on varying[]
-    // if data > 5 { ... }        // ERROR: no control flow on varying[]
-    
+func handleConstrainedVarying(data lanes.Varying[byte]) {
+    // ILLEGAL: Direct operations without known constraint
+    // result := data + 10        // ERROR: no operations without constraint
+    // if data > 5 { ... }        // ERROR: no control flow without constraint
+
     // LEGAL: Type switch to convert to specific constrained size
     switch v := data.(type) {
-    case varying[4] byte:
-        // Now can operate on varying[4] byte
+    case lanes.Varying[byte, 4]:
+        // Now can operate on lanes.Varying[byte, 4]
         result := v + 10
-    case varying[8] byte:
-        // Now can operate on varying[8] byte  
+    case lanes.Varying[byte, 8]:
+        // Now can operate on lanes.Varying[byte, 8]
         result := v * 2
     default:
         // Handle other constraint sizes or convert to unconstrained
@@ -967,27 +967,27 @@ type Integer interface {
 
 // Boolean operations (All, Any)
 type VaryingBool interface {
-    varying bool | varying[] bool
+    lanes.Varying[bool]
 }
 
 // Numeric operations (Add, Max, Min, etc.)
 type VaryingNumeric[T Numeric] interface {
-    varying T | varying[] T
+    lanes.Varying[T]
 }
 
 // Integer bitwise operations (Or, And, Xor)
 type VaryingInteger[T Integer] interface {
-    varying T | varying[] T
+    lanes.Varying[T]
 }
 
 // Comparable operations (Equal, NotEqual)
 type VaryingComparable[T comparable] interface {
-    varying T | varying[] T  
+    lanes.Varying[T]
 }
 
 // Generic operations (Count, From)
 type VaryingAny[T any] interface {
-    varying T | varying[] T
+    lanes.Varying[T]
 }
 ```
 
@@ -996,43 +996,43 @@ type VaryingAny[T any] interface {
 #### Boolean Reductions
 
 ```go
-// reduce.All(data VaryingBool) uniform bool
-allTrue := reduce.All(conditions)    // true if all lanes are true - works with varying bool or varying[] bool
+// reduce.All(data VaryingBool) bool
+allTrue := reduce.All(conditions)    // true if all lanes are true - works with lanes.Varying[bool]
 
-// reduce.Any(data VaryingBool) uniform bool  
-anyTrue := reduce.Any(conditions)    // true if any lane is true - works with varying bool or varying[] bool
+// reduce.Any(data VaryingBool) bool
+anyTrue := reduce.Any(conditions)    // true if any lane is true - works with lanes.Varying[bool]
 ```
 
 #### Bitwise Integer Reductions
 
 ```go
-// reduce.Or[T Integer](data VaryingInteger[T]) uniform T - bitwise OR across lanes
-combined := reduce.Or(flags)         // Works with varying int, varying[] int, varying uint32, etc.
+// reduce.Or[T Integer](data VaryingInteger[T]) T - bitwise OR across lanes
+combined := reduce.Or(flags)         // Works with lanes.Varying[int], lanes.Varying[uint32], etc.
 
-// reduce.And[T Integer](data VaryingInteger[T]) uniform T - bitwise AND across lanes  
-masked := reduce.And(values)         // Works with varying int, varying[] int, varying uint64, etc.
+// reduce.And[T Integer](data VaryingInteger[T]) T - bitwise AND across lanes
+masked := reduce.And(values)         // Works with lanes.Varying[int], lanes.Varying[uint64], etc.
 
-// reduce.Xor[T Integer](data VaryingInteger[T]) uniform T - bitwise XOR across lanes
-xored := reduce.Xor(values)          // Works with varying int, varying[] int, etc.
+// reduce.Xor[T Integer](data VaryingInteger[T]) T - bitwise XOR across lanes
+xored := reduce.Xor(values)          // Works with lanes.Varying[int], etc.
 ```
 
 #### Arithmetic Reductions
 
 ```go
-// reduce.Add[T Numeric](data VaryingNumeric[T]) uniform T
-sum := reduce.Add(values)            // Works with varying int, varying[] int, varying float64, varying[] float64, etc.
+// reduce.Add[T Numeric](data VaryingNumeric[T]) T
+sum := reduce.Add(values)            // Works with lanes.Varying[int], lanes.Varying[float64], etc.
 
-// reduce.Max[T comparable](data VaryingComparable[T]) uniform T
-maximum := reduce.Max(values)        // Works with varying float64, varying[] float64, varying string, etc.
+// reduce.Max[T comparable](data VaryingComparable[T]) T
+maximum := reduce.Max(values)        // Works with lanes.Varying[float64], lanes.Varying[string], etc.
 
-// reduce.Min[T comparable](data VaryingComparable[T]) uniform T
-minimum := reduce.Min(values)        // Works with varying int, varying[] int, varying float32, etc.
+// reduce.Min[T comparable](data VaryingComparable[T]) T
+minimum := reduce.Min(values)        // Works with lanes.Varying[int], lanes.Varying[float32], etc.
 ```
 
 #### Type Conversion
 
 ```go
-// reduce.From[T NumericOrBool](varying T) []T - only accepts numeric types and bool
+// reduce.From[T NumericOrBool](lanes.Varying[T]) []T - only accepts numeric types and bool
 array := reduce.From(values)         // Convert varying to array of underlying type
 // Useful for debugging and interfacing with non-SPMD code
 
@@ -1052,15 +1052,15 @@ type NumericOrBool interface {
 The `fmt.Printf` function automatically detects varying types when using the `%v` verb and converts them to arrays for display:
 
 ```go
-var values varying int = 42
+var values lanes.Varying[int] = 42
 fmt.Printf("Values: %v\n", values)   // Automatically uses reduce.From(values)
 // Output: Values: [42 42 42 42]  (assuming 4 lanes)
 
-var data varying float32 = 3.14
+var data lanes.Varying[float32] = 3.14
 fmt.Printf("Data: %v\n", data)       // Works with numeric types and bool
 // Output: Data: [3.14 3.14 3.14 3.14]
 
-var flags varying bool = true
+var flags lanes.Varying[bool] = true
 fmt.Printf("Flags: %v\n", flags)     // Also works with bool
 // Output: Flags: [true true true true]
 ```
@@ -1074,10 +1074,10 @@ fmt.Printf("Flags: %v\n", flags)     // Also works with bool
 #### Lane Analysis
 
 ```go
-// reduce.FindFirstSet(varying bool) uniform int
+// reduce.FindFirstSet(lanes.Varying[bool]) int
 firstTrue := reduce.FindFirstSet(conditions)  // Index of first true lane (-1 if none)
 
-// reduce.Mask(varying bool) uniform uint16
+// reduce.Mask(lanes.Varying[bool]) uint16
 bitmask := reduce.Mask(conditions)            // Convert boolean vector to bitmask
 ```
 
@@ -1102,7 +1102,7 @@ func validDirectUsage() {
 2. **Inside SPMD functions (with varying parameters):**
 
 ```go
-func spmdFunction(data varying int) varying int {
+func spmdFunction(data lanes.Varying[int]) lanes.Varying[int] {
     lane := lanes.Index()  // OK: lane count inferred from varying parameter
     return data + lane
 }
@@ -1110,13 +1110,13 @@ func spmdFunction(data varying int) varying int {
 // Called from go for context
 func fromGoFor() {
     go for i := range 8 {
-        result := spmdFunction(varying(i))  // OK
+        result := spmdFunction(lanes.Varying[int](i))  // OK
     }
 }
 
 // Called from non-SPMD context - still OK!
 func fromNonSPMD() {
-    data := varying(42)
+    data := lanes.Varying[int](42)
     result := spmdFunction(data)  // OK: SPMD function can infer lanes from varying
 }
 ```
@@ -1126,9 +1126,9 @@ func fromNonSPMD() {
 1. **Non-SPMD functions (no varying parameters):**
 
 ```go
-func nonSPMDFunction() varying int {
+func nonSPMDFunction() lanes.Varying[int] {
     lane := lanes.Index()  // ERROR: no varying parameters to infer lane count
-    return varying(lane)
+    return lanes.Varying[int](lane)
 }
 
 func caller() {
@@ -1156,8 +1156,8 @@ func invalidUsage() {
 
 ```go
 func nonSPMDFunction() {
-    var data varying int = varying(42)
-    
+    var data lanes.Varying[int] = lanes.Varying[int](42)
+
     // All of these are COMPILE ERRORS outside go for loops:
     if data > 30 { ... }           // ERROR: varying condition outside SPMD context
     for data != 0 { ... }          // ERROR: varying loop condition outside SPMD context
@@ -1171,15 +1171,15 @@ func nonSPMDFunction() {
 ```go
 func processData() {
     go for i := range 8 {
-        var data varying int = varying(i * 10)
-        
+        var data lanes.Varying[int] = lanes.Varying[int](i * 10)
+
         // All control flow operations are legal inside go for:
         if data > 30 {                    // OK: varying condition in SPMD context
             data = data * 2
         }
-        
+
         switch data {                     // OK: varying switch in SPMD context
-        case varying(0):
+        case lanes.Varying[int](0):
             // Handle zero case
         default:
             // Handle other cases
@@ -1202,16 +1202,16 @@ This restriction is **intentionally designed for code maintainability and clarit
 This design makes `go for` the natural way to process `lanes.FromConstrained` results:
 
 ```go
-func processUniversalConstrained(data varying[] int) {
+func processUniversalConstrained(data lanes.Varying[int]) {
     values, masks := lanes.FromConstrained(data)
-    
+
     // Natural processing pattern: go for over array of varying values
     go for idx, varyingGroup := range values {
         mask := masks[idx]  // Get corresponding mask (uniform index for this iteration, but varying mask value)
-        
+
         // Process this varying group with its mask
         if mask {  // Use the mask to enable only the correct lanes for operation
-            processed := varyingGroup * varying(2)
+            processed := varyingGroup * lanes.Varying[int](2)
             result := reduce.Add(processed)
             fmt.Printf("Group %d result: %d\n", idx, result)
         }
@@ -1221,21 +1221,21 @@ func processUniversalConstrained(data varying[] int) {
 
 ### Universal Constrained Varying Rules
 
-Functions with `varying[]` parameters accept any constrained varying type but have strict usage restrictions:
+Functions with `lanes.Varying[T]` parameters (without a constraint) accept any constrained varying type but have strict usage restrictions:
 
 **Valid Assignment:**
 
 ```go
-func processAnyConstrained(data varying[] int) {
-    // Function accepts varying[4] int, varying[8] int, varying[16] int, etc.
+func processAnyConstrained(data lanes.Varying[int]) {
+    // Function accepts lanes.Varying[int, 4], lanes.Varying[int, 8], lanes.Varying[int, 16], etc.
 }
 
 func caller() {
-    data4 := varying[4](someArray)
-    data8 := varying[8](otherArray)
-    
-    processAnyConstrained(data4)  // OK: varying[4] int → varying[] int
-    processAnyConstrained(data8)  // OK: varying[8] int → varying[] int
+    data4 := lanes.Varying[int, 4](someArray)
+    data8 := lanes.Varying[int, 8](otherArray)
+
+    processAnyConstrained(data4)  // OK: lanes.Varying[int, 4] → lanes.Varying[int]
+    processAnyConstrained(data8)  // OK: lanes.Varying[int, 8] → lanes.Varying[int]
 }
 ```
 
@@ -1243,32 +1243,32 @@ func caller() {
 
 ```go
 func invalidAssignment() {
-    var unconstrained varying int = varying(42)
-    var universal varying[] int
-    
-    universal = unconstrained  // ERROR: cannot assign unconstrained to varying[]
+    var unconstrained lanes.Varying[int] = lanes.Varying[int](42)
+    var universal lanes.Varying[int]
+
+    universal = unconstrained  // ERROR: cannot assign unconstrained to constrained varying
 }
 ```
 
 **Operations Restrictions:**
 
 ```go
-func restrictedOperations(data varying[] int) {
-    // ILLEGAL: Arithmetic operations
-    // result := data + 10      // ERROR: operations forbidden on varying[]
-    
-    // ILLEGAL: Comparisons  
-    // if data > 5 { ... }      // ERROR: comparisons forbidden on varying[]
-    
-    // ILLEGAL: Control flow with varying[]
-    // for data > 0 { ... }     // ERROR: control flow forbidden on varying[]
-    
+func restrictedOperations(data lanes.Varying[int]) {
+    // ILLEGAL: Arithmetic operations on unconstrained lanes.Varying[T] are restricted
+    // result := data + 10      // ERROR: operations forbidden without constraint
+
+    // ILLEGAL: Comparisons
+    // if data > 5 { ... }      // ERROR: comparisons forbidden without constraint
+
+    // ILLEGAL: Control flow without constraint
+    // for data > 0 { ... }     // ERROR: control flow forbidden without constraint
+
     // LEGAL: Type switch to convert to specific size
     switch v := data.(type) {
-    case varying[4] int:
-        result := v + 10     // OK: operations allowed on varying[4]
-    case varying[8] int:
-        result := v * 2      // OK: operations allowed on varying[8]
+    case lanes.Varying[int, 4]:
+        result := v + 10     // OK: operations allowed on lanes.Varying[int, 4]
+    case lanes.Varying[int, 8]:
+        result := v * 2      // OK: operations allowed on lanes.Varying[int, 8]
     default:
         // LEGAL: Convert to unconstrained varying
         values, masks := lanes.FromConstrained(data)
@@ -1282,30 +1282,30 @@ func restrictedOperations(data varying[] int) {
 1. **Uniform to Uniform**: Direct assignment (existing Go behavior)
 
    ```go
-   var a, b uniform int
+   var a, b int
    a = b  // Valid
    ```
 
-2. **Varying to Varying**: Direct assignment  
+2. **Varying to Varying**: Direct assignment
 
    ```go
-   var x, y varying int
+   var x, y lanes.Varying[int]
    x = y  // Valid
    ```
 
 3. **Uniform to Varying**: Implicit broadcast
 
    ```go
-   var u uniform int = 42
-   var v varying int
+   var u int = 42
+   var v lanes.Varying[int]
    v = u  // Valid: broadcasts u to all lanes
    ```
 
 4. **Varying to Uniform**: **Prohibited** (compile error)
 
    ```go
-   var v varying int
-   var u uniform int  
+   var v lanes.Varying[int]
+   var u int
    u = v  // ERROR: cannot assign varying to uniform
    ```
 
@@ -1316,45 +1316,45 @@ SPMD type casting follows SIMD register capacity constraints:
 1. **Downcasting (Larger to Smaller)**: **Allowed** - fits in same or fewer registers
 
    ```go
-   var large varying uint32 = varying(0x12345678)
-   var small varying uint16 = varying uint16(large)  // Valid: truncates, same lane count fits in smaller registers
-   
-   var wide varying int64 = varying(1000)
-   var narrow varying int32 = varying int32(wide)    // Valid: 4×64-bit → 4×32-bit still fits
-   
-   var double varying float64 = varying(3.14159)
-   var single varying float32 = varying float32(double)  // Valid: precision loss, but smaller total size
+   var large lanes.Varying[uint32] = lanes.Varying[uint32](0x12345678)
+   var small lanes.Varying[uint16] = lanes.Varying[uint16](large)  // Valid: truncates, same lane count fits in smaller registers
+
+   var wide lanes.Varying[int64] = lanes.Varying[int64](1000)
+   var narrow lanes.Varying[int32] = lanes.Varying[int32](wide)    // Valid: 4×64-bit → 4×32-bit still fits
+
+   var double lanes.Varying[float64] = lanes.Varying[float64](3.14159)
+   var single lanes.Varying[float32] = lanes.Varying[float32](double)  // Valid: precision loss, but smaller total size
    ```
 
 2. **Upcasting (Smaller to Larger)**: **Prohibited** - exceeds SIMD register capacity
 
    ```go
-   var small varying uint16 = varying(0x1234)
-   var large varying uint32 = varying uint32(small)  // ERROR: upcasting doubles total bit size
-   
-   var narrow varying int32 = varying(42)
-   var wide varying int64 = varying int64(narrow)    // ERROR: 4×32-bit → 4×64-bit exceeds 128-bit SIMD
-   
-   var single varying float32 = varying(2.7)
-   var double varying float64 = varying float64(single)  // ERROR: 4×32-bit → 4×64-bit exceeds capacity
+   var small lanes.Varying[uint16] = lanes.Varying[uint16](0x1234)
+   var large lanes.Varying[uint32] = lanes.Varying[uint32](small)  // ERROR: upcasting doubles total bit size
+
+   var narrow lanes.Varying[int32] = lanes.Varying[int32](42)
+   var wide lanes.Varying[int64] = lanes.Varying[int64](narrow)    // ERROR: 4×32-bit → 4×64-bit exceeds 128-bit SIMD
+
+   var single lanes.Varying[float32] = lanes.Varying[float32](2.7)
+   var double lanes.Varying[float64] = lanes.Varying[float64](single)  // ERROR: 4×32-bit → 4×64-bit exceeds capacity
    ```
 
 **Register Capacity Problem**:
 
 - WASM SIMD128 provides 128-bit registers
-- `varying[4] uint32` uses exactly 128 bits (4 × 32 = 128)
-- `varying[4] uint64` would require 256 bits (4 × 64 = 256) - doesn't fit!
+- `lanes.Varying[uint32, 4]` uses exactly 128 bits (4 × 32 = 128)
+- `lanes.Varying[uint64, 4]` would require 256 bits (4 × 64 = 256) - doesn't fit!
 - Upcasting would require splitting into multiple varying values or reducing lane count
 
 3. **Future Enhancement**: Upcasting via lanes operations (not in PoC)
 
    ```go
    // Future: lanes operations that handle register splitting
-   var small varying uint16 = varying(0x1234)
-   var large1, large2 varying uint32 = lanes.SplitUpcast[uint32](small)  // Future: returns 2 varying
-   
+   var small lanes.Varying[uint16] = lanes.Varying[uint16](0x1234)
+   var large1, large2 lanes.Varying[uint32] = lanes.SplitUpcast[uint32](small)  // Future: returns 2 varying
+
    // Or: reduce lane count to fit larger elements
-   var reduced varying[2] uint64 = lanes.ReduceUpcast[uint64](narrow)     // Future: fewer lanes
+   var reduced lanes.Varying[uint64, 2] = lanes.ReduceUpcast[uint64](narrow)     // Future: fewer lanes
    ```
 
 **Key Constraint**: SIMD register width limits total bit size, making upcasting complex and requiring explicit handling of capacity overflow.
@@ -1363,20 +1363,20 @@ SPMD type casting follows SIMD register capacity constraints:
 
    ```go
    // Pointer to varying assignments
-   var vData varying int = 42
-   var ptrToVarying *varying int = &vData  // Valid: address of varying
-   
-   // Varying pointer assignments  
+   var vData lanes.Varying[int] = 42
+   var ptrToVarying *lanes.Varying[int] = &vData  // Valid: address of varying
+
+   // Varying pointer assignments
    var data [4]int = [4]int{1, 2, 3, 4}
-   var vPtrs varying *int                  // Each lane gets different pointer
+   var vPtrs lanes.Varying[*int]                  // Each lane gets different pointer
    go for i := range 4 {
        vPtrs = &data[i]                    // Valid: each lane points to different element
    }
-   
+
    // Dereferencing rules
-   var varyingValue varying int = *ptrToVarying  // Valid: yields varying
-   var varyingResult varying int = *vPtrs        // Valid: yields varying
-   
+   var varyingValue lanes.Varying[int] = *ptrToVarying  // Valid: yields varying
+   var varyingResult lanes.Varying[int] = *vPtrs        // Valid: yields varying
+
    // Invalid pointer assignments
    var uniformPtr *int
    uniformPtr = vPtrs  // ERROR: cannot assign varying pointer to uniform
@@ -1386,11 +1386,11 @@ SPMD type casting follows SIMD register capacity constraints:
 
    ```go
    // Taking address of varying yields varying pointer
-   var vData varying int = 42
-   var vPtrs varying *int = &vData  // Valid: each lane gets address of its data
-   
+   var vData lanes.Varying[int] = 42
+   var vPtrs lanes.Varying[*int] = &vData  // Valid: each lane gets address of its data
+
    // Taking address of uniform yields uniform pointer
-   var uData uniform int = 42
+   var uData int = 42
    var uPtr *int = &uData           // Valid: single pointer to uniform data
    ```
 
@@ -1400,13 +1400,13 @@ Functions become **SPMD functions** when they accept varying parameters:
 
 ```go
 // Regular function (uniform parameters)
-func process(data uniform []byte) uniform int { ... }
+func process(data []byte) int { ... }
 
-// SPMD function (varying parameter)  
-func transform(value varying int) varying int { ... }
+// SPMD function (varying parameter)
+func transform(value lanes.Varying[int]) lanes.Varying[int] { ... }
 
 // Mixed function (both uniform and varying)
-func compute(config uniform Settings, data varying []byte) varying Result { ... }
+func compute(config Settings, data lanes.Varying[[]byte]) lanes.Varying[Result] { ... }
 ```
 
 ### Return Values
@@ -1415,32 +1415,32 @@ Both SPMD and non-SPMD functions may return varying values:
 
 ```go
 // SPMD function returning varying (has varying parameters)
-func analyze(input varying Data) (result varying int, err uniform error) {
+func analyze(input lanes.Varying[Data]) (result lanes.Varying[int], err error) {
     // Implementation handles per-lane processing
     return result, err
 }
 
 // Non-SPMD function returning varying (no varying parameters)
-func createVaryingData() varying int {
+func createVaryingData() lanes.Varying[int] {
     // Creates varying data without requiring varying inputs
     // Can only return uniform values broadcast to all lanes
-    return varying(42)  // All lanes get same value
+    return lanes.Varying[int](42)  // All lanes get same value
 }
 
 // Non-SPMD functions can use most lanes/reduce functions, except lanes.Index()
-func createProcessedData() varying int {
+func createProcessedData() lanes.Varying[int] {
     // LEGAL: Non-SPMD function (no varying parameters) returning varying
-    data := varying(100)
-    
+    data := lanes.Varying[int](100)
+
     // LEGAL: reduce functions work outside SPMD context
     sum := reduce.Add(data)
-    
-    // LEGAL: most lanes functions work outside SPMD context  
+
+    // LEGAL: most lanes functions work outside SPMD context
     return lanes.Broadcast(sum, 0)
 }
 
 // This would be ILLEGAL:
-// func generateLaneData() varying int {
+// func generateLaneData() lanes.Varying[int] {
 //     return lanes.Index() * 10  // ERROR: lanes.Index() needs varying params or go for
 // }
 ```
@@ -1455,8 +1455,8 @@ func generic(value any) {
     // This function is NOT an SPMD function
 }
 
-func spmdGeneric(value varying any) {
-    // This function IS an SPMD function  
+func spmdGeneric(value lanes.Varying[any]) {
+    // This function IS an SPMD function
     // Each lane may have different types
 }
 ```
@@ -1469,12 +1469,12 @@ func spmdGeneric(value varying any) {
 
 ```go
 // ILLEGAL: Public SPMD functions not allowed
-func Process(data varying int) varying int {  // ERROR: public varying parameters not allowed
+func Process(data lanes.Varying[int]) lanes.Varying[int] {  // ERROR: public varying parameters not allowed
     return data * 2
 }
 
 // LEGAL: Private SPMD functions allowed within package
-func process(data varying int) varying int {  // OK: private function with varying parameters
+func process(data lanes.Varying[int]) lanes.Varying[int] {  // OK: private function with varying parameters
     return data * 2
 }
 
@@ -1495,9 +1495,9 @@ rotated := lanes.Rotate(data, 1)   // OK: builtin public SPMD function
 SPMD functions (both private user functions and builtin functions) receive an implicit execution mask that tracks active lanes:
 
 ```go
-func process(data varying int) varying int {  // Private function - allowed
-    // Compiler adds: mask varying bool (implicit parameter)
-    
+func process(data lanes.Varying[int]) lanes.Varying[int] {  // Private function - allowed
+    // Compiler adds: mask lanes.Varying[bool] (implicit parameter)
+
     if data < 0 {
         // Mask updated: only lanes with data < 0 remain active
         return -data
@@ -1520,16 +1520,16 @@ SPMD functions (functions with varying parameters) can be called from **any cont
 
 ```go
 func regularFunction() {
-    data := varying(42)
-    
+    data := lanes.Varying[int](42)
+
     // LEGAL: Call SPMD function from non-SPMD context
     result := processVarying(data)  // Mask implicitly set to all lanes active
-    
+
     // LEGAL: Call reduce functions from non-SPMD context
     sum := reduce.Add(data)  // All lanes active by default
 }
 
-func processVarying(input varying int) varying int {  // SPMD function
+func processVarying(input lanes.Varying[int]) lanes.Varying[int] {  // SPMD function
     return input * 2
 }
 ```
@@ -1538,11 +1538,11 @@ func processVarying(input varying int) varying int {  // SPMD function
 
 ```go
 go for i := range 8 {
-    data := varying(i * 10)
-    
+    data := lanes.Varying[int](i * 10)
+
     // LEGAL: Call SPMD function from SPMD context
     result := processVarying(data)  // Inherits current execution mask
-    
+
     if data > 50 {
         // LEGAL: Call reduce with masked data
         sum := reduce.Add(result)  // Only processes active lanes
@@ -1554,11 +1554,11 @@ go for i := range 8 {
 
 ```go
 go for i := range 8 {
-    data := varying(i * 10)
-    
+    data := lanes.Varying[int](i * 10)
+
     if data > 30 {  // Creates mask: lanes where data > 30
         // Defer captures both varying data AND execution mask
-        defer func(captured varying int) {
+        defer func(captured lanes.Varying[int]) {
             // This SPMD function call uses the captured mask
             processed := processVarying(captured)  // Uses mask from capture point
             total := reduce.Add(processed)         // Reduces only originally active lanes
@@ -1638,23 +1638,23 @@ go for i := range data {
 
 ## Backward Compatibility
 
-### Keyword Context Sensitivity
+### No New Keywords
 
-The keywords `uniform` and `varying` are only recognized in specific syntactic contexts:
+SPMD types use the `lanes` package (`lanes.Varying[T]`) instead of new keywords. The identifiers `uniform` and `varying` are **not** reserved words and remain valid Go identifiers:
 
-**Recognized as Keywords:**
-
-- Type declarations: `var x uniform int`
-- Parameter lists: `func f(a varying byte)`  
-- Type assertions: `value.(varying int)`
-
-**Recognized as Identifiers:**
+**Valid Go identifiers (not keywords):**
 
 - Variable names: `var uniform = 42`
 - Function names: `func varying() {}`
 - Package aliases: `import uniform "math"`
 - Labels: `goto uniform`
 - Struct fields: `type T struct { uniform int }`
+
+**New SPMD syntax (package-based):**
+
+- Type declarations: `var x lanes.Varying[int]`
+- Parameter lists: `func f(a lanes.Varying[byte])`
+- Type assertions: `value.(lanes.Varying[int])`
 
 ### Migration Path
 
@@ -1690,8 +1690,8 @@ GOEXPERIMENT=spmd tinygo build -target=wasi -o /dev/null myprogram.go
 **Proof of Concept Scope:**
 The TinyGo PoC implementation includes:
 
-- ✅ Lexer recognizes `uniform`/`varying` keywords  
-- ✅ Parser accepts SPMD syntax (`go for`, type qualifiers)
+- ✅ Parser accepts SPMD syntax (`go for`, `lanes.Varying[T]` type expressions)
+- ✅ Type checker recognizes `lanes.Varying[T]` as an SPMD type
 - ✅ Type checker validates SPMD type system rules
 - ✅ Basic `lanes` and `reduce` package implementations
 - ✅ LLVM backend generates WebAssembly SIMD128 instructions
@@ -1701,8 +1701,8 @@ The TinyGo PoC implementation includes:
 
 **Feature Gating:**
 
-- All SPMD syntax (`uniform`, `varying`, `go for`) is gated behind `buildcfg.Experiment.SPMD`
-- Parser recognizes SPMD keywords only when experiment is enabled
+- All SPMD syntax (`lanes.Varying[T]`, `go for`) is gated behind `buildcfg.Experiment.SPMD`
+- Parser recognizes `go for` and `lanes.Varying[T]` type expressions only when experiment is enabled
 - Type checker validates SPMD rules only when experiment is enabled
 - Standard library extensions (`lanes`, `reduce`) require experimental flag
 
@@ -1769,12 +1769,12 @@ SPMD-specific compile-time errors:
 
 ```go
 func sumArray(data []int) int {
-    var total varying int
-    
+    var total lanes.Varying[int]
+
     go for _, v := range data {
         total += v
     }
-    
+
     return reduce.Add(total)
 }
 ```
@@ -1784,19 +1784,19 @@ func sumArray(data []int) int {
 ```go
 func processConditional(input []byte, threshold byte) []byte {
     result := make([]byte, len(input))
-    
+
     go for i := range len(input) {
-        var value varying byte = input[i]
-        
+        var value lanes.Varying[byte] = input[i]
+
         if value > threshold {
             value = value * 2
         } else {
-            value = value + 1  
+            value = value + 1
         }
-        
+
         result[i] = value
     }
-    
+
     return result
 }
 ```
@@ -1806,17 +1806,17 @@ func processConditional(input []byte, threshold byte) []byte {
 ```go
 func randomDecode(ascii []byte) []byte {
     output := make([]byte, 0, len(ascii)*3/4)
-    
+
     go for _, chunk := range[4] ascii {  // Process in multiples of 4 bytes
         // Complex cross-lane operations
         sextets := lanes.Swizzle(lookupTable, chunk)
-        shifted := lanes.ShiftLeft(sextets, shiftPattern)  
+        shifted := lanes.ShiftLeft(sextets, shiftPattern)
         decoded := lanes.Rotate(shifted, 1)
-        
+
         result := lanes.Swizzle(decoded, outputPattern)
         output = append(output, result...)
     }
-    
+
     return output
 }
 ```

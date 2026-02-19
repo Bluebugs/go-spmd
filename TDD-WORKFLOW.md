@@ -197,9 +197,9 @@ make test-no-regressions
 - 🎯 All parser tests pass
 
 **Phase 1.3: Parser Extensions**
-- 🎯 Type qualifiers parse correctly (`uniform int`, `varying float32`)
+- 🎯 Type qualifiers parse correctly (`int`, `lanes.Varying[float32]`)
 - 🎯 `go for` SPMD loops parse successfully
-- 🎯 Constrained varying syntax works (`varying[4] byte`)
+- 🎯 Constrained varying syntax works (`lanes.Varying[byte, 4]`)
 - 🎯 All syntax tests pass
 
 **Phase 1.4-1.5: Type System Implementation**

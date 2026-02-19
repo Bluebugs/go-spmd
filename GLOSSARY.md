@@ -41,8 +41,8 @@ The number of parallel processing units available on the target hardware. This v
 A type qualifier indicating that a variable has the same value across all SIMD lanes. Equivalent to regular Go variables.
 
 ```go
-var x uniform int = 42    // Same value (42) in all lanes
-var y int = 42           // Implicitly uniform - same as above
+var x int = 42    // Same value (42) in all lanes (uniform)
+var y int = 42    // Implicitly uniform - same as above
 ```
 
 ### **Varying**
@@ -50,7 +50,7 @@ var y int = 42           // Implicitly uniform - same as above
 A type qualifier indicating that a variable may have different values across SIMD lanes. Implemented as SIMD register with one element per lane.
 
 ```go
-var data varying int     // Different value per lane: [1, 2, 3, 4]
+var data lanes.Varying[int]     // Different value per lane: [1, 2, 3, 4]
 ```
 
 ### **Constrained Varying**
@@ -58,8 +58,8 @@ var data varying int     // Different value per lane: [1, 2, 3, 4]
 A varying type with a constraint requiring the lane count to be a multiple of a specified number. Syntax: `varying[n]`.
 
 ```go
-var data varying[4] byte    // Requires lane count to be multiple of 4
-var mask varying[8] bool    // Requires lane count to be multiple of 8
+var data lanes.Varying[byte, 4]    // Requires lane count to be multiple of 4
+var mask lanes.Varying[bool, 8]    // Requires lane count to be multiple of 8
 ```
 
 **Important**: `varying[4]` means "multiples of 4 lanes", not exactly 4 lanes.
@@ -69,8 +69,8 @@ var mask varying[8] bool    // Requires lane count to be multiple of 8
 A special type `varying[]` that accepts any constrained varying type but has restricted operations.
 
 ```go
-func process(data varying[] int) {
-    // Accepts varying[4] int, varying[8] int, etc.
+func process(data lanes.Varying[int]) {
+    // Accepts lanes.Varying[int, 4], lanes.Varying[int, 8], etc.
     // Limited operations - mainly type switching
 }
 ```
@@ -104,7 +104,7 @@ go for i := range[4] data {
 A function that becomes SPMD-aware when called with varying parameters or from SPMD contexts. Receives implicit execution mask.
 
 ```go
-func process(data varying int) varying int {  // SPMD function
+func process(data lanes.Varying[int]) lanes.Varying[int] {  // SPMD function
     return data * 2  // Operates per-lane with mask
 }
 ```
@@ -114,8 +114,8 @@ func process(data varying int) varying int {  // SPMD function
 A regular Go function with no varying parameters. Can return varying values but cannot use `lanes.Index()`.
 
 ```go
-func createData() varying int {  // Non-SPMD function
-    return varying(42)  // Returns uniform value broadcast to all lanes
+func createData() lanes.Varying[int] {  // Non-SPMD function
+    return lanes.Varying[int](42)  // Returns uniform value broadcast to all lanes
 }
 ```
 
@@ -360,9 +360,9 @@ When algorithms require more SIMD registers than available, forcing spills to me
 
 **Essential Types**:
 
-- `uniform T` - Same value all lanes
-- `varying T` - Different value per lane
-- `varying[n] T` - Constrained to multiples of n lanes
+- `T` - Same value all lanes (uniform)
+- `lanes.Varying[T]` - Different value per lane
+- `lanes.Varying[T, n]` - Constrained to multiples of n lanes
 
 **Essential Syntax**:
 

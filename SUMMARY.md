@@ -24,9 +24,9 @@ SPMD Go extends the Go language with data parallelism capabilities, enabling dev
 ### Core Syntax
 
 ```go
-// Type qualifiers
-var x uniform int      // Same value across all lanes (default)
-var y varying int      // Different value per lane
+// Types
+var x int                    // Same value across all lanes (default)
+var y lanes.Varying[int]     // Different value per lane
 
 // SPMD loop construct
 go for i := range data {
@@ -125,14 +125,14 @@ go for i, c := range text {
 
 ```go
 // Constrained varying - hardware independent
-var data varying[4] byte    // Multiple of 4 lanes required
-var mask varying[8] bool    // Multiple of 8 lanes required
+var data lanes.Varying[byte, 4]    // Multiple of 4 lanes required
+var mask lanes.Varying[bool, 8]    // Multiple of 8 lanes required
 
 // Universal constrained - accepts any constraint
-func process(input varying[] int) {
+func process(input lanes.Varying[int]) {
     switch v := input.(type) {
-    case varying[4] int:    // 4-element groups
-    case varying[8] int:    // 8-element groups
+    case lanes.Varying[int, 4]:    // 4-element groups
+    case lanes.Varying[int, 8]:    // 8-element groups
     }
 }
 ```

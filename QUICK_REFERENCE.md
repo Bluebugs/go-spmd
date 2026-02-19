@@ -13,20 +13,20 @@ tinygo build -target=wasi -o program.wasm program.go
 
 ```go
 // Basic types
-var x uniform int      // Same value across all lanes (default)
-var y varying int      // Different value per lane
-var z int             // Implicitly uniform
+var x int                         // Same value across all lanes (default)
+var y lanes.Varying[int]          // Different value per lane
+var z int                         // Implicitly uniform
 
 // Constrained varying (multiples of n lanes)
-var data varying[4] byte    // Lane count must be multiple of 4
-var mask varying[8] bool    // Lane count must be multiple of 8
+var data lanes.Varying[byte, 4]   // Lane count must be multiple of 4
+var mask lanes.Varying[bool, 8]   // Lane count must be multiple of 8
 
 // Universal constrained (accepts any constraint)
-func process(data varying[] int) { /* ... */ }
+func process(data lanes.Varying[int]) { /* ... */ }
 
 // Pointers
-var ptrToVarying *varying int    // Pointer to varying data
-var varyingPtrs varying *int     // Varying pointers (different per lane)
+var ptrToVarying *lanes.Varying[int]   // Pointer to varying data
+var varyingPtrs lanes.Varying[*int]    // Varying pointers (different per lane)
 ```
 
 ## SPMD Loops
@@ -54,13 +54,13 @@ go for i := range 100 {
 ## Assignment Rules
 
 ```go
-var u uniform int = 42
-var v varying int
+var u int = 42
+var v lanes.Varying[int]
 
 // ✓ ALLOWED
-u = 10              // uniform int = uniform int
-v = varying(20)     // varying int = varying int
-v = u              // varying int = uniform int(broadcast)
+u = 10              // int = int
+v = lanes.Varying[int](20)     // varying int = varying int
+v = u              // varying int = int (broadcast)
 
 // ✗ PROHIBITED
 u = v              // ERROR: cannot assign varying to uniform
@@ -70,18 +70,18 @@ u = v              // ERROR: cannot assign varying to uniform
 
 ```go
 // ✓ DOWNCASTING (larger → smaller) - ALLOWED
-var large varying int64 = varying(0x123456789ABCDEF0)
-var small varying int32 = varying int32(large)  // Truncates
+var large lanes.Varying[int64] = lanes.Varying[int64](0x123456789ABCDEF0)
+var small lanes.Varying[int32] = lanes.Varying[int32](large)  // Truncates
 
-var wide varying uint32 = varying(0x12345678)
-var narrow varying uint16 = varying uint16(wide)  // Truncates
+var wide lanes.Varying[uint32] = lanes.Varying[uint32](0x12345678)
+var narrow lanes.Varying[uint16] = lanes.Varying[uint16](wide)  // Truncates
 
-var double varying float64 = varying(3.141592653589793)
-var single varying float32 = varying float32(double)  // Precision loss
+var double lanes.Varying[float64] = lanes.Varying[float64](3.141592653589793)
+var single lanes.Varying[float32] = lanes.Varying[float32](double)  // Precision loss
 
 // ✗ UPCASTING (smaller → larger) - PROHIBITED
-var small varying uint16 = varying(0x1234)
-var large varying uint32 = varying uint32(small)  // ERROR: exceeds register capacity
+var small2 lanes.Varying[uint16] = lanes.Varying[uint16](0x1234)
+var large2 lanes.Varying[uint32] = lanes.Varying[uint32](small2)  // ERROR: exceeds register capacity
 ```
 
 ## Built-in Functions
@@ -186,7 +186,7 @@ go for i := range data {
     if reduce.Any(data[i] > limit) {
         break                 // Still ERROR in go for
     }
-    
+
     // Correct approach: use continue with masking
     if data[i] > limit {
         continue              // ✓ Per-lane termination
@@ -200,13 +200,13 @@ go for i := range data {
 
 ```go
 // Private SPMD function - has varying parameters
-func process(data varying int) varying int {
+func process(data lanes.Varying[int]) lanes.Varying[int] {
     lane := lanes.Index()     // ✓ ALLOWED: SPMD context from varying param
     return data + lane
 }
 
 // ✗ PROHIBITED: Public SPMD functions not allowed (except builtin)
-func Process(data varying int) varying int {  // ERROR: public varying param
+func Process(data lanes.Varying[int]) lanes.Varying[int] {  // ERROR: public varying param
     return data * 2
 }
 ```
@@ -215,9 +215,9 @@ func Process(data varying int) varying int {  // ERROR: public varying param
 
 ```go
 // Can return varying but can't use lanes.Index()
-func createVarying() varying int {
+func createVarying() lanes.Varying[int] {
     // lane := lanes.Index()   // ✗ ERROR: no SPMD context
-    return varying(42)         // ✓ Returns uniform broadcast to all lanes
+    return lanes.Varying[int](42)  // ✓ Returns uniform broadcast to all lanes
 }
 ```
 
@@ -227,10 +227,10 @@ func createVarying() varying int {
 
 ```go
 go for i := range data {
-    var results varying int = compute(data[i])
-    
+    var results lanes.Varying[int] = compute(data[i])
+
     // Single goroutine with all lane values
-    go func(values varying int) {
+    go func(values lanes.Varying[int]) {
         // This function becomes SPMD due to varying parameter
         processAsync(values)
     }(results)
@@ -241,10 +241,10 @@ go for i := range data {
 
 ```go
 go for i := range data {
-    var temp varying int = allocate(data[i])
-    
+    var temp lanes.Varying[int] = allocate(data[i])
+
     // Capture varying value and execution mask
-    defer func(allocated varying int) {
+    defer func(allocated lanes.Varying[int]) {
         cleanup(allocated)  // Executes with captured mask
     }(temp)
 }
@@ -255,11 +255,11 @@ go for i := range data {
 ```go
 func handleDynamic(value interface{}) {
     switch v := value.(type) {
-    case varying int:           // ✓ Explicit varying type
+    case lanes.Varying[int]:         // ✓ Explicit varying type
         result := v * 2
-    case varying[4] byte:       // ✓ Constrained varying
+    case lanes.Varying[byte, 4]:     // ✓ Constrained varying
         sum := v[0] + v[1] + v[2] + v[3]
-    case int:                   // ✓ Uniform type
+    case int:                        // ✓ Uniform type
         fmt.Printf("Uniform: %d\n", v)
     }
 }
@@ -277,9 +277,9 @@ go for i := range data {
             handleError(r)
         }
     }()
-    
+
     if data[i] < 0 {
-        panic(varying(42))  // ✓ Can panic with varying
+        panic(lanes.Varying[int](42))  // ✓ Can panic with varying
     }
 }
 ```
@@ -288,29 +288,29 @@ go for i := range data {
 
 ```go
 // ✗ PROHIBITED: Varying keys
-var badMap map[varying string]int       // ERROR: varying keys not allowed
+var badMap map[lanes.Varying[string]]int       // ERROR: varying keys not allowed
 
 go for i := range data {
-    key := varying(strconv.Itoa(i))
+    key := lanes.Varying[string](strconv.Itoa(i))
     value := someMap[key]               // ERROR: varying key access
 }
 
 // ✓ ALLOWED: Uniform keys, varying values
-var goodMap map[string]varying int     // OK: uniform keys only
+var goodMap map[string]lanes.Varying[int]     // OK: uniform keys only
 
 go for i := range data {
     uniformKey := "key" + strconv.Itoa(i)  // Must be uniform
-    goodMap[uniformKey] = varying(data[i])  // OK
+    goodMap[uniformKey] = lanes.Varying[int](data[i])  // OK
 }
 ```
 
 ## Printf Integration
 
 ```go
-var values varying int = 42
+var values lanes.Varying[int] = 42
 fmt.Printf("Values: %v\n", values)      // Auto-converts to [42, 42, 42, 42]
 
-var data varying float32 = 3.14
+var data lanes.Varying[float32] = 3.14
 fmt.Printf("Data: %v\n", data)          // Works with any numeric type
 ```
 
@@ -321,11 +321,11 @@ fmt.Printf("Data: %v\n", data)          // Works with any numeric type
 ```go
 func transform(input []float32) []float32 {
     output := make([]float32, len(input))
-    
+
     go for i := range input {
         output[i] = input[i] * 2.0
     }
-    
+
     return output
 }
 ```
@@ -348,16 +348,16 @@ func findFirst(data []byte, target byte) int {
 ```go
 func base64Decode(ascii []byte) []byte {
     output := make([]byte, 0, len(ascii)*3/4)
-    
+
     go for _, chunk := range[4] ascii {  // Process 4 bytes at a time
         // Complex cross-lane operations
         sextets := lanes.Swizzle(lookupTable, chunk)
         rotated := lanes.Rotate(sextets, 1)
         decoded := lanes.Swizzle(rotated, outputPattern)
-        
+
         output = append(output, decoded...)
     }
-    
+
     return output
 }
 ```
@@ -385,7 +385,7 @@ wasm2wat program-simd.wasm | grep "v128"
 // ✗ Assignment errors
 uniform_var = varying_var               // cannot assign varying to uniform
 
-// ✗ Control flow errors  
+// ✗ Control flow errors
 go for i := range data { break }        // break not allowed in go for
 go for i := range data {                // nesting not allowed
     go for j := range other { }
@@ -395,11 +395,11 @@ go for i := range data {                // nesting not allowed
 func regular() { lanes.Index() }        // lanes.Index() needs SPMD context
 
 // ✗ Type errors
-func Public(v varying int) { }          // public functions can't have varying params
+func Public(v lanes.Varying[int]) { }   // public functions can't have varying params
 someMap[varying_key] = value            // varying keys not allowed in maps
 
 // ✗ Casting errors
-varying uint32(small_varying_uint16)    // upcasting not allowed
+lanes.Varying[uint32](small_varying_uint16)    // upcasting not allowed
 ```
 
 ---

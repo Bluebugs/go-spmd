@@ -27,9 +27,9 @@ SPMD (Single Program Multiple Data) allows writing data-parallel code where:
 ### Key Language Extensions
 
 ```go
-// Type qualifiers
-var x uniform int      // Scalar value, same across lanes
-var y varying float32  // Vector value, different per lane
+// Types
+var x int                    // Scalar value, same across lanes
+var y lanes.Varying[float32] // Vector value, different per lane
 
 // SPMD loop construct
 go for i := range 16 {
@@ -38,9 +38,9 @@ go for i := range 16 {
 }
 
 // Cross-lane operations
-lanes.Count(any) uniform int   // Returns SIMD width (e.g., 4)
-lanes.Index()                  // Returns current lane [0,1,2,3]
-reduce.All(varying bool)       // Reduce to uniform bool
+lanes.Count(any) int                  // Returns SIMD width (e.g., 4)
+lanes.Index()                         // Returns current lane [0,1,2,3]
+reduce.All(lanes.Varying[bool])       // Reduce to uniform bool
 ```
 
 ## Prerequisites
@@ -178,7 +178,7 @@ import (
 
 // Simple sum function demonstrating SPMD concepts
 func sum(a []int) int {
-    var s varying int         // ❌ NOT IMPLEMENTED - Different value per lane
+    var s lanes.Varying[int]  // ❌ NOT IMPLEMENTED - Different value per lane
     go for _, v := range a {  // ❌ NOT IMPLEMENTED - SPMD loop construct
         s += v                // Each lane accumulates different elements
     }

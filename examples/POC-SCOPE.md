@@ -13,12 +13,12 @@ This document clarifies exactly what will and won't work in the TinyGo SPMD proo
 ### ✅ Basic Standard Library
 **`lanes` package** (minimal implementation):
 - `lanes.Count(T)` - Returns 4 for WASM SIMD128 (compile-time constant)
-- `lanes.Index()` - Returns varying int with values [0, 1, 2, 3]
+- `lanes.Index()` - Returns `lanes.Varying[int]` with values [0, 1, 2, 3]
 
 **`reduce` package** (basic operations):
-- `reduce.Add(varying T)` - Sum across all lanes
-- `reduce.Any(varying bool)` - Logical OR across lanes  
-- `reduce.All(varying bool)` - Logical AND across lanes
+- `reduce.Add(lanes.Varying[T])` - Sum across all lanes
+- `reduce.Any(lanes.Varying[bool])` - Logical OR across lanes
+- `reduce.All(lanes.Varying[bool])` - Logical AND across lanes
 
 ### ✅ Code Generation
 - **LLVM IR**: TinyGo generates vector IR for varying operations
@@ -85,7 +85,7 @@ go for i := range len(data) {
 
 // bit-counting: Nested loops with uniform inner loop
 go for i := range len(data) {
-    var count varying int
+    var count lanes.Varying[int]
     for bit := 0; bit < 8; bit++ {
         if data[i] & (1 << bit) != 0 {
             count++

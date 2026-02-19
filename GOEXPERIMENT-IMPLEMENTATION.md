@@ -191,7 +191,7 @@ func TestSPMDSSAGeneration(t *testing.T) {
         },
         {
             "uniform-to-varying",
-            `var x uniform int = 42; var y varying int = x`,
+            `var x int = 42; var y lanes.Varying[int] = x`,
             []string{"OpCall"}, // Call to lanes.Broadcast
         },
         {
@@ -735,13 +735,13 @@ func Count[T any]() int {
 }
 
 // Index returns the current lane index
-func Index() varying int {
+func Index() lanes.Varying[int] {
     // Compiler intrinsic - generates SSA OpSPMDLaneIndex
     return __builtin_spmd_lane_index()
 }
 
 // Broadcast broadcasts a uniform value to all lanes
-func Broadcast[T any](value uniform T, lane int) varying T {
+func Broadcast[T any](value T, lane int) lanes.Varying[T] {
     // Compiler intrinsic - generates SSA OpSPMDBroadcast
     return __builtin_spmd_broadcast(value, lane)
 }
@@ -755,13 +755,13 @@ func Broadcast[T any](value uniform T, lane int) varying T {
 package reduce
 
 // Add performs horizontal addition across all lanes
-func Add[T Numeric](v VaryingNumeric[T]) uniform T {
+func Add[T Numeric](v VaryingNumeric[T]) T {
     // Check if this is a constrained varying[] type
-    if constrainedData, ok := any(v).(varying[] T); ok {
-        // Handle varying[] T - use lanes.FromConstrained to loop properly
+    if constrainedData, ok := any(v).(lanes.Varying[T]); ok {
+        // Handle constrained varying T - use lanes.FromConstrained to loop properly
         values, masks := lanes.FromConstrained(constrainedData)
-        var total uniform T
-        
+        var total T
+
         // Loop over each unconstrained group and accumulate
         go for i, value := range values {
            // Only add lanes that are active according to the mask
@@ -770,21 +770,21 @@ func Add[T Numeric](v VaryingNumeric[T]) uniform T {
                 total += maskedSum
             }
         }
-        
+
         return total
     } else {
-        // Handle varying T - direct compiler intrinsic
-        return __builtin_spmd_reduce_add(v.(varying T))
+        // Handle lanes.Varying[T] - direct compiler intrinsic
+        return __builtin_spmd_reduce_add(v.(lanes.Varying[T]))
     }
 }
 
 // Any returns true if any lane is true
-func Any(v VaryingBool) uniform bool {
+func Any(v VaryingBool) bool {
     // Check if this is a constrained varying[] type
-    if constrainedData, ok := any(v).(varying[] bool); ok {
-        // Handle varying[] bool - use lanes.FromConstrained to loop properly
+    if constrainedData, ok := any(v).(lanes.Varying[bool]); ok {
+        // Handle constrained varying bool - use lanes.FromConstrained to loop properly
         values, masks := lanes.FromConstrained(constrainedData)
-        
+
         // Loop over each unconstrained group
         go for i, value := range values {
             // Check if any active lane in this group is true
@@ -793,21 +793,21 @@ func Any(v VaryingBool) uniform bool {
                 return true
             }
         }
-        
+
         return false
     } else {
-        // Handle varying bool - direct compiler intrinsic
-        return __builtin_spmd_reduce_or(v.(varying bool))
+        // Handle lanes.Varying[bool] - direct compiler intrinsic
+        return __builtin_spmd_reduce_or(v.(lanes.Varying[bool]))
     }
 }
 
 // All returns true if all lanes are true
-func All(v VaryingBool) uniform bool {
+func All(v VaryingBool) bool {
     // Check if this is a constrained varying[] type
-    if constrainedData, ok := any(v).(varying[] bool); ok {
-        // Handle varying[] bool - use lanes.FromConstrained to loop properly
+    if constrainedData, ok := any(v).(lanes.Varying[bool]); ok {
+        // Handle constrained varying bool - use lanes.FromConstrained to loop properly
         values, masks := lanes.FromConstrained(constrainedData)
-        
+
         // Loop over each unconstrained group
         go for i, value := range values {
             // For inactive lanes, treat as true (so they don't affect the result)
@@ -817,16 +817,16 @@ func All(v VaryingBool) uniform bool {
                 return false
             }
         }
-        
+
         return true
     } else {
-        // Handle varying bool - direct compiler intrinsic
-        return __builtin_spmd_reduce_and(v.(varying bool))
+        // Handle lanes.Varying[bool] - direct compiler intrinsic
+        return __builtin_spmd_reduce_and(v.(lanes.Varying[bool]))
     }
 }
 
 // From converts varying numerical/boolean types to array of underlying type
-func From[T NumericOrBool](v varying T) []T {
+func From[T NumericOrBool](v lanes.Varying[T]) []T {
     // Compiler intrinsic - extracts lane values to array
     return __builtin_spmd_to_array(v)
 }
@@ -1011,9 +1011,9 @@ import (
 
 func main() {
     // Test that Go frontend correctly parses and type-checks SPMD code
-    var x uniform int = 42
-    var y varying int
-    
+    var x int = 42
+    var y lanes.Varying[int]
+
     go for i := range 16 {
         y = x  // uniform to varying broadcast
     }
@@ -1043,7 +1043,7 @@ func main() {
     
     // Test that TinyGo backend generates WASM SIMD from Go SSA
     go for i := range len(data) {
-        total += reduce.Add(varying(data[i]))
+        total += reduce.Add(lanes.Varying[int](data[i]))
     }
     
     if total != 36 {
@@ -1159,12 +1159,12 @@ When SPMD experiment is disabled:
 ### Example Error Messages
 
 ```
-error: uniform/varying type qualifiers require GOEXPERIMENT=spmd
+error: lanes.Varying type requires GOEXPERIMENT=spmd
   --> example.go:5:9
    |
-5  |     var x uniform int
-   |           ^^^^^^^
-   | 
+5  |     var x lanes.Varying[int]
+   |           ^^^^^^^^^^^^^^^^^^
+   |
 help: enable the SPMD experiment:
    |     GOEXPERIMENT=spmd go build example.go
 

@@ -71,8 +71,8 @@ SPMD Go provides:
 - **`varying`**: Different value in each SIMD lane (vector)
 
 ```go
-var count uniform int = 0        // Same value in all lanes: [0, 0, 0, 0]
-var indices varying int          // Different per lane: [0, 1, 2, 3]
+var count int = 0                    // Same value in all lanes: [0, 0, 0, 0]
+var indices lanes.Varying[int]       // Different per lane: [0, 1, 2, 3]
 
 go for i := range 4 {
     indices = i                  // i is automatically varying
@@ -123,8 +123,8 @@ go for i, v := range uniformArray {
     // v is UNIFORM (same value across all lanes)
 }
 
-// Array of varying values 
-varyingArray := []varying int{values1, values2, values3}
+// Array of varying values
+varyingArray := []lanes.Varying[int]{values1, values2, values3}
 go for idx, vData := range varyingArray {
     // idx is UNIFORM (processing one varying at a time)
     // vData is VARYING (each array element is a complete varying value)
@@ -139,20 +139,20 @@ go for idx, vData := range varyingArray {
 
 ```go
 func regularFunction() {
-    var data varying int = varying(42)
-    
+    var data lanes.Varying[int] = lanes.Varying[int](42)
+
     // All COMPILE ERRORS outside go for:
-    if data > varying(30) { ... }        // ERROR: varying condition outside SPMD context
-    for data != varying(0) { ... }       // ERROR: varying loop condition outside SPMD context
-    switch data { ... }                  // ERROR: varying switch outside SPMD context
+    if data > lanes.Varying[int](30) { ... }        // ERROR: varying condition outside SPMD context
+    for data != lanes.Varying[int](0) { ... }       // ERROR: varying loop condition outside SPMD context
+    switch data { ... }                              // ERROR: varying switch outside SPMD context
 }
 
 // Must use explicit SPMD context:
 func spmdFunction() {
     go for i := range 1 {
-        var data varying int = varying(42)
-        
-        if data > varying(30) { ... }    // OK: clear SIMD intent
+        var data lanes.Varying[int] = lanes.Varying[int](42)
+
+        if data > lanes.Varying[int](30) { ... }    // OK: clear SIMD intent
     }
 }
 ```
@@ -191,12 +191,12 @@ go for i := range 8 {
 - **Varying → Uniform**: Use `reduce` functions
 
 ```go
-var u uniform int = 42
-var v varying int = u           // OK: broadcasts 42 to all lanes
+var u int = 42
+var v lanes.Varying[int] = u           // OK: broadcasts 42 to all lanes
 
-var v2 varying int = varying(10)
-var u2 uniform int = v2         // ERROR: cannot assign varying to uniform
-var u3 uniform int = reduce.Add(v2)  // OK: sum all lanes to get uniform
+var v2 lanes.Varying[int] = lanes.Varying[int](10)
+var u2 int = v2                        // ERROR: cannot assign varying to uniform
+var u3 int = reduce.Add(v2)            // OK: sum all lanes to get uniform
 ```
 
 ### Q: What are constrained varying types?
@@ -208,8 +208,8 @@ var u3 uniform int = reduce.Add(v2)  // OK: sum all lanes to get uniform
 - **Type safety**: Prevents mismatched operations
 
 ```go
-var v4 varying[4] int    // Always 4 lanes, regardless of hardware
-var v8 varying[8] int    // Always 8 lanes
+var v4 lanes.Varying[int, 4]    // Always 4 lanes, regardless of hardware
+var v8 lanes.Varying[int, 8]    // Always 8 lanes
 
 // These would be type errors:
 // result := v4 + v8     // ERROR: mismatched constraints
@@ -223,11 +223,11 @@ var v8 varying[8] int    // Always 8 lanes
 - **Upcasting (smaller→larger)**: ❌ Prohibited
 
 ```go
-var large varying uint32 = varying(0x12345678)
-var small varying uint16 = varying uint16(large)  // OK: truncates
+var large lanes.Varying[uint32] = lanes.Varying[uint32](0x12345678)
+var small lanes.Varying[uint16] = lanes.Varying[uint16](large)  // OK: truncates
 
-var small2 varying uint16 = varying(0x1234)
-var large2 varying uint32 = varying uint32(small2) // ERROR: would exceed SIMD register capacity
+var small2 lanes.Varying[uint16] = lanes.Varying[uint16](0x1234)
+var large2 lanes.Varying[uint32] = lanes.Varying[uint32](small2)  // ERROR: would exceed SIMD register capacity
 ```
 
 **Reason**: Upcasting would require more bits than available in SIMD registers (e.g., 4×64-bit = 256 bits > 128-bit WASM SIMD).
@@ -237,14 +237,14 @@ var large2 varying uint32 = varying uint32(small2) // ERROR: would exceed SIMD r
 **A:** `varying[]` (universal constrained varying) accepts any constrained varying type:
 
 ```go
-func processAnySize(data varying[] int) {
-    // Can accept varying[4] int, varying[8] int, etc.
-    
+func processAnySize(data lanes.Varying[int]) {
+    // Can accept lanes.Varying[int, 4], lanes.Varying[int, 8], etc.
+
     // Must use type switch to operate on data
     switch v := data.(type) {
-    case varying[4] int:
+    case lanes.Varying[int, 4]:
         return v * 2
-    case varying[8] int:
+    case lanes.Varying[int, 8]:
         return v + 100
     default:
         // Convert to unconstrained for generic processing
@@ -259,21 +259,21 @@ func processAnySize(data varying[] int) {
 **A:** Use `go for` over the returned array of varying values:
 
 ```go
-func processUniversalConstrained(data varying[] int) {
+func processUniversalConstrained(data lanes.Varying[int]) {
     values, masks := lanes.FromConstrained(data)
-    
+
     // Natural processing pattern: go for over array of varying values
     go for idx, varyingGroup := range values {
         // idx is uniform (processing one group at a time)
         // varyingGroup is varying (contains multiple lane values)
         mask := masks[idx]  // Get corresponding mask (varying for this iteration)
-        
+
         fmt.Printf("Processing group %d: %v\n", idx, varyingGroup)
-        
+
         // Process this varying group with its mask
         if reduce.Any(mask) {  // Check if any lanes are active
             if mask {
-                processed := varyingGroup * varying(2)
+                processed := varyingGroup * lanes.Varying[int](2)
                 result := reduce.Add(processed)
                 fmt.Printf("Group %d result: %d\n", idx, result)
             }
@@ -374,9 +374,9 @@ func oldFunction(data []int) int {
 
 // New SPMD version provides additional performance
 func spmdFunction(data []int) int {
-    var sum varying int
+    var sum lanes.Varying[int]
     go for i := range len(data) {
-        sum += varying(data[i])
+        sum += lanes.Varying[int](data[i])
     }
     return reduce.Add(sum)
 }
@@ -410,7 +410,7 @@ Stick with regular Go for:
 4. **Unit tests**: Test both SIMD and scalar versions for identical output
 
 ```go
-var data varying int = calculateSomething()
+var data lanes.Varying[int] = calculateSomething()
 fmt.Printf("Debug varying data: %v\n", data)  // Automatically shows all lanes
 ```
 
@@ -428,13 +428,13 @@ func regular(x int) int {
 }
 
 // SPMD function (varying parameter makes it SPMD)
-func spmd(x varying int) varying int {
+func spmd(x lanes.Varying[int]) lanes.Varying[int] {
     return x * 2  // Executes per-lane with mask
 }
 
 // Mixed function (both uniform and varying parameters)
-func mixed(config uniform Settings, data varying int) varying int {
-    return data * uniform(config.multiplier)
+func mixed(config Settings, data lanes.Varying[int]) lanes.Varying[int] {
+    return data * lanes.Varying[int](config.multiplier)
 }
 ```
 
@@ -443,7 +443,7 @@ func mixed(config uniform Settings, data varying int) varying int {
 **A:** Yes, SPMD functions can call each other and propagate masks automatically:
 
 ```go
-func helper(v varying int) varying int {
+func helper(v lanes.Varying[int]) lanes.Varying[int] {
     return v * 2
 }
 
@@ -482,7 +482,7 @@ func processArrayOld(data []float32) []float32 {
 func processArraySPMD(data []float32) []float32 {
     result := make([]float32, len(data))
     go for i := range len(data) {
-        result[i] = math.Sqrt(varying(data[i]) * 2.5)
+        result[i] = math.Sqrt(lanes.Varying[float32](data[i]) * 2.5)
     }
     return result
 }
@@ -553,8 +553,8 @@ wasm2wat program.wasm | grep -E "(v128|i32x4|f32x4)"
 
 ```go
 // Problem: Direct assignment
-var u uniform int = 42
-var v varying int = 100
+var u int = 42
+var v lanes.Varying[int] = 100
 u = v  // ERROR: cannot assign varying to uniform
 
 // Solution: Use reduce functions
