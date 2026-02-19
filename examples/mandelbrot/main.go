@@ -43,9 +43,9 @@ func mandelSerial(cRe, cIm float32, maxIter int) int {
 }
 
 // SPMD version of mandelbrot computation (varying parameters)
-func mandelSPMD(cRe lanes.Varying[float32], cIm float32, maxIter int) lanes.Varying[int] {
+func mandelSPMD(cRe, cIm lanes.Varying[float32], maxIter int) lanes.Varying[int] {
 	var zRe lanes.Varying[float32] = cRe
-	var zIm float32 = cIm
+	var zIm lanes.Varying[float32] = cIm
 	var iterations lanes.Varying[int] = maxIter  // Start with max, reduce when diverged
 
 	for iter := range maxIter {
@@ -176,7 +176,7 @@ func verifyCorrectness(serialOutput, spmdOutput []int, width, height int) bool {
 }
 
 // Benchmark performance comparison
-func benchmark() {
+func benchmark() bool {
 	fmt.Printf("Computing Mandelbrot set (%dx%d, %d iterations)\n", WIDTH, HEIGHT, MAX_ITERATIONS)
 
 	// Allocate output arrays
