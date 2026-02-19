@@ -25,7 +25,7 @@ func main() {
 
 
 func ToUpper(s []byte) []byte {
-    var hasLower varying bool
+    var hasLower lanes.Varying[bool]
 
 	isASCII := true
     go for _, c := range s {

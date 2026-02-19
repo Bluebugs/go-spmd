@@ -16,7 +16,7 @@ func validMapUsage() {
 	fmt.Println("=== Valid Map Usage ===")
 	
 	// ✓ ALLOWED: Uniform keys with varying values  
-	counts := make(map[string]varying int)
+	counts := make(map[string]lanes.Varying[int])
 	
 	data := []int{10, 20, 30, 40}
 	baseIndex := 0

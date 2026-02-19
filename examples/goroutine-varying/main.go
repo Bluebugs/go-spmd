@@ -12,7 +12,7 @@ import (
 )
 
 // processAsync is an SPMD function when called from within `go for` context or directly as it receives varying parameters.
-func processAsync(data varying int, results chan int, wg *sync.WaitGroup) {
+func processAsync(data lanes.Varying[int], results chan int, wg *sync.WaitGroup) {
 	defer wg.Done()
 	
 	// When called from SPMD context, this function automatically becomes SPMD

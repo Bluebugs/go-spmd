@@ -15,8 +15,8 @@ func main() {
 }
 
 func oddEvenCount(data []int) (int, int) {
-  	var odd varying int
-  	var even varying int
+  	var odd lanes.Varying[int]
+  	var even lanes.Varying[int]
 
   	go for _, value := range data {
 		// value is varying (each lane processes different elements)

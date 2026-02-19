@@ -57,7 +57,7 @@ func conditionalDeferExample(data []int) {
 			allocated := allocateResource(values)
 			
 			// Only lanes where values > 5 register this defer
-			defer func(resource varying int) {
+			defer func(resource lanes.Varying[int]) {
 				// This captured the mask and will only display for values > 5 and other lanes will have no value (either displayed as zero or '-')
 				fmt.Printf("Releasing resources: %v\n", resource)
 			}(allocated)
@@ -78,17 +78,17 @@ func multipleDeferExample(data []int) {
 		// values is varying (each lane processes different elements)
 		
 		// First defer (executes last)
-		defer func(v varying int) {
+		defer func(v lanes.Varying[int]) {
 			fmt.Printf("First defer (last execution): %v\n", v)
 		}(values)
-		
+
 		// Second defer (executes second-to-last)
-		defer func(v varying int) {
+		defer func(v lanes.Varying[int]) {
 			fmt.Printf("Second defer (middle execution): %v\n", v)
 		}(values * 10)
-		
+
 		// Third defer (executes first)
-		defer func(v varying int) {
+		defer func(v lanes.Varying[int]) {
 			fmt.Printf("Third defer (first execution): %v\n", v)
 		}(values * 100)
 		

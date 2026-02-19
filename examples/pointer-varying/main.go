@@ -16,7 +16,7 @@ type Point struct {
 }
 
 // processVaryingArray demonstrates pointer to varying array
-func processVaryingArray(data *varying [8]int) {
+func processVaryingArray(data *lanes.Varying[[8]int]) {
 	fmt.Println("=== Pointer to Varying Array ===")
 	
 	go for i := range 8 {
@@ -42,7 +42,7 @@ func scatterGatherOperations() {
 	
 	go for i := range 8 {
 		// Each lane gets its own pointer
-		var ptr varying *int = &targets[i]
+		var ptr lanes.Varying[*int] = &targets[i]
 		
 		// Gather: read from different memory locations
 		value := *ptr
@@ -161,7 +161,7 @@ func structPointers() {
 func demonstrateAddressOperations() {
 	fmt.Println("\n=== Address Operations ===")
 	
-	var varyingValues varying int = 0
+	var varyingValues lanes.Varying[int] = 0
 	
 	go for i := range 4 {
 		// Assign different values to each lane
@@ -169,7 +169,7 @@ func demonstrateAddressOperations() {
 	}
 	
 	// Take address of varying value - each lane gets address of its data
-	var varyingAddresses varying *int = &varyingValues
+	var varyingAddresses lanes.Varying[*int] = &varyingValues
 	
 	go for i := range 4 {
 		// Dereference varying addresses
