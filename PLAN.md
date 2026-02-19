@@ -2,7 +2,7 @@
 
 **Version**: 2.2
 **Last Updated**: 2026-02-18
-**Status**: Phase 1 Complete, Phase 2.0-2.8c complete, E2E infrastructure working (7 run pass + 12 compile pass / 32 tests), all examples/docs/tests fully migrated from keyword syntax to package-based types (lanes.Varying[T]) across 5 commits
+**Status**: Phase 1 Complete, Phase 2.0-2.8c complete, E2E infrastructure working (7 run pass + 12 compile pass / 32 tests), all examples/docs/tests fully migrated from keyword syntax to package-based types (lanes.Varying[T]) across 5 commits, 7 example program bugs fixed (hex-encode, bit-counting, map-restrictions, defer-varying, select-with-varying-channels, to-upper, mandelbrot)
 
 ## Project Overview
 
