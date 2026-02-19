@@ -2,7 +2,7 @@
 
 **Version**: 2.2
 **Last Updated**: 2026-02-18
-**Status**: Phase 1 Complete, Phase 2.0-2.8c complete, E2E infrastructure working (7 run pass + 13 compile pass / 43 tests), all examples/docs/tests fully migrated from keyword syntax to package-based types (lanes.Varying[T]) across 5 commits, 9 example program bugs fixed, E2E suite expanded from 32 to 43 tests
+**Status**: Phase 1 Complete, Phase 2.0-2.8c complete, E2E infrastructure working (7 run pass + 14 compile pass / 43 tests), all examples/docs/tests fully migrated from keyword syntax to package-based types (lanes.Varying[T]) across 5 commits, 9 example program bugs fixed, E2E suite expanded from 32 to 43 tests, 2 compiler quick-fixes (getPointerBitmap vector types, makeLLVMType untyped int)
 
 ## Project Overview
 
