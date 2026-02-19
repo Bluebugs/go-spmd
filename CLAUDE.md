@@ -1050,6 +1050,12 @@ Go frontend implementation (Phase 1) is complete with 53 commits on the `spmd` b
      - Missing: varying switch/for-loop masking, lanes.Rotate/Swizzle, scalar fallback mode
 8. **Phase 3: NOT STARTED** - Validation and dual-mode testing
 
+   - **Syntax Migration: COMPLETED** — All examples, docs, and tests migrated from old keyword syntax to package-based types
+     - 5 commits: example programs (22 files), illegal-spmd tests (10 files), integration test sync (13 files), markdown docs (10 files), blog config + final cleanup
+     - Old `varying T` → `lanes.Varying[T]`, `uniform T` → plain `T`, `varying[N] T` → `lanes.Varying[T, N]`
+     - Legacy backward-compat files intentionally preserved (use `varying`/`uniform` as identifiers)
+     - `reduce.Uniform[T]` type alias skipped (Go 1.27dev rejects `type Uniform[T any] = T` with MisplacedTypeParam)
+
 Next priority: Re-run E2E tests to measure impact of Varying[T,N] parser fix, then fix remaining compiler bugs (SIGSEGV in array-counting/spmd-call-contexts, bit-counting untyped int, pointer-varying complex patterns), then varying switch/for-loop masking
 
 ## Proof of Concept Success Criteria
