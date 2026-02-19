@@ -1,6 +1,6 @@
 # SPMD Go Examples
 
-This directory contains SPMD (Single Program Multiple Data) Go examples extracted from the blog post series on data parallelism in Go. These examples demonstrate hypothetical language extensions that would enable explicit data parallelism using constructs like `go for`, `varying`, `uniform`, and cross-lane operations.
+This directory contains SPMD (Single Program Multiple Data) Go examples extracted from the blog post series on data parallelism in Go. These examples demonstrate experimental language extensions that enable explicit data parallelism using `go for` loops, `lanes.Varying[T]` types, and cross-lane operations.
 
 ## Examples Overview
 
@@ -118,9 +118,9 @@ High-performance IPv4 address parsing with parallel validation and field extract
 
 ### Language Extensions
 - **`go for`**: SPMD loop construct for data parallelism
-- **`varying`**: Types that hold multiple values (one per lane)
-- **`uniform`**: Single values shared across all lanes
-- **`lanes.Count(type)`**: Number of SIMD lanes for a type
+- **`lanes.Varying[T]`**: Types that hold multiple values (one per lane)
+- **Uniform values**: Regular Go variables, same across all lanes (no annotation needed)
+- **`lanes.Count[T](v)`**: Number of SIMD lanes for a type
 - **`lanes.Index()`**: Current lane index [0, 1, 2, 3, ...]
 
 ### Cross-Lane Operations
@@ -182,7 +182,7 @@ SPMD examples for TinyGo PoC should include:
 ### PoC Limitations
 
 **What Works in TinyGo PoC:**
-- ✅ Basic SPMD syntax (`uniform`, `varying`, `go for`)
+- ✅ Basic SPMD syntax (`lanes.Varying[T]`, `go for`)
 - ✅ Core `lanes` functions (`Count()`, `Index()`)
 - ✅ Basic `reduce` operations (`Add()`, `Any()`, `All()`)
 - ✅ WASM SIMD128 instruction generation

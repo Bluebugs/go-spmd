@@ -19,8 +19,8 @@ These examples serve multiple purposes:
 Demonstrates the fundamental type system rule that varying values cannot be assigned to uniform variables:
 
 ```go
-var uniform_val uniform int
-var varying_val varying int = 42
+var uniform_val int
+var varying_val lanes.Varying[int] = 42
 uniform_val = varying_val  // ERROR: cannot assign varying to uniform
 ```
 
@@ -73,10 +73,10 @@ Key violations:
 Demonstrates that functions with varying parameters (SPMD functions) cannot contain `go for` loops:
 
 ```go
-func processSPMDData(data varying int) varying int {
+func processSPMDData(data lanes.Varying[int]) lanes.Varying[int] {
     // ERROR: go for loops not allowed in SPMD functions
     go for i := range 4 {
-        result += varying(i)
+        result += lanes.Varying[int](i)
     }
     return result
 }
@@ -93,11 +93,11 @@ Key violations:
 Shows that public functions (exported with uppercase names) cannot have varying parameters:
 
 ```go
-func ProcessData(data varying int) varying int {  // ERROR: public function with varying parameter
+func ProcessData(data lanes.Varying[int]) lanes.Varying[int] {  // ERROR: public function with varying parameter
     return data * 2
 }
 
-func processData(data varying int) varying int {  // OK: private function allowed
+func processData(data lanes.Varying[int]) lanes.Varying[int] {  // OK: private function allowed
     return data * 2
 }
 ```
@@ -110,30 +110,30 @@ Key violations:
 ### [select-with-varying-channels.go](select-with-varying-channels.go)
 **Expected Error**: `cannot use varying channel in select statement`
 
-Demonstrates that `select` statements cannot operate on varying channels (`varying chan T`), but channels carrying varying values (`chan varying T`) are now **LEGAL**:
+Demonstrates that `select` statements cannot operate on varying channels (`lanes.Varying[chan T]`), but channels carrying varying values (`chan lanes.Varying[T]`) are now **LEGAL**:
 
 ```go
 // ILLEGAL: Varying channel type
-var ch varying chan int  // ERROR: varying chan T syntax not supported
+var ch lanes.Varying[chan int]  // ERROR: varying channel type not supported
 select {
 case data := <-ch:  // ERROR: cannot use varying channel in select statement
     process(data)
 }
 
 // LEGAL: Channel carrying varying values (implemented in separate example)
-var dataCh chan varying int = make(chan varying int, 5)
+var dataCh chan lanes.Varying[int] = make(chan lanes.Varying[int], 5)
 select {
-case data := <-dataCh:  // OK: chan varying T is legal
+case data := <-dataCh:  // OK: chan lanes.Varying[T] is legal
     fmt.Printf("Received: %v\n", data)
 }
 ```
 
 Key violations:
-- Varying channel types (`varying chan T`) in select cases
+- Varying channel types (`lanes.Varying[chan T]`) in select cases
 - Operations on channels that are themselves varying per-lane
-- Contrast with legal channels carrying varying data (`chan varying T`)
+- Contrast with legal channels carrying varying data (`chan lanes.Varying[T]`)
 
-**Note**: This example focuses on the still-illegal varying channel syntax. See `examples/select-with-varying-channels/` for comprehensive examples of the now-legal select with channels carrying varying values and infinite SPMD loops (`go for {}`).
+**Note**: This example focuses on the still-illegal varying channel syntax. See `examples/select-with-varying-channels/` for comprehensive examples of the now-legal select with channels carrying `lanes.Varying[T]` values and infinite SPMD loops (`go for {}`).
 
 ### [invalid-lane-constraints.go](invalid-lane-constraints.go)
 **Expected Errors**: Various constraint-related errors
@@ -141,10 +141,10 @@ Key violations:
 Shows invalid uses of lane count constraints:
 
 ```go
-var data1 varying[0] int      // ERROR: constraint must be positive
-var data2 varying[-4] int     // ERROR: constraint must be positive
-var data3 varying[n] int      // ERROR: constraint must be compile-time constant
-var data4 varying[128] byte   // ERROR: 128×8 = 1024 bits > 512-bit limit
+var data1 lanes.Varying[int, 0]      // ERROR: constraint must be positive
+var data2 lanes.Varying[int, -4]     // ERROR: constraint must be positive
+var data3 lanes.Varying[int, n]      // ERROR: constraint must be compile-time constant
+var data4 lanes.Varying[byte, 128]   // ERROR: 128×8 = 1024 bits > 512-bit limit
 ```
 
 Key violations:
@@ -165,10 +165,10 @@ Demonstrates SPMD constructs used in invalid contexts:
 current_lane := lanes.Index()
 
 // ERROR: varying types not allowed at package level
-var global_varying varying int = 42
+var global_varying lanes.Varying[int] = 42
 
 // ERROR: cannot use varying key in map access
-var key varying string = data[i]
+var key lanes.Varying[string] = data[i]
 result := someMap[key]
 ```
 
@@ -178,9 +178,9 @@ Key violations:
 - Varying in interface definitions
 - `goto` jumping into/out of SPMD contexts
 - **Map restrictions**: Varying map keys prohibited at declaration and access sites
-  - `map[varying int]string` not allowed at declaration
-  - `someMap[varyingKey]` not allowed at access sites
-  - `delete(someMap, varyingKey)` not allowed
+  - `map[lanes.Varying[int]]string` not allowed at declaration
+  - `someMap[varyingKey]` not allowed at access sites (when key is varying)
+  - `delete(someMap, varyingKey)` not allowed (when key is varying)
   - Only uniform keys permitted for deterministic behavior
 
 ### [malformed-syntax.go](malformed-syntax.go)
@@ -189,13 +189,14 @@ Key violations:
 Shows malformed SPMD syntax and incorrect usage patterns:
 
 ```go
-func badSignature(uniform varying int) {}  // ERROR: conflicting qualifiers
-var x int uniform                          // ERROR: qualifier must come before type
+// Malformed uses of lanes.Varying[T] and reduce builtins
+var x lanes.Varying[lanes.Varying[int]]  // ERROR: nested varying
+reduce.FindFirstSet(42)                  // ERROR: expects varying bool
 ```
 
 Key violations:
-- Conflicting type qualifiers
-- Incorrect qualifier placement
+- Nested varying types
+- Wrong argument types to builtins
 - Malformed `go for` syntax
 - Wrong argument types to built-in functions
 - Complex expressions in constraints
@@ -213,10 +214,10 @@ Key violations:
 - **SPMD Function Restrictions**: Preventing `go for` in functions that already handle mask parameters
 - **Public API Restrictions**: Preventing varying parameters in public functions during experimental phase
 - **Goto Restrictions**: Preventing jumps across execution contexts
-- **Select Limitations**: Varying channels (`varying chan T`) incompatible with lane-based execution (but channels carrying varying data `chan varying T` are legal)
+- **Select Limitations**: Varying channels (`lanes.Varying[chan T]`) incompatible with lane-based execution (but channels carrying varying data `chan lanes.Varying[T]` are legal)
 
 ### Syntax and Semantic Errors
-- **Qualifier Conflicts**: Preventing ambiguous type declarations
+- **Nested Varying**: Preventing `lanes.Varying[lanes.Varying[T]]`
 - **Invalid Expressions**: Ensuring compile-time analyzability
 - **Scope Violations**: Package-level vs function-level restrictions
 
