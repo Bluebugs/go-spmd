@@ -4,7 +4,6 @@ package main
 
 import (
 	"fmt"
-	"lanes"
 )
 
 const hextable = "0123456789abcdef"
@@ -12,7 +11,7 @@ const hextable = "0123456789abcdef"
 func main() {
 	data := []byte{0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE, 0xBA, 0xBE}
 	result := make([]byte, len(data)*2)
-	_ = lanes.Encode(result, data)
+	_ = Encode(result, data)
 	fmt.Printf("Input:  %x\n", data)
 	fmt.Printf("Output: %s\n", result)
 }

@@ -116,7 +116,7 @@ func demonstrateMapValueUsage() {
 		key := fmt.Sprintf("cache_%d", i)  // uniform key
 		value := i * 100                   // varying value
 
-		cache[key] = reduce.Add(values) // Store uniform value sum of varying values
+		cache[key] = reduce.Add(value) // Store uniform value sum of varying values
 
 		// ✓ ALLOWED: Retrieve with uniform key
 		retrieved := cache[key]

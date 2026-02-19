@@ -104,7 +104,7 @@ func directDeferCall(data []int) {
 		// values is varying (each lane processes different elements)
 
 		// Direct defer call with uniform arguments
-		defer cleanup(reduce.From(values))
+		defer cleanup(reduce.Add(values))
 
 		// Some processing
 		result := values + lanes.Index()

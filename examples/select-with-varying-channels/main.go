@@ -38,7 +38,7 @@ func basicSelectExample() {
 			fmt.Printf("Received varying data: %v\n", data)
 
 			// Process the varying data in SPMD context
-			go for i, v := range data {
+			go for _, v := range data {
 				result := v * 2  // Double all lane values
 				fmt.Printf("Processed: %v\n", result)
 
@@ -74,7 +74,7 @@ func infiniteLoopExample() {
 
 	// Create channels for the example
 	dataCh := make(chan lanes.Varying[int], 10)
-	controlCh := make(chan int, 5)
+	controlCh := make(chan string, 5)
 	terminateCh := make(chan bool)
 
 	// Launch a goroutine to send test data

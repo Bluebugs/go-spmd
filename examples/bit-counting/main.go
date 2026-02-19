@@ -26,5 +26,5 @@ func countBits(data []uint8) int {
         }
 	}
 
-	return reduce.Add(count)
+	return int(reduce.Add(count))
 }
