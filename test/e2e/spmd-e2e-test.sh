@@ -366,8 +366,7 @@ func testOddEven() int32 {
 func main() {}
 EOF
 
-# TODO: Expected 404 but gets 800 — compiler bug in varying if/else with bitwise compare
-test_compile_and_run "L5b_odd_even" "$OUTDIR/L5b_odd_even.go" "" "testOddEven" "-scheduler=none"
+test_compile_and_run "L5b_odd_even" "$OUTDIR/L5b_odd_even.go" "404" "testOddEven" "-scheduler=none"
 
 # ========== LEVEL 5c: Integration test examples ==========
 printf "\n${BLUE}--- Level 5c: Integration examples (compile only) ---${NC}\n"
