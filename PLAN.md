@@ -1,6 +1,6 @@
 # SPMD Implementation Plan for Go + TinyGo
 
-**Version**: 2.4
+**Version**: 2.5
 **Last Updated**: 2026-02-20
 **Status**: Phase 1 Complete, Phase 2.0-2.9c complete, Bug fix round (3 bugs fixed: shift bounds, non-SPMD varying return, L5b phi merge), Mandelbrot RUNNING (0 differences, ~2.98x speedup), E2E: 16 run pass + 19 compile pass / 46 tests, syntax migration complete
 
@@ -732,9 +732,9 @@ Ported 10 `*_ext_spmd.go` files from types2 to go/types with full API translatio
 
 **E2E Test Results (46 tests)**:
 - 16 RUN PASS: L0_store, L0_cond, L0_func, L1_reduce_add, L2_lanes_index, L3_varying_var, L4_range_slice, L4b_varying_break, L5a_simple_sum, L5b_odd_even, integ_simple-sum, integ_odd-even, integ_hex-encode, integ_debug-varying, integ_lanes-index-restrictions, integ_mandelbrot
-- 19 COMPILE PASS: integ_simple-sum, integ_odd-even, integ_hex-encode, integ_to-upper, integ_debug-varying, integ_goroutine-varying, integ_lanes-index-restrictions, integ_select-with-varying-channels, and L5a/L5b inline tests
+- 19 COMPILE PASS: integ_to-upper, integ_goroutine-varying, integ_select-with-varying-channels (compile-only); plus all 16 run-pass tests also compile
 - 11 REJECT OK: All illegal examples correctly rejected
-- 16 COMPILE FAIL: 4 constrained parser, 3 SIGSEGV, 3 LLVM verification, 3 type/design errors, 1 shift bounds, 1 missing package, 1 generic panic
+- 16 COMPILE FAIL: 4 constrained parser, 3 SIGSEGV, 3 LLVM verification, 2 compiler bugs, 1 scalar-to-SPMD convert, 2 design issues, 1 missing package
 
 ### 2.8c Constrained Varying Type Support ✅ COMPLETED
 
@@ -1028,10 +1028,11 @@ Ported 10 `*_ext_spmd.go` files from types2 to go/types with full API translatio
   - Fix: ✅ Shift bounds check for vector operands — splat helpers for vector ICmp/Select in asserts.go + compiler.go
   - Fix: ✅ Non-SPMD varying return call signature — spmdMaskType() consistency across declaration/call/type
   - Fix: ✅ L5b varying if/else phi merge inside loop bodies — spmdFindMerge ifBlock barrier + multi-pred merge select + deferred select in else-exit block (L5b 800→404)
+  - E2E: ✅ 5 integration tests promoted to run-pass (simple-sum, odd-even, hex-encode, debug-varying, lanes-index-restrictions) — 16 run pass total
 - **Phase 3**: ❌ Not Started
 
-**Last Completed**: Bug fix round — 3 compiler bugs fixed: (1) shift bounds check for vector operands (asserts.go + compiler.go splat helpers), (2) non-SPMD varying return call signature mismatch (spmdMaskType consistency), (3) L5b varying if/else phi merge inside loop bodies (spmdFindMerge barrier + multi-pred merge select). L5b_odd_even now returns 404 (was 800). (2026-02-20)
-**Next Action**: Fix remaining compile failures — SIGSEGV (array-counting, printf-verbs, spmd-call-contexts), LLVM struct masked load (map-restrictions, panic-recover-varying), constrained Varying[T,N] parser contexts, then varying switch/for-loop masking
+**Last Completed**: Bug fix round + test promotions — 3 compiler bugs fixed (shift bounds, non-SPMD varying return, L5b phi merge), 5 integration tests promoted to run-pass (simple-sum, odd-even, hex-encode, debug-varying, lanes-index-restrictions). E2E: 16 run pass, 19 compile pass / 46 tests. (2026-02-20)
+**Next Action**: Fix remaining 16 compile failures — SIGSEGV (array-counting, printf-verbs, spmd-call-contexts), LLVM struct masked load (map-restrictions, panic-recover-varying), constrained Varying[T,N] parser contexts (4 tests), closure arg count (defer-varying, spmd-call-contexts), then varying switch/for-loop masking
 
 ### Recent Major Achievements (Phase 1.5 Extensions)
 

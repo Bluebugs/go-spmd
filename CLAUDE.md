@@ -1031,10 +1031,10 @@ Go frontend implementation (Phase 1) is complete with 53 commits on the `spmd` b
      - `tinygo/compiler/compiler.go`: Intercept `*types.SPMDType` before `Underlying()` assertions
      - Four branches: SPMD-to-SPMD (recurse with elem), SPMD-to-scalar (recurse with elem), array-to-SPMD (arrayToVector), scalar-to-SPMD (convert + splat)
    - **E2E Test Results** (16 run pass, 19 compile pass, 46 total):
-     - L0_store, L0_cond, L0_func, L1_reduce_add, L2_lanes_index, L3_varying_var, L4_range_slice
-     - L4b_varying_break (SPMD function body with per-lane break), integ_mandelbrot (0 differences, ~2.98x speedup)
-     - L5a_simple_sum (range-over-slice + reduce.Add), L5b_odd_even (varying if/else + reduce — runs but has known bitwise compare bug)
-     - 19 total programs compile successfully (including integ_select-with-varying-channels after fix)
+     - Inline tests (10): L0_store, L0_cond, L0_func, L1_reduce_add, L2_lanes_index, L3_varying_var, L4_range_slice, L4b_varying_break, L5a_simple_sum, L5b_odd_even
+     - Integration run-pass (6): integ_simple-sum, integ_odd-even, integ_hex-encode, integ_debug-varying, integ_lanes-index-restrictions, integ_mandelbrot (0 differences, ~2.98x speedup)
+     - Compile-only pass (3): integ_to-upper, integ_goroutine-varying, integ_select-with-varying-channels
+     - Reject OK (11): All illegal examples correctly rejected
    - **Test program fixes: COMPLETED** — Fixed 12 buggy example programs across 6 commits
      - hex-encode: removed phantom `lanes.Encode` call (now compiles)
      - bit-counting: fixed `reduce.Add(count)` return type (uint8 vs int)
