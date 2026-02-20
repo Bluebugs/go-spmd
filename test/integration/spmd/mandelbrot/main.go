@@ -58,19 +58,20 @@ func mandelSPMD(cRe, cIm lanes.Varying[float32], maxIter int) lanes.Varying[int]
 		if diverged {
 			// Set iterations for points that just diverged
 			iterations = iter
-			// break out of the loop for points that have diverged
+			// Break out of the loop for points that have diverged.
+			// Note: Previous version used reduce.Any(!diverged) to early-exit
+			// when all lanes diverged. Removed because the compiler now handles
+			// varying break correctly via per-lane mask tracking.
 			break
 		}
 
-		if reduce.Any(!diverged) {
-			// Compute next iteration: z = z^2 + c
-			newRe := zRe*zRe - zIm*zIm
-			newIm := 2.0 * zRe * zIm
+		// Compute next iteration: z = z^2 + c
+		newRe := zRe*zRe - zIm*zIm
+		newIm := 2.0 * zRe * zIm
 
-			// Update z values (conditional assignment in SPMD context)
-			zRe = cRe + newRe
-			zIm = cIm + newIm
-		}
+		// Update z values (conditional assignment in SPMD context)
+		zRe = cRe + newRe
+		zIm = cIm + newIm
 	}
 
 	return iterations
@@ -222,23 +223,24 @@ func demonstrateVaryingParameters() {
 	fmt.Println("\n=== Varying Parameter Demonstration ===")
 
 	// Create varying coordinates for different mandelbrot points
-	var xCoords lanes.Varying[float32] = lanes.From([]float32{-0.5, 0.0, -0.75, 0.25})
-	var yCoords lanes.Varying[float32] = lanes.From([]float32{0.0, 0.5, 0.1, -0.25})
+	xCoords := lanes.From([]float32{-0.5, 0.0, -0.75, 0.25})
+	yCoords := lanes.From([]float32{0.0, 0.5, 0.1, -0.25})
 
-	fmt.Printf("Testing points: x=%v, y=%v\n", xCoords, yCoords)
+	fmt.Printf("Testing points: x=%v, y=%v\n", reduce.From(xCoords), reduce.From(yCoords))
 
 	// Compute mandelbrot iterations for all points simultaneously
 	iterations := mandelSPMD(xCoords, yCoords, MAX_ITERATIONS)
 
-	fmt.Printf("Iterations: %v\n", iterations)
+	fmt.Printf("Iterations: %v\n", reduce.From(iterations))
 
-	go for i := range iterations {
-		x := xCoords[i]
-		y := yCoords[i]
-		iter := iterations[i]
+	// Extract results as slices for per-point display
+	xSlice := reduce.From(xCoords)
+	ySlice := reduce.From(yCoords)
+	iterSlice := reduce.From(iterations)
 
-		status := fmt.Sprintf("diverged after %d iterations", iter)
-		fmt.Printf("Point (%.2f, %.2f): %s\n", x, y, status)
+	for i := range xSlice {
+		fmt.Printf("Point (%.2f, %.2f): diverged after %d iterations\n",
+			xSlice[i], ySlice[i], iterSlice[i])
 	}
 }
 

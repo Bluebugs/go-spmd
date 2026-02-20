@@ -273,18 +273,59 @@ EOF
 
 test_compile_and_run "L4_range_slice" "$OUTDIR/L4_range_slice.go" "200" "testRangeSlice" "-scheduler=none"
 
+# ========== LEVEL 4b: SPMD function body (varying break) ==========
+printf "\n${BLUE}--- Level 4b: SPMD function body with varying break ---${NC}\n"
+
+cat > "$OUTDIR/L4b_varying_break.go" << 'EOF'
+package main
+
+import (
+    "lanes"
+    "reduce"
+)
+
+//go:noinline
+func breakTest(x lanes.Varying[int]) lanes.Varying[int] {
+    var result lanes.Varying[int] = 10
+    for i := range 10 {
+        if x < i {
+            result = i
+            break
+        }
+    }
+    return result
+}
+
+//go:export testVaryingBreak
+func testVaryingBreak() int32 {
+    data := lanes.From([]int{1, 3, 5, 8})
+    r := reduce.From(breakTest(data))
+    // x=1 breaks at i=2, x=3 breaks at i=4, x=5 breaks at i=6, x=8 breaks at i=9
+    // Expected: [2, 4, 6, 9] → sum = 21
+    return int32(r[0] + r[1] + r[2] + r[3])
+}
+
+func main() {}
+EOF
+
+test_compile_and_run "L4b_varying_break" "$OUTDIR/L4b_varying_break.go" "21" "testVaryingBreak" "-scheduler=none"
+
 # ========== LEVEL 5: Integration test examples ==========
 printf "\n${BLUE}--- Level 5: Integration examples (compile only) ---${NC}\n"
 
 INTEG="$SPMD_ROOT/test/integration/spmd"
 for dir in simple-sum odd-even bit-counting array-counting hex-encode to-upper \
-           type-casting-varying varying-array-iteration mandelbrot \
+           type-casting-varying varying-array-iteration \
            map-restrictions defer-varying printf-verbs goroutine-varying \
            panic-recover-varying select-with-varying-channels; do
     if [ -f "$INTEG/$dir/main.go" ]; then
         test_compile "integ_$dir" "$INTEG/$dir/main.go"
     fi
 done
+
+# Mandelbrot: compile AND run (verify 0 differences)
+printf "\n${BLUE}--- Level 5b: Mandelbrot (compile + run) ---${NC}\n"
+test_compile_and_run "integ_mandelbrot" "$INTEG/mandelbrot/main.go" "" "" "-scheduler=none"
 
 # ========== LEVEL 6: SPMD functions with mask ==========
 printf "\n${BLUE}--- Level 6: Complex patterns (compile only) ---${NC}\n"
