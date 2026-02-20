@@ -2,7 +2,7 @@
 
 **Version**: 2.4
 **Last Updated**: 2026-02-20
-**Status**: Phase 1 Complete, Phase 2.0-2.9c complete, Mandelbrot RUNNING (0 differences, ~2.98x speedup), Performance Round 3 complete, E2E: 11 run pass + 19 compile pass / 46 tests, syntax migration complete
+**Status**: Phase 1 Complete, Phase 2.0-2.9c complete, Bug fix round (3 bugs fixed: shift bounds, non-SPMD varying return, L5b phi merge), Mandelbrot RUNNING (0 differences, ~2.98x speedup), E2E: 11 run pass + 19 compile pass / 46 tests, syntax migration complete
 
 ## Project Overview
 
@@ -1025,10 +1025,13 @@ Ported 10 `*_ext_spmd.go` files from types2 to go/types with full API translatio
   - Perf: ✅ Round 2 — ChangeType unwrap + i32 masks (~2.81x → ~2.91x)
   - Perf: ✅ Round 3 — Native WASM v128.any_true/alltrue intrinsics (~2.91x → ~2.98x)
   - Fix: ✅ E2E suite expansion (32 → 46 tests), 12 example program bugs fixed
+  - Fix: ✅ Shift bounds check for vector operands — splat helpers for vector ICmp/Select in asserts.go + compiler.go
+  - Fix: ✅ Non-SPMD varying return call signature — spmdMaskType() consistency across declaration/call/type
+  - Fix: ✅ L5b varying if/else phi merge inside loop bodies — spmdFindMerge ifBlock barrier + multi-pred merge select + deferred select in else-exit block (L5b 800→404)
 - **Phase 3**: ❌ Not Started
 
-**Last Completed**: Performance Optimization Round 3 — Native WASM v128.any_true/alltrue intrinsics (2.4% improvement). Mandelbrot: 0 differences, ~2.98x speedup — (11 run pass, 19 compile pass / 46 E2E tests) (2026-02-20)
-**Next Action**: Fix shift bounds check vector support (bit-counting), fix SIGSEGV (array-counting, spmd-call-contexts), fix L5b_odd_even bitwise compare bug, then varying switch/for-loop masking
+**Last Completed**: Bug fix round — 3 compiler bugs fixed: (1) shift bounds check for vector operands (asserts.go + compiler.go splat helpers), (2) non-SPMD varying return call signature mismatch (spmdMaskType consistency), (3) L5b varying if/else phi merge inside loop bodies (spmdFindMerge barrier + multi-pred merge select). L5b_odd_even now returns 404 (was 800). (2026-02-20)
+**Next Action**: Fix remaining compile failures — SIGSEGV (array-counting, printf-verbs, spmd-call-contexts), LLVM struct masked load (map-restrictions, panic-recover-varying), constrained Varying[T,N] parser contexts, then varying switch/for-loop masking
 
 ### Recent Major Achievements (Phase 1.5 Extensions)
 

@@ -1078,19 +1078,22 @@ Go frontend implementation (Phase 1) is complete with 53 commits on the `spmd` b
      - `go/src/go/parser/parser.go`: SPMD-gated fallback in bracket argument loop (tryIdentOrType + parseRhs)
      - `go/src/go/parser/parser_spmd_test.go`: 6 new test cases (var decl, func param, return type, type alias, byte/int variants)
      - Unblocks 3 E2E programs (type-casting-varying, varying-array-iteration, mandelbrot) past parse stage
+   - **Bug Fixes** (3 commits):
+     - fix: shift bounds check for vector operands — vector-aware splat helpers in asserts.go + compiler.go
+     - fix: non-SPMD varying return call signature — spmdMaskType() consistency at declaration/call/type
+     - fix: varying if/else phi merge inside loop bodies — spmdFindMerge ifBlock barrier + multi-pred merge select + deferred select in else-exit block (L5b 800→404)
    - **Known E2E Failures** (16 compile fail, categorized):
      - Constrained parser (4): type-casting-varying, type-switch-varying, varying-array-iteration, varying-universal-constrained (Varying[T,N] in some type contexts)
-     - SIGSEGV (3): array-counting (CreateExtractValue on vector), spmd-call-contexts, printf-verbs (nil pointer)
-     - LLVM verification (3): defer-varying (wrong arg count), panic-recover-varying (masked load of struct type), non-spmd-varying-return (call param type mismatch)
-     - Compiler bugs exposed by test fixes (2): map-restrictions (masked load of `%runtime._string`), union-type-generics (generic SPMD function panic in typeparams)
-     - Shift bounds check (1): bit-counting (scalar bounds check on broadcast shift amount)
+     - SIGSEGV (3): array-counting (CreateExtractValue on vector), spmd-call-contexts (wrong arg count in closure), printf-verbs (nil pointer)
+     - LLVM verification (3): defer-varying (wrong arg count in closure), panic-recover-varying (masked load of struct type), non-spmd-varying-return (varying value passed to uniform param inside go for)
+     - Compiler bugs (2): map-restrictions (masked load of `%runtime._string`), union-type-generics (generic SPMD function panic in typeparams)
+     - Scalar-to-SPMD convert (1): bit-counting (scalar-to-SPMD convert received vector value in nested loop)
      - Design issues (2): pointer-varying (unsupported varying pointer patterns), base64-decoder (constrained types + Rotate/Swizzle)
      - Missing package (1): ipv4-parser (math/bits not in TinyGo std)
-   - **Known Runtime Bug**: L5b_odd_even returns 800 instead of 404 — `value&1 == 1` varying if/else with bitwise compare produces wrong phi merge
    - **Phase 2.9-2.10: TinyGo Compiler Work (remaining)**:
      - TinyGo uses `golang.org/x/tools/go/ssa` (NOT Go's `cmd/compile/internal/ssa`)
      - LLVM auto-vectorizes: `CreateAdd(<4 x i32>, <4 x i32>)` → WASM `v128.add`
-     - Missing: shift bounds check vector support, varying switch/for-loop masking, lanes.Rotate/Swizzle, scalar fallback mode
+     - Missing: varying switch/for-loop masking, lanes.Rotate/Swizzle, scalar fallback mode
      - **Performance**: ~2.98x SPMD speedup on mandelbrot (256x256, 256 iterations, 0 differences vs serial)
 8. **Phase 3: NOT STARTED** - Validation and dual-mode testing
 
