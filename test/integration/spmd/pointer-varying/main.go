@@ -107,7 +107,7 @@ func mixedPointerOperations() {
 
 	// Create varying data
 	uniformArray := [4]int{10, 20, 30, 40}
-	varyingData := lanes.From(uniformArray)
+	varyingData := lanes.From(uniformArray[:])
 
 	// Pointer to varying array
 	arrayPtr := &varyingData
@@ -184,7 +184,7 @@ func main() {
 
 	// Example 1: Pointer to varying array
 	uniformTestArray := [8]int{1, 2, 3, 4, 5, 6, 7, 8}
-	testArray := lanes.From(uniformTestArray)
+	testArray := lanes.From(uniformTestArray[:])
 	processVaryingArray(&testArray)
 
 	// Example 2: Varying pointers for scatter/gather

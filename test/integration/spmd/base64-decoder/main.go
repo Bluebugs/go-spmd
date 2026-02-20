@@ -50,7 +50,7 @@ func Decode(ascii []byte) ([]byte, bool) {
 
 func outputPattern() lanes.Varying[uint8, 4] {
 	var r lanes.Varying[uint8, 4]
-	go for i := range[4] {
+	go for i := range[4] 4 {
 		r[i] = uint8(i + i/3) // Creates: [0,1,2,4]
 	}
 	return r

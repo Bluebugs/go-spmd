@@ -37,19 +37,10 @@ func basicSelectExample() {
 
 			fmt.Printf("Received varying data: %v\n", data)
 
-			// Process the varying data in SPMD context
-			go for _, v := range data {
-				result := v * 2  // Double all lane values
-				fmt.Printf("Processed: %v\n", result)
-
-				// Send result to output channel
-				select {
-				case outputCh <- result:
-					// Successfully sent
-				default:
-					fmt.Println("Output channel full, dropping data")
-				}
-			}
+			// Process the varying data
+			result := data * 2
+			fmt.Printf("Processed: %v\n", result)
+			outputCh <- result
 			processed++
 
 		default:
@@ -89,10 +80,10 @@ func infiniteLoopExample() {
 		terminateCh <- true
 	}()
 
-	// Process data in infinite SPMD loop
+	// Process data in infinite loop
 	var totalProcessed lanes.Varying[int] = 0  // broadcast 0 to all lanes
 
-	go for {  // Infinite SPMD loop
+	for {
 		select {
 		case data := <-dataCh:
 			fmt.Printf("Processing varying data in infinite loop: %v\n", data)
@@ -147,7 +138,7 @@ func pipelineExample() {
 	go func() {
 		defer close(stage2Ch)
 
-		go for {  // Infinite SPMD loop for stage 2
+		for {
 			select {
 			case data, ok := <-stage1Ch:
 				if !ok {
@@ -171,7 +162,7 @@ func pipelineExample() {
 		defer close(stage3Ch)
 		defer func() { doneCh <- true }()
 
-		go for {  // Infinite SPMD loop for stage 3
+		for {
 			select {
 			case data, ok := <-stage2Ch:
 				if !ok {
@@ -225,11 +216,8 @@ func mixedChannelExample() {
 		select {
 		case vData := <-varyingCh:
 			fmt.Printf("Received varying data: %v\n", vData)
-			// Process varying data in SPMD context
-			go for i := range lanes.Count(vData) {
-				result := vData + 50  // 50 broadcasts to all lanes
-				fmt.Printf("Varying processed: %v\n", result)
-			}
+			result := vData + 50
+			fmt.Printf("Varying processed: %v\n", result)
 
 		case uData := <-uniformCh:
 			fmt.Printf("Received uniform data: %d\n", uData)

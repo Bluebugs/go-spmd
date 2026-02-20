@@ -147,7 +147,7 @@ func demonstrateShiftOperations() {
 	// Test with constrained varying
 	fmt.Println("\n--- Constrained Shift Operations ---")
 	constrainedValues := lanes.From([]uint16{0x00FF, 0x0F0F, 0xF0F0, 0xFF00})
-	constrainedShifts := lanes.From([]int{1, 2, 3, 4})
+	constrainedShifts := lanes.From([]uint16{1, 2, 3, 4})
 
 	constrainedLeft := lanes.ShiftLeft(constrainedValues, constrainedShifts)
 	constrainedRight := lanes.ShiftRight(constrainedValues, constrainedShifts)

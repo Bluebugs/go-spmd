@@ -84,25 +84,26 @@ type KeyValuePair struct {
 func structAlternative() {
 	fmt.Println("\n=== Struct Alternative to Maps ===")
 
-	// ✓ ALTERNATIVE: Use slice of structs instead of map
+	// Use slice of structs instead of map — convert varying to uniform first
 	var pairs []KeyValuePair
 
 	data := []string{"x", "y", "z", "w"}
 
 	go for i, key := range data {
-		// key is varying (each lane processes different elements)
-		value := i     // varying value
-
-		// ✓ ALLOWED: Append struct with varying key and value
-		pairs = append(pairs, KeyValuePair{
-			Key:   key,
-			Value: value,
-		})
+		// key and i are varying — convert to uniform arrays for struct creation
+		keys := reduce.From(key)
+		values := reduce.From(i)
+		for j := range keys {
+			pairs = append(pairs, KeyValuePair{
+				Key:   keys[j],
+				Value: values[j],
+			})
+		}
 	}
 
 	// Process the pairs
 	for _, pair := range pairs {
-		fmt.Printf("Pair: %s -> %d\n", pair.Key, pair.Value) // Printf knows how to handle varying values
+		fmt.Printf("Pair: %s -> %d\n", pair.Key, pair.Value)
 	}
 }
 
