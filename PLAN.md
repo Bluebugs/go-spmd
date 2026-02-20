@@ -2,7 +2,7 @@
 
 **Version**: 2.3
 **Last Updated**: 2026-02-19
-**Status**: Phase 1 Complete, Phase 2.0-2.9c complete, Mandelbrot RUNNING (0 differences, ~1.2x speedup), E2E: 9 run pass + 16 compile pass / 44 tests, syntax migration complete
+**Status**: Phase 1 Complete, Phase 2.0-2.9c complete, Mandelbrot RUNNING (0 differences, ~1.2x speedup), E2E: 11 run pass + 19 compile pass / 46 tests, syntax migration complete
 
 ## Project Overview
 
@@ -730,11 +730,11 @@ Ported 10 `*_ext_spmd.go` files from types2 to go/types with full API translatio
 - [x] Validate 6 core programs compile + run correctly (stores, conditionals, functions, reduce, lanes, varying vars)
 - [x] Validate all 11 illegal examples correctly rejected by type checker
 
-**E2E Test Results (44 tests)**:
-- 9 RUN PASS: L0_store, L0_cond, L0_func, L1_reduce_add, L2_lanes_index, L3_varying_var, L4_range_slice, L4b_varying_break, integ_mandelbrot
-- 16 COMPILE PASS: integ_simple-sum, integ_odd-even, integ_hex-encode, integ_to-upper, integ_debug-varying, integ_goroutine-varying, integ_lanes-index-restrictions, and others
+**E2E Test Results (46 tests)**:
+- 11 RUN PASS: L0_store, L0_cond, L0_func, L1_reduce_add, L2_lanes_index, L3_varying_var, L4_range_slice, L4b_varying_break, L5a_simple_sum, L5b_odd_even, integ_mandelbrot
+- 19 COMPILE PASS: integ_simple-sum, integ_odd-even, integ_hex-encode, integ_to-upper, integ_debug-varying, integ_goroutine-varying, integ_lanes-index-restrictions, integ_select-with-varying-channels, and L5a/L5b inline tests
 - 11 REJECT OK: All illegal examples correctly rejected
-- 17 COMPILE FAIL: bit-counting (shift bounds), array-counting/spmd-call-contexts (SIGSEGV), defer-varying/panic-recover-varying/non-spmd-varying-return (LLVM verification), and others (frontend/type errors)
+- 16 COMPILE FAIL: 4 constrained parser, 3 SIGSEGV, 3 LLVM verification, 3 type/design errors, 1 shift bounds, 1 missing package, 1 generic panic
 
 ### 2.8c Constrained Varying Type Support ✅ COMPLETED
 
