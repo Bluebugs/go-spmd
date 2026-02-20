@@ -1,8 +1,8 @@
 # SPMD Implementation Plan for Go + TinyGo
 
-**Version**: 2.3
-**Last Updated**: 2026-02-19
-**Status**: Phase 1 Complete, Phase 2.0-2.9c complete, Mandelbrot RUNNING (0 differences, ~1.2x speedup), E2E: 11 run pass + 19 compile pass / 46 tests, syntax migration complete
+**Version**: 2.4
+**Last Updated**: 2026-02-20
+**Status**: Phase 1 Complete, Phase 2.0-2.9c complete, Mandelbrot RUNNING (0 differences, ~2.91x speedup), Performance Round 2 complete, E2E: 11 run pass + 19 compile pass / 46 tests, syntax migration complete
 
 ## Project Overview
 
@@ -780,7 +780,23 @@ Ported 10 `*_ext_spmd.go` files from types2 to go/types with full API translatio
 - [x] Fix mandelbrot: remove reduce.Any guard, rewrite demonstrateVaryingParameters with reduce.From
 - [x] Add L4b_varying_break E2E test, promote mandelbrot to compile+run
 
-**Mandelbrot Results**: 256x256, 256 iterations — 0 differences vs serial, ~1.2x SPMD speedup
+**Mandelbrot Results**: 256x256, 256 iterations — 0 differences vs serial, ~2.91x SPMD speedup (was ~1.2x before performance optimizations)
+
+### Performance Optimization Round 1 ✅ COMPLETED
+
+- [x] Early exit when all lanes broken (spmdVectorAllTrue + condBr to done block)
+- [x] inlinehint on SPMD functions + spmdCallMask uses narrowed mask from stack
+- [x] Generalized contiguous detection (spmdAnalyzeContiguousIndex traces scalar+iter through BinOp ADD)
+
+**Result**: ~1.2x → ~2.81x speedup
+
+### Performance Optimization Round 2 ✅ COMPLETED
+
+- [x] ChangeType unwrap for contiguous store detection — `spmdUnwrapScalar()` peels `*ssa.ChangeType` chains to find underlying scalar SSA value. Root cause: `ChangeType(j*width, SPMDType{int})` caused spurious splat, breaking contiguous detection for `output[j*width+i]` pattern. **~38% improvement** (SPMD time 3.26ms → 2.01ms)
+- [x] i32 mask format on WASM — changed mask representation from `<N x i1>` to `<N x i32>` on WASM targets, eliminating `shl 31 + ashr 31` sign-extension overhead. Added `spmdWrapMask()`, `spmdUnwrapMaskForIntrinsic()`, `spmdMaskSelect()` with width-safety fallback, `spmdMaskElemType()`, `spmdIsWASM()`. 8 new tests. **~3% improvement**
+- [x] Tail mask hoisting — verified via LLVM IR and WAT analysis that V8's TurboFan JIT hoists the loop-invariant tail mask comparison. No code change needed.
+
+**Result**: ~2.81x → ~2.91x speedup (0 differences, 0 E2E regressions)
 
 ### 2.9d Scalar Fallback Mode
 
@@ -994,10 +1010,17 @@ Ported 10 `*_ext_spmd.go` files from types2 to go/types with full API translatio
   - Fix: ✅ getPointerBitmap vector types — VectorTypeKind added to no-pointer case (unblocked goroutine-varying)
   - Fix: ✅ makeLLVMType untyped int — UntypedInt added to Int/Uint case
   - Fix: ✅ Nested loop deduplication — seenLoopInfo map in analyzeSPMDLoops() prevents nested regular for loops from being vectorized
+  - 2.8c: ✅ Constrained Varying[T,N] backend support (4 files, 5 tests)
+  - 2.9a: ✅ SPMD function body mask infrastructure
+  - 2.9b: ✅ Per-lane break mask support (break mask alloca, break redirects)
+  - 2.9c: ✅ Vector IndexAddr + break result tracking + mandelbrot
+  - Perf: ✅ Round 1 — Early exit + inlining + generalized contiguous (~1.2x → ~2.81x)
+  - Perf: ✅ Round 2 — ChangeType unwrap + i32 masks (~2.81x → ~2.91x)
+  - Fix: ✅ E2E suite expansion (32 → 46 tests), 12 example program bugs fixed
 - **Phase 3**: ❌ Not Started
 
-**Last Completed**: Nested loop deduplication fix in analyzeSPMDLoops, 3 compiler quick-fixes, 7 example bugs fixed, E2E expanded to 43 tests — (7 run pass, 14 compile pass / 43 E2E tests) (2026-02-19)
-**Next Action**: Fix shift bounds check vector support (bit-counting), fix SIGSEGV (array-counting, spmd-call-contexts), then varying switch/for-loop masking
+**Last Completed**: Performance Optimization Round 2 — ChangeType unwrap for contiguous stores (38% improvement) + i32 mask format on WASM (3% improvement). Mandelbrot: 0 differences, ~2.91x speedup — (11 run pass, 19 compile pass / 46 E2E tests) (2026-02-20)
+**Next Action**: Fix shift bounds check vector support (bit-counting), fix SIGSEGV (array-counting, spmd-call-contexts), fix L5b_odd_even bitwise compare bug, then varying switch/for-loop masking
 
 ### Recent Major Achievements (Phase 1.5 Extensions)
 

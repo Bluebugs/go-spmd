@@ -132,7 +132,7 @@ Before TinyGo can compile any SPMD code, the standard library toolchain must be 
 - SPMD function body mask infrastructure: `spmdFuncIsBody` flag, mask stack from entry mask — DONE (Phase 2.9a)
 - Per-lane break mask support: break mask alloca, break redirects, active mask computation — DONE (Phase 2.9b)
 - Vector IndexAddr + break result tracking: vector of GEPs, per-lane bounds check, break result allocas — DONE (Phase 2.9c)
-- **Mandelbrot running**: 0 differences vs serial, ~1.2x SPMD speedup
+- **Mandelbrot running**: 0 differences vs serial, ~2.91x SPMD speedup (5 performance optimizations applied)
 - Key files: `compiler/compiler.go` (getLLVMType, createBinOp, createExpr, createFunction, createConvert, *ssa.If/*ssa.Jump/*ssa.Phi), `compiler/spmd.go`, `compiler/symbol.go`, `compiler/func.go`, `compiler/interface.go`
 
 ## SSA Generation Strategy (Following ISPC's Approach)
@@ -1032,7 +1032,7 @@ Go frontend implementation (Phase 1) is complete with 53 commits on the `spmd` b
      - Four branches: SPMD-to-SPMD (recurse with elem), SPMD-to-scalar (recurse with elem), array-to-SPMD (arrayToVector), scalar-to-SPMD (convert + splat)
    - **E2E Test Results** (11 run pass, 19 compile pass, 46 total):
      - L0_store, L0_cond, L0_func, L1_reduce_add, L2_lanes_index, L3_varying_var, L4_range_slice
-     - L4b_varying_break (SPMD function body with per-lane break), integ_mandelbrot (0 differences, ~1.2x speedup)
+     - L4b_varying_break (SPMD function body with per-lane break), integ_mandelbrot (0 differences, ~2.91x speedup)
      - L5a_simple_sum (range-over-slice + reduce.Add), L5b_odd_even (varying if/else + reduce — runs but has known bitwise compare bug)
      - 19 total programs compile successfully (including integ_select-with-varying-channels after fix)
    - **Test program fixes: COMPLETED** — Fixed 12 buggy example programs across 6 commits
@@ -1055,6 +1055,14 @@ Go frontend implementation (Phase 1) is complete with 53 commits on the `spmd` b
      - `compiler/spmd.go`: Added unified `seenLoopInfo` deduplication map shared across rangeint/rangeindex passes
      - Only the first (outermost) body block per `SPMDLoopInfo` is registered; nested regular loops are skipped
      - Handles cross-pattern nesting (rangeint outer + rangeindex inner, or vice versa)
+   - **Performance Optimization Round 1: COMPLETED** — 3 optimizations, ~1.2x → ~2.81x speedup
+     - Early exit when all lanes broken (spmdVectorAllTrue + condBr to done block)
+     - inlinehint on SPMD functions + spmdCallMask uses narrowed mask from stack
+     - Generalized contiguous detection (spmdAnalyzeContiguousIndex traces scalar+iter through BinOp ADD)
+   - **Performance Optimization Round 2: COMPLETED** — 2 optimizations + 1 investigation, ~2.81x → ~2.91x speedup
+     - `compiler/spmd.go`: Added `spmdUnwrapScalar()` to peel `*ssa.ChangeType` chains in contiguous detection — fixes `output[j*width+i]` scatter store. ~38% improvement.
+     - `compiler/spmd.go`: Changed mask format from `<N x i1>` to `<N x i32>` on WASM — added `spmdIsWASM()`, `spmdMaskElemType()`, `spmdWrapMask()`, `spmdUnwrapMaskForIntrinsic()`, `spmdMaskSelect()` with width-safety fallback, `spmdNormalizeBoolVecToI1()`. 8 new tests. ~3% improvement.
+     - Tail mask hoisting: verified via LLVM IR + WAT analysis that V8 TurboFan JIT handles loop-invariant hoisting. No code change needed.
    - **SPMDType interface boxing fix: COMPLETED** — TinyGo `getTypeCode()` now handles `*types.SPMDType`
      - `tinygo/compiler/interface.go`: Intercept SPMDType in `getTypeCode()`, redirect to `[laneCount]T` array representation
      - Defensive fallbacks in `getTypeCodeName()` and `typestring()` for `*types.SPMDType`
@@ -1080,6 +1088,7 @@ Go frontend implementation (Phase 1) is complete with 53 commits on the `spmd` b
      - TinyGo uses `golang.org/x/tools/go/ssa` (NOT Go's `cmd/compile/internal/ssa`)
      - LLVM auto-vectorizes: `CreateAdd(<4 x i32>, <4 x i32>)` → WASM `v128.add`
      - Missing: shift bounds check vector support, varying switch/for-loop masking, lanes.Rotate/Swizzle, scalar fallback mode
+     - **Performance**: ~2.91x SPMD speedup on mandelbrot (256x256, 256 iterations, 0 differences vs serial)
 8. **Phase 3: NOT STARTED** - Validation and dual-mode testing
 
    - **Syntax Migration: COMPLETED** — All examples, docs, and tests migrated from old keyword syntax to package-based types
