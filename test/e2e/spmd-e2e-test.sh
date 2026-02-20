@@ -372,7 +372,7 @@ test_compile_and_run "L5b_odd_even" "$OUTDIR/L5b_odd_even.go" "404" "testOddEven
 printf "\n${BLUE}--- Level 5c: Integration examples (compile only) ---${NC}\n"
 
 INTEG="$SPMD_ROOT/test/integration/spmd"
-for dir in simple-sum odd-even bit-counting array-counting hex-encode to-upper \
+for dir in bit-counting array-counting to-upper \
            type-casting-varying varying-array-iteration \
            map-restrictions defer-varying printf-verbs goroutine-varying \
            panic-recover-varying select-with-varying-channels; do
@@ -381,16 +381,22 @@ for dir in simple-sum odd-even bit-counting array-counting hex-encode to-upper \
     fi
 done
 
-# Mandelbrot: compile AND run (verify 0 differences)
-printf "\n${BLUE}--- Level 5d: Mandelbrot (compile + run) ---${NC}\n"
-test_compile_and_run "integ_mandelbrot" "$INTEG/mandelbrot/main.go" "" "" "-scheduler=none"
+# ========== LEVEL 5d: Integration examples (compile + run) ==========
+printf "\n${BLUE}--- Level 5d: Integration examples (compile + run) ---${NC}\n"
+
+test_compile_and_run "integ_simple-sum"    "$INTEG/simple-sum/main.go"    "Sum: 136"            "" "-scheduler=none"
+test_compile_and_run "integ_odd-even"      "$INTEG/odd-even/main.go"      "Result: Odd=4, Even=4" "" "-scheduler=none"
+test_compile_and_run "integ_hex-encode"    "$INTEG/hex-encode/main.go"    ""                    "" "-scheduler=none"
+test_compile_and_run "integ_debug-varying" "$INTEG/debug-varying/main.go" ""                    "" "-scheduler=none"
+test_compile_and_run "integ_lanes-index-restrictions" "$INTEG/lanes-index-restrictions/main.go" "" "" "-scheduler=none"
+test_compile_and_run "integ_mandelbrot"    "$INTEG/mandelbrot/main.go"    ""                    "" "-scheduler=none"
 
 # ========== LEVEL 6: SPMD functions with mask ==========
 printf "\n${BLUE}--- Level 6: Complex patterns (compile only) ---${NC}\n"
 
 for dir in pointer-varying type-switch-varying non-spmd-varying-return \
-           spmd-call-contexts debug-varying \
-           base64-decoder ipv4-parser lanes-index-restrictions \
+           spmd-call-contexts \
+           base64-decoder ipv4-parser \
            union-type-generics varying-universal-constrained; do
     if [ -f "$INTEG/$dir/main.go" ]; then
         test_compile "integ_$dir" "$INTEG/$dir/main.go"
