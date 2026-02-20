@@ -948,7 +948,7 @@ Go frontend implementation (Phase 1) is complete with 53 commits on the `spmd` b
 7. **Phase 2: IN PROGRESS** - TinyGo LLVM backend with WASM SIMD128 target
    - **Phase 2.0: Go Standard Library Porting** (prerequisite before TinyGo work):
      - `go/ast`: COMPLETED — `IsSpmd`, `LaneCount`, `Constraint` fields on `RangeStmt`
-     - `go/parser`: COMPLETED — `go for` parsing + `range[N]` constraints + `Varying[T, N]` type expressions (17 tests)
+     - `go/parser`: COMPLETED — `go for` parsing + `range[N]` constraints + `Varying[T, N]` in type and expression contexts (20 tests)
      - `go/types`: COMPLETED — 10 `*_ext_spmd.go` files ported from types2, 6 test files, 5 commits
      - `go/ssa`: No changes needed — SPMD metadata extracted from typed AST in TinyGo's compiler
    - **Phase 2.0d: COMPLETED** — SPMD metadata extraction in TinyGo compiler
@@ -1074,22 +1074,29 @@ Go frontend implementation (Phase 1) is complete with 53 commits on the `spmd` b
      - `tinygo/compiler/spmd.go`: Extended `spmdBroadcastMatch()` with vector-vector width case, added `spmdResizeVector()` (shuffle-based truncation)
      - `tinygo/compiler/spmd_llvm_test.go`: 3 new test cases (narrower_wins, resize_vector_truncate, same_width_noop)
      - Fixes `to-upper` ICmp type mismatch: byte constants get 16 lanes (128/8) but loop effective lane count is 4 (128/32)
-   - **Constrained Varying[T,N] parser fix: COMPLETED** — `parseTypeInstance()` supports non-type arguments
-     - `go/src/go/parser/parser.go`: SPMD-gated fallback in bracket argument loop (tryIdentOrType + parseRhs)
-     - `go/src/go/parser/parser_spmd_test.go`: 6 new test cases (var decl, func param, return type, type alias, byte/int variants)
-     - Unblocks 3 E2E programs (type-casting-varying, varying-array-iteration, mandelbrot) past parse stage
+   - **Constrained Varying[T,N] parser fix: COMPLETED** — both type and expression contexts support non-type arguments
+     - `go/src/go/parser/parser.go`: SPMD-gated fallback in `parseTypeInstance()` (type contexts) and `parseIndexOrSliceOrInstance()` (expression contexts: conversions, type switch cases, composite literals)
+     - `go/src/go/parser/parser_spmd_test.go`: 9 new test cases (6 type-context + 3 expression-context: conversion, type switch case, conversion assign)
+     - Unblocks all constrained type programs past parse stage (type-casting-varying, type-switch-varying, varying-array-iteration, varying-universal-constrained, mandelbrot)
+   - **SPMD varying upcast restriction: COMPLETED** — rejects Varying[smallerType] to Varying[largerType] conversions
+     - `go/src/go/types/operand_ext_spmd.go` + `types2/operand_ext_spmd.go`: `spmdBasicSize()` helper, upcast checks in `convertibleToSPMD()` and `checkSPMDtoSPMDAssignability()`
+     - `go/src/go/types/conversions.go` + `types2/conversions.go`: SPMD-to-SPMD guard in `convertibleTo()` prevents standard Go numeric conversion fallthrough
+     - Downcasts (e.g., Varying[uint32] to Varying[uint16]) and same-size conversions (e.g., Varying[int32] to Varying[float32]) remain allowed
+     - `illegal_invalid-type-casting` now correctly rejected with 8 error sites
    - **Bug Fixes** (3 commits):
      - fix: shift bounds check for vector operands — vector-aware splat helpers in asserts.go + compiler.go
      - fix: non-SPMD varying return call signature — spmdMaskType() consistency at declaration/call/type
      - fix: varying if/else phi merge inside loop bodies — spmdFindMerge ifBlock barrier + multi-pred merge select + deferred select in else-exit block (L5b 800→404)
    - **Known E2E Failures** (16 compile fail, categorized):
-     - Constrained parser (4): type-casting-varying, type-switch-varying, varying-array-iteration, varying-universal-constrained (Varying[T,N] in some type contexts)
-     - SIGSEGV (3): array-counting (CreateExtractValue on vector), spmd-call-contexts (wrong arg count in closure), printf-verbs (nil pointer)
+     - Constrained type backend (2): type-casting-varying (indexing constrained varying), varying-array-iteration (array-to-constrained-Varying conversion)
+     - Constrained type checker (1): varying-universal-constrained (universal constraint `Varying[T,0]` interface boxing + capacity validation)
+     - SIGSEGV (3): array-counting (CreateExtractValue on vector), spmd-call-contexts (wrong arg count in closure), type-switch-varying (nil pointer in compiler)
      - LLVM verification (3): defer-varying (wrong arg count in closure), panic-recover-varying (masked load of struct type), non-spmd-varying-return (varying value passed to uniform param inside go for)
      - Compiler bugs (2): map-restrictions (masked load of `%runtime._string`), union-type-generics (generic SPMD function panic in typeparams)
      - Scalar-to-SPMD convert (1): bit-counting (scalar-to-SPMD convert received vector value in nested loop)
      - Design issues (2): pointer-varying (unsupported varying pointer patterns), base64-decoder (constrained types + Rotate/Swizzle)
      - Missing package (1): ipv4-parser (math/bits not in TinyGo std)
+     - Printf (1): printf-verbs (nil pointer)
    - **Phase 2.9-2.10: TinyGo Compiler Work (remaining)**:
      - TinyGo uses `golang.org/x/tools/go/ssa` (NOT Go's `cmd/compile/internal/ssa`)
      - LLVM auto-vectorizes: `CreateAdd(<4 x i32>, <4 x i32>)` → WASM `v128.add`
@@ -1103,7 +1110,7 @@ Go frontend implementation (Phase 1) is complete with 53 commits on the `spmd` b
      - Legacy backward-compat files intentionally preserved (use `varying`/`uniform` as identifiers)
      - `reduce.Uniform[T]` type alias skipped (Go 1.27dev rejects `type Uniform[T any] = T` with MisplacedTypeParam)
 
-Next priority: Fix varying if/else bitwise compare bug (L5b_odd_even), fix LLVM masked load of struct types (unblocks map-restrictions, panic-recover-varying), fix shift bounds check (bit-counting), fix SIGSEGV crashes, extend constrained Varying[T,N] parser to all type contexts
+Next priority: Fix SIGSEGV crashes (array-counting, spmd-call-contexts, type-switch-varying), fix LLVM masked load of struct types (unblocks map-restrictions, panic-recover-varying), fix closure arg count (defer-varying, spmd-call-contexts), fix array-to-constrained-Varying conversion (varying-array-iteration), then varying switch/for-loop masking
 
 ## Proof of Concept Success Criteria
 
