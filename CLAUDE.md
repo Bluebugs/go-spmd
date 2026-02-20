@@ -113,7 +113,7 @@ SPMD support is implemented as a **runtime experimental feature** behind `GOEXPE
 Before TinyGo can compile any SPMD code, the standard library toolchain must be ported:
 - `go/ast`: COMPLETED — `IsSpmd`, `LaneCount`, `Constraint` fields on `RangeStmt`
 - `go/parser`: COMPLETED — `go for` loop detection + `range[N]` constraint parsing
-- `go/types`: COMPLETED — 10 `*_ext_spmd.go` files ported from types2, 6 test files, hooks in stmt/expr/typexpr/check/decl/call/index
+- `go/types`: COMPLETED — 10 `*_ext_spmd.go` files ported from types2, 7 test files, hooks in stmt/expr/typexpr/check/decl/call/index
 - `go/ssa`: NO changes — `golang.org/x/tools/go/ssa` is an external module, not in our Go fork
   - SPMD metadata extracted from typed AST in TinyGo's loader instead (avoids forking x/tools)
 
@@ -949,7 +949,7 @@ Go frontend implementation (Phase 1) is complete with 53 commits on the `spmd` b
    - **Phase 2.0: Go Standard Library Porting** (prerequisite before TinyGo work):
      - `go/ast`: COMPLETED — `IsSpmd`, `LaneCount`, `Constraint` fields on `RangeStmt`
      - `go/parser`: COMPLETED — `go for` parsing + `range[N]` constraints + `Varying[T, N]` in type and expression contexts (20 tests)
-     - `go/types`: COMPLETED — 10 `*_ext_spmd.go` files ported from types2, 6 test files, 5 commits
+     - `go/types`: COMPLETED — 10 `*_ext_spmd.go` files ported from types2, 7 test files, 5 commits
      - `go/ssa`: No changes needed — SPMD metadata extracted from typed AST in TinyGo's compiler
    - **Phase 2.0d: COMPLETED** — SPMD metadata extraction in TinyGo compiler
      - `compiler/spmd.go`: SPMDInfo side-table with loop/function metadata extraction from typed AST

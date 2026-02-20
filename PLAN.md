@@ -2,7 +2,7 @@
 
 **Version**: 2.5
 **Last Updated**: 2026-02-20
-**Status**: Phase 1 Complete, Phase 2.0-2.9c complete, Bug fix round (3 bugs fixed: shift bounds, non-SPMD varying return, L5b phi merge), Mandelbrot RUNNING (0 differences, ~2.98x speedup), E2E: 16 run pass + 19 compile pass / 46 tests, syntax migration complete
+**Status**: Phase 1 Complete, Phase 2.0-2.9c complete, constrained parser fix (expression contexts), SPMD upcast restriction, Mandelbrot RUNNING (0 differences, ~2.98x speedup), E2E: 16 run pass + 19 compile pass / 46 tests, syntax migration complete
 
 ## Project Overview
 
@@ -508,7 +508,7 @@ All standard library porting for SPMD is complete. TinyGo compiler work (Phase 2
 - [x] Updated `go/build/deps_test.go` to allow `go/parser` to import `internal/buildcfg`
 - [x] Added 11 parser tests in `go/parser/parser_spmd_test.go`
 - [x] Extended `parseTypeInstance()` to support `Varying[T, N]` in standalone type expressions (var decls, func params, return types, type aliases)
-- [x] Added 6 constrained type tests (17 total) in `go/parser/parser_spmd_test.go`
+- [x] Added 6 constrained type tests + 3 expression-context tests (20 total) in `go/parser/parser_spmd_test.go`
 - Note: `looksLikeSPMDType()` not needed — `lanes.Varying[int32, 4]` now parses as `ast.IndexListExpr` via SPMD-gated fallback in `parseTypeInstance()`
 
 #### 2.0c Port go/types SPMD Type Checking ✅ COMPLETED
@@ -734,7 +734,7 @@ Ported 10 `*_ext_spmd.go` files from types2 to go/types with full API translatio
 - 16 RUN PASS: L0_store, L0_cond, L0_func, L1_reduce_add, L2_lanes_index, L3_varying_var, L4_range_slice, L4b_varying_break, L5a_simple_sum, L5b_odd_even, integ_simple-sum, integ_odd-even, integ_hex-encode, integ_debug-varying, integ_lanes-index-restrictions, integ_mandelbrot
 - 19 COMPILE PASS: integ_to-upper, integ_goroutine-varying, integ_select-with-varying-channels (compile-only); plus all 16 run-pass tests also compile
 - 11 REJECT OK: All illegal examples correctly rejected
-- 16 COMPILE FAIL: 4 constrained parser, 3 SIGSEGV, 3 LLVM verification, 2 compiler bugs, 1 scalar-to-SPMD convert, 2 design issues, 1 missing package
+- 16 COMPILE FAIL: 2 constrained type backend, 1 constrained type checker, 3 SIGSEGV, 3 LLVM verification, 2 compiler bugs, 1 scalar-to-SPMD convert, 2 design issues, 1 missing package, 1 printf
 
 ### 2.8c Constrained Varying Type Support ✅ COMPLETED
 
@@ -747,7 +747,7 @@ Ported 10 `*_ext_spmd.go` files from types2 to go/types with full API translatio
 - [x] Add array-to-SPMD path in `createConvert()` with bounds check
 - [x] 4 new tests + 1 enhanced test (constrained lane count, effective lane count, array-to-vector, constrained const, constrained mask type)
 
-**NOTE**: Parser fix for constrained `Varying[T, N]` in type expressions is DONE. `mandelbrot` now compiles AND runs correctly (0 differences). `type-casting-varying` and `varying-array-iteration` still fail at later compilation stages.
+**NOTE**: Parser fix for constrained `Varying[T, N]` in both type and expression contexts is DONE (20 tests). All 4 constrained programs now get past the parser — they fail at later compilation/type checking stages (indexing constrained varying, array-to-Varying conversion, SIGSEGV, interface boxing). `mandelbrot` compiles AND runs correctly (0 differences, ~2.98x speedup).
 
 ### 2.9a SPMD Function Body Mask Infrastructure ✅ COMPLETED
 
@@ -804,6 +804,23 @@ Ported 10 `*_ext_spmd.go` files from types2 to go/types with full API translatio
 - WAT verification: `v128.any_true` appears in inner loop, old `i64x2.extract_lane` pattern completely eliminated
 
 **Result**: ~2.91x → ~2.98x speedup (0 differences, 0 E2E regressions)
+
+### Constrained Varying[T,N] Expression-Context Parser Fix ✅ COMPLETED
+
+- [x] Fix `parseIndexOrSliceOrInstance()` in `go/parser/parser.go` for expression-context `Varying[T, N]`
+- [x] Add SPMD-gated `tryIdentOrType()` + `parseRhs()` fallback in `case token.COMMA:` branch (same pattern as `parseTypeInstance()`)
+- [x] 3 new expression-context test cases: type conversion, type switch case, conversion assign
+- [x] All 4 previously parser-blocked programs now get past parser (type-casting-varying, type-switch-varying, varying-array-iteration, varying-universal-constrained)
+
+### SPMD Varying Upcast Restriction ✅ COMPLETED
+
+- [x] Add `spmdBasicSize()` helper: returns byte size of numeric basic types (1/2/4/8 bytes, 0 for platform-dependent)
+- [x] Add upcast check in `convertibleToSPMD()`: rejects Varying[smallerType] → Varying[largerType]
+- [x] Add upcast check in `checkSPMDtoSPMDAssignability()`: rejects assignment upcasts
+- [x] Add SPMD-to-SPMD guard in `convertibleTo()`: prevents standard Go numeric conversion fallthrough (SPMDType.Underlying() unwraps to element type)
+- [x] Mirror all changes in both `go/types` and `types2` (4 files total)
+- [x] Downcasts (e.g., Varying[uint32] → Varying[uint16]) and same-size conversions (e.g., Varying[int32] → Varying[float32]) remain allowed
+- [x] `illegal_invalid-type-casting` now correctly rejected with 8 error sites
 
 ### 2.9d Scalar Fallback Mode
 
@@ -994,7 +1011,7 @@ Ported 10 `*_ext_spmd.go` files from types2 to go/types with full API translatio
   - Critical finding: `go/parser`, `go/ast`, `go/types` lack SPMD support (must be ported first)
   - Phase 2 plan rewritten: 2.0 (stdlib porting) + 2.1-2.10 (TinyGo compiler work)
   - 2.0a: ✅ go/ast SPMD fields (IsSpmd, LaneCount on RangeStmt)
-  - 2.0b: ✅ go/parser `go for` parsing + `range[N]` constraints + `Constraint` field + `Varying[T, N]` type expressions (17 tests)
+  - 2.0b: ✅ go/parser `go for` parsing + `range[N]` constraints + `Constraint` field + `Varying[T, N]` type and expression contexts (20 tests)
   - 2.0c: ✅ go/types SPMD type checking (10 ext_spmd files, 6 test files, 5 commits)
   - 2.0d: ✅ SPMD metadata extraction in TinyGo compiler (spmd.go + spmd_test.go, 13 tests)
   - 2.1: ✅ GOEXPERIMENT support + auto-SIMD128 for WASM (6 files, 12 tests)
@@ -1029,10 +1046,12 @@ Ported 10 `*_ext_spmd.go` files from types2 to go/types with full API translatio
   - Fix: ✅ Non-SPMD varying return call signature — spmdMaskType() consistency across declaration/call/type
   - Fix: ✅ L5b varying if/else phi merge inside loop bodies — spmdFindMerge ifBlock barrier + multi-pred merge select + deferred select in else-exit block (L5b 800→404)
   - E2E: ✅ 5 integration tests promoted to run-pass (simple-sum, odd-even, hex-encode, debug-varying, lanes-index-restrictions) — 16 run pass total
+  - Fix: ✅ Constrained Varying[T,N] expression-context parser — parseIndexOrSliceOrInstance() SPMD-gated fallback, 3 new tests (20 total)
+  - Fix: ✅ SPMD varying upcast restriction — spmdBasicSize() + convertibleToSPMD/checkSPMDtoSPMDAssignability upcast checks + convertibleTo SPMD guard (4 files in go/types + types2)
 - **Phase 3**: ❌ Not Started
 
-**Last Completed**: Bug fix round + test promotions — 3 compiler bugs fixed (shift bounds, non-SPMD varying return, L5b phi merge), 5 integration tests promoted to run-pass (simple-sum, odd-even, hex-encode, debug-varying, lanes-index-restrictions). E2E: 16 run pass, 19 compile pass / 46 tests. (2026-02-20)
-**Next Action**: Fix remaining 16 compile failures — SIGSEGV (array-counting, printf-verbs, spmd-call-contexts), LLVM struct masked load (map-restrictions, panic-recover-varying), constrained Varying[T,N] parser contexts (4 tests), closure arg count (defer-varying, spmd-call-contexts), then varying switch/for-loop masking
+**Last Completed**: Constrained parser expression-context fix + SPMD upcast restriction — parseIndexOrSliceOrInstance() SPMD-gated fallback (3 new tests, 20 total), spmdBasicSize() upcast checks in convertibleToSPMD/checkSPMDtoSPMDAssignability + convertibleTo SPMD guard. All 4 constrained programs past parser, illegal_invalid-type-casting correctly rejected. E2E: 16 run pass, 19 compile pass / 46 tests. (2026-02-20)
+**Next Action**: Fix remaining 16 compile failures — SIGSEGV (array-counting, type-switch-varying, spmd-call-contexts), LLVM struct masked load (map-restrictions, panic-recover-varying), closure arg count (defer-varying, spmd-call-contexts), constrained type backend (type-casting-varying indexing, varying-array-iteration conversion), then varying switch/for-loop masking
 
 ### Recent Major Achievements (Phase 1.5 Extensions)
 
