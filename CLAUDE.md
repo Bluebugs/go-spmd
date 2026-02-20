@@ -104,7 +104,7 @@ SPMD support is implemented as a **runtime experimental feature** behind `GOEXPE
 - lanes/reduce builtin interception maps 16 functions to SPMD opcodes
 - Function call mask insertion via OpSPMDCallSetMask/OpSPMDFuncEntryMask
 
-### Phase 3: TinyGo LLVM Backend (NOT STARTED - Phase 2 in PLAN.md)
+### Phase 3: TinyGo LLVM Backend (IN PROGRESS - Phase 2 in PLAN.md)
 
 **Critical Architecture Note**: TinyGo uses `go/parser` + `go/types` + `golang.org/x/tools/go/ssa` (standard library), NOT the compiler-internal packages. The 42 SPMD opcodes from Phase 1.10c are invisible to TinyGo.
 
@@ -129,6 +129,10 @@ Before TinyGo can compile any SPMD code, the standard library toolchain must be 
 - Intercept lanes/reduce function calls and lower to LLVM vector intrinsics — DONE (Phase 2.7)
 - Patched `x/tools` (`x-tools-spmd/`) so `typeutil.Map` can hash `*types.SPMDType` — DONE (SPMDType cases in hash/shallowHash, prime 9181, `go.mod` replace directive)
 - Constrained `Varying[T, N]` → `<N x T>` vector types with `spmdEffectiveLaneCount()` — DONE (Phase 2.8c)
+- SPMD function body mask infrastructure: `spmdFuncIsBody` flag, mask stack from entry mask — DONE (Phase 2.9a)
+- Per-lane break mask support: break mask alloca, break redirects, active mask computation — DONE (Phase 2.9b)
+- Vector IndexAddr + break result tracking: vector of GEPs, per-lane bounds check, break result allocas — DONE (Phase 2.9c)
+- **Mandelbrot running**: 0 differences vs serial, ~1.2x SPMD speedup
 - Key files: `compiler/compiler.go` (getLLVMType, createBinOp, createExpr, createFunction, createConvert, *ssa.If/*ssa.Jump/*ssa.Phi), `compiler/spmd.go`, `compiler/symbol.go`, `compiler/func.go`, `compiler/interface.go`
 
 ## SSA Generation Strategy (Following ISPC's Approach)
@@ -1004,11 +1008,21 @@ Go frontend implementation (Phase 1) is complete with 53 commits on the `spmd` b
      - `compiler/interface.go`: `getTypeCode()` uses `spmdEffectiveLaneCount()` for interface boxing
      - `compiler/spmd_llvm_test.go`: 5 new tests (constrained lane count, effective lane count, array-to-vector, constrained const, constrained mask type)
      - Key insight: Backend support is complete but 3 E2E programs using constrained types fail at go/parser level (`expected type, found 2`) because multi-arg index expressions in standalone type contexts aren't supported. Backend works correctly for constrained types that reach it.
+   - **Phase 2.9a: COMPLETED** — SPMD function body mask infrastructure
+     - `compiler/spmd.go`: `spmdFuncIsBody` flag, extended `isBlockInSPMDBody()` for function bodies
+     - `compiler/compiler.go`: Detect SPMD function bodies in `createFunction()`, initialize mask stack from entry mask, extend `*ssa.If` linearization check
+   - **Phase 2.9b: COMPLETED** — Per-lane break mask support
+     - `compiler/spmd.go`: `spmdForLoopInfo`/`spmdBreakRedirect` types, `detectSPMDForLoops()` for regular for-range in SPMD bodies, `spmdIsVaryingBreak()` detection
+     - `compiler/compiler.go`: Break mask alloca init, break redirect in `*ssa.Jump`, active mask computation (entryMask & ~breakMask) after rangeint.iter phi
+   - **Phase 2.9c: COMPLETED** — Vector IndexAddr + break result tracking + mandelbrot
+     - `compiler/spmd.go`: `spmdBreakResult` type, merged body+loop detection, break result alloca population from done-block phis
+     - `compiler/compiler.go`: Vector IndexAddr (vector of GEPs + per-lane bounds check), break result accumulation (`select(mask, breakVal, oldResult)`), break result phi compilation (`select(breakMask, breakResult, phi)`), break edge skip in phi resolution
+     - Mandelbrot: Removed reduce.Any guard, rewrote demonstrateVaryingParameters with reduce.From
    - **E2E Infrastructure: COMPLETED** — GOEXPERIMENT passthrough fix + go/ssa SPMDType support + Node.js test runner
      - `tinygo/loader/list.go`: Fixed GOEXPERIMENT stripping that prevented `lanes.go`/`reduce.go` from being visible to `go list`
      - `x-tools-spmd/go/ssa/subst.go`: Added `*types.SPMDType` cases to `subster.typ()` and `reaches()` for generic instantiation
      - `test/e2e/run-wasm.mjs`: Node.js WASI WASM runner with asyncify stubs for TinyGo
-     - `test/e2e/spmd-e2e-test.sh`: Progressive 7-level E2E test script (43 tests)
+     - `test/e2e/spmd-e2e-test.sh`: Progressive 7-level E2E test script (44 tests)
    - **Range-over-slice type fix: COMPLETED** — Fixed `NewVarying(expr.typ())` → `NewVarying(rVal)` using `rangeKeyVal()`
      - `go/src/go/types/stmt_ext_spmd.go`: Call `rangeKeyVal()` for proper element type extraction, use `Typ[Int]` for key
      - `go/src/cmd/compile/internal/types2/stmt_ext_spmd.go`: Identical fix for types2
@@ -1016,11 +1030,10 @@ Go frontend implementation (Phase 1) is complete with 53 commits on the `spmd` b
    - **createConvert SPMDType fix: COMPLETED** — Defensive handling in TinyGo `createConvert()`
      - `tinygo/compiler/compiler.go`: Intercept `*types.SPMDType` before `Underlying()` assertions
      - Four branches: SPMD-to-SPMD (recurse with elem), SPMD-to-scalar (recurse with elem), array-to-SPMD (arrayToVector), scalar-to-SPMD (convert + splat)
-   - **E2E Test Results** (7 run pass, 14 compile pass, 43 total):
-     - L0_store (array stores), L0_cond (varying if/else), L0_func (SPMD function calls with mask)
-     - L1_reduce_add (reduce.Add builtin), L2_lanes_index (lanes.Index builtin), L3_varying_var (varying accumulator + reduce)
-     - L4_range_slice (range-over-slice with element access)
-     - 14 additional programs compile successfully (integ_simple-sum, integ_odd-even, integ_hex-encode, integ_to-upper, integ_debug-varying, integ_goroutine-varying, integ_lanes-index-restrictions, etc.)
+   - **E2E Test Results** (9 run pass, 16 compile pass, 44 total):
+     - L0_store, L0_cond, L0_func, L1_reduce_add, L2_lanes_index, L3_varying_var, L4_range_slice
+     - L4b_varying_break (SPMD function body with per-lane break), integ_mandelbrot (0 differences, ~1.2x speedup)
+     - 16 additional programs compile successfully
    - **Test program fixes: COMPLETED** — Fixed 7 buggy example programs across 5 commits
      - hex-encode: removed phantom `lanes.Encode` call (now compiles)
      - bit-counting: fixed `reduce.Add(count)` return type (uint8 vs int)
@@ -1050,11 +1063,11 @@ Go frontend implementation (Phase 1) is complete with 53 commits on the `spmd` b
      - `go/src/go/parser/parser.go`: SPMD-gated fallback in bracket argument loop (tryIdentOrType + parseRhs)
      - `go/src/go/parser/parser_spmd_test.go`: 6 new test cases (var decl, func param, return type, type alias, byte/int variants)
      - Unblocks 3 E2E programs (type-casting-varying, varying-array-iteration, mandelbrot) past parse stage
-   - **Known E2E Failures** (18 compile fail, categorized):
+   - **Known E2E Failures** (17 compile fail, categorized):
      - Shift bounds check vector mismatch: bit-counting (scalar bounds check on broadcast shift amount)
      - SIGSEGV: array-counting (CreateExtractValue on vector), spmd-call-contexts, printf-verbs (nil pointer)
      - LLVM verification: defer-varying (wrong arg count), panic-recover-varying (invalid intrinsic use), non-spmd-varying-return (call param type mismatch)
-     - Frontend/type errors: mandelbrot, map-restrictions, select-with-varying-channels, pointer-varying, type-switch-varying, base64-decoder, type-casting-varying, varying-array-iteration, union-type-generics, varying-universal-constrained
+     - Frontend/type errors: map-restrictions, select-with-varying-channels, pointer-varying, type-switch-varying, base64-decoder, type-casting-varying, varying-array-iteration, union-type-generics, varying-universal-constrained
      - Missing package: ipv4-parser (bits package not in TinyGo std)
    - **Phase 2.9-2.10: TinyGo Compiler Work (remaining)**:
      - TinyGo uses `golang.org/x/tools/go/ssa` (NOT Go's `cmd/compile/internal/ssa`)
@@ -1068,7 +1081,7 @@ Go frontend implementation (Phase 1) is complete with 53 commits on the `spmd` b
      - Legacy backward-compat files intentionally preserved (use `varying`/`uniform` as identifiers)
      - `reduce.Uniform[T]` type alias skipped (Go 1.27dev rejects `type Uniform[T any] = T` with MisplacedTypeParam)
 
-Next priority: Fix shift bounds check vector support (unblocks bit-counting), fix SIGSEGV in array-counting/spmd-call-contexts, then varying switch/for-loop masking
+Next priority: Fix shift bounds check vector support (unblocks bit-counting), fix SIGSEGV in array-counting/spmd-call-contexts/printf-verbs, then varying switch/for-loop masking, scalar fallback mode
 
 ## Proof of Concept Success Criteria
 

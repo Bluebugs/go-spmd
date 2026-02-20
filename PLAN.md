@@ -2,7 +2,7 @@
 
 **Version**: 2.3
 **Last Updated**: 2026-02-19
-**Status**: Phase 1 Complete, Phase 2.0-2.8c complete, E2E infrastructure working (7 run pass + 14 compile pass / 43 tests), syntax migration complete, 7 example program bugs fixed, E2E suite expanded (32 → 43 tests), 3 compiler bug fixes (getPointerBitmap vector types, makeLLVMType untyped int, nested loop deduplication in analyzeSPMDLoops)
+**Status**: Phase 1 Complete, Phase 2.0-2.9c complete, Mandelbrot RUNNING (0 differences, ~1.2x speedup), E2E: 9 run pass + 16 compile pass / 44 tests, syntax migration complete
 
 ## Project Overview
 
@@ -730,12 +730,11 @@ Ported 10 `*_ext_spmd.go` files from types2 to go/types with full API translatio
 - [x] Validate 6 core programs compile + run correctly (stores, conditionals, functions, reduce, lanes, varying vars)
 - [x] Validate all 11 illegal examples correctly rejected by type checker
 
-**E2E Test Results (32 tests)**:
-- 7 RUN PASS: L0_store (12), L0_cond (4), L0_func (12), L1_reduce_add (360), L2_lanes_index (6), L3_varying_var (28), L4_range_slice (expected)
-- 12 COMPILE PASS: integ_simple-sum, integ_odd-even, integ_hex-encode, integ_to-upper, integ_debug-varying, and others
+**E2E Test Results (44 tests)**:
+- 9 RUN PASS: L0_store, L0_cond, L0_func, L1_reduce_add, L2_lanes_index, L3_varying_var, L4_range_slice, L4b_varying_break, integ_mandelbrot
+- 16 COMPILE PASS: integ_simple-sum, integ_odd-even, integ_hex-encode, integ_to-upper, integ_debug-varying, integ_goroutine-varying, integ_lanes-index-restrictions, and others
 - 11 REJECT OK: All illegal examples correctly rejected
-- 6 COMPILE FAIL (was 9 — 3 fixed by Varying[T,N] parser fix): compiler bugs (2: SIGSEGV on nested varying slices, SIGSEGV spmd-call-contexts), other issues (4: bit-counting untyped int, pointer-varying complex patterns, type-switch-varying constrained parsing, non-spmd-varying-return call param mismatch)
-- NOTE: type-casting-varying, varying-array-iteration, mandelbrot now advance past parsing (may still fail at later stages — needs E2E re-test)
+- 17 COMPILE FAIL: bit-counting (shift bounds), array-counting/spmd-call-contexts (SIGSEGV), defer-varying/panic-recover-varying/non-spmd-varying-return (LLVM verification), and others (frontend/type errors)
 
 ### 2.8c Constrained Varying Type Support ✅ COMPLETED
 
@@ -748,9 +747,42 @@ Ported 10 `*_ext_spmd.go` files from types2 to go/types with full API translatio
 - [x] Add array-to-SPMD path in `createConvert()` with bounds check
 - [x] 4 new tests + 1 enhanced test (constrained lane count, effective lane count, array-to-vector, constrained const, constrained mask type)
 
-**NOTE**: Parser fix for constrained `Varying[T, N]` in type expressions is DONE. The 3 programs (`type-casting-varying`, `varying-array-iteration`, `mandelbrot`) now advance past parsing. Backend support was already complete. E2E re-test needed to check if they compile/run successfully.
+**NOTE**: Parser fix for constrained `Varying[T, N]` in type expressions is DONE. `mandelbrot` now compiles AND runs correctly (0 differences). `type-casting-varying` and `varying-array-iteration` still fail at later compilation stages.
 
-### 2.9 Scalar Fallback Mode
+### 2.9a SPMD Function Body Mask Infrastructure ✅ COMPLETED
+
+- [x] Add `spmdFuncIsBody` flag: detect SPMD functions (varying params, no go-for loops)
+- [x] Initialize mask stack from entry mask for SPMD function bodies
+- [x] Extend `isBlockInSPMDBody()` to return true for ALL blocks when `spmdFuncIsBody` is set
+- [x] Enable varying if/else linearization (Phase 2.5) in SPMD function bodies
+- [x] Extend `*ssa.If` linearization check to use `spmdFuncIsBody` alongside `spmdLoopState`
+
+### 2.9b Per-Lane Break Mask Support ✅ COMPLETED
+
+- [x] Add `spmdForLoopInfo` type: tracks regular for-range loops in SPMD function bodies
+- [x] Add `spmdBreakRedirect` type: tracks varying if → break redirections
+- [x] Create break mask alloca at function entry (persists across loop iterations)
+- [x] Detect varying if where one successor is a loop exit (`spmdIsVaryingBreak`)
+- [x] Implement break redirect: accumulate `breakMask |= (activeMask & condition)`, redirect jump
+- [x] Compute active mask at loop body entry: `entryMask & ~breakMask`
+- [x] Deferred mask computation: emit after rangeint.iter phi to respect LLVM phi grouping
+
+### 2.9c Vector IndexAddr + Break Result Tracking ✅ COMPLETED
+
+- [x] Vector IndexAddr: when index is a vector, generate vector of GEPs for scatter/gather
+- [x] Per-lane bounds checking: extract each lane, check against length, OR all OOB flags
+- [x] Support both array (Pointer→Array) and slice types for vector indexing
+- [x] Merged body+loop detection in `detectSPMDForLoops()` (fallback when no `rangeint.loop` block)
+- [x] `spmdBreakResult` type: track phis at rangeint.done receiving break values via allocas
+- [x] Break result accumulation: `select(mask, breakVal, oldResult)` at break redirect
+- [x] Break result phi compilation: `select(breakMask, breakResult, phi)` at rangeint.done
+- [x] Skip break edges during phi resolution (redirected in LLVM CFG)
+- [x] Fix mandelbrot: remove reduce.Any guard, rewrite demonstrateVaryingParameters with reduce.From
+- [x] Add L4b_varying_break E2E test, promote mandelbrot to compile+run
+
+**Mandelbrot Results**: 256x256, 256 iterations — 0 differences vs serial, ~1.2x SPMD speedup
+
+### 2.9d Scalar Fallback Mode
 
 - [ ] When `-simd=false`, map `lanes.Varying[T]` to scalar loops instead of vectors
 - [ ] Generate element-wise scalar loops for varying operations
