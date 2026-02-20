@@ -1030,7 +1030,7 @@ Go frontend implementation (Phase 1) is complete with 53 commits on the `spmd` b
    - **createConvert SPMDType fix: COMPLETED** — Defensive handling in TinyGo `createConvert()`
      - `tinygo/compiler/compiler.go`: Intercept `*types.SPMDType` before `Underlying()` assertions
      - Four branches: SPMD-to-SPMD (recurse with elem), SPMD-to-scalar (recurse with elem), array-to-SPMD (arrayToVector), scalar-to-SPMD (convert + splat)
-   - **E2E Test Results** (11 run pass, 19 compile pass, 46 total):
+   - **E2E Test Results** (16 run pass, 19 compile pass, 46 total):
      - L0_store, L0_cond, L0_func, L1_reduce_add, L2_lanes_index, L3_varying_var, L4_range_slice
      - L4b_varying_break (SPMD function body with per-lane break), integ_mandelbrot (0 differences, ~2.98x speedup)
      - L5a_simple_sum (range-over-slice + reduce.Add), L5b_odd_even (varying if/else + reduce — runs but has known bitwise compare bug)
