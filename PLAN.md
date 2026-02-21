@@ -1064,6 +1064,95 @@ Ported 10 `*_ext_spmd.go` files from types2 to go/types with full API translatio
   - E2E: ✅ L5e FromConstrained test (validates value decomposition, 17 run pass / 47 tests)
 - **Phase 3**: ❌ Not Started
 
+## Deferred Items Collection
+
+### Phase 1 Deferred Subtask (NOT DONE)
+
+**Purpose**: Track all Phase 1 implementation work that has been explicitly deferred to later phases.
+
+**Deferred Items**:
+
+- [ ] **Known Limitation**: Break in varying switch inside go for loop wrongly accumulates into loop continue mask
+  - Location: Phase 1.10i (switch masking)
+  - Impact: Incorrect execution mask for break statements in switch with varying case conditions
+  - Status: Acknowledged but not yet fixed
+  - Priority: Medium (edge case, workaround available)
+  - Related Issues: See PLAN.md Phase 2.5-2.6 for control flow masking details
+
+### Phase 2 Deferred Subtask (NOT DONE)
+
+**Purpose**: Track all Phase 2 (TinyGo Backend) implementation work that has been explicitly deferred to later phases or blocked by technical limitations.
+
+**Deferred Items**:
+
+- [ ] **Phase 2.2: Scalar Fallback Mode**
+  - Task: Handle scalar fallback mode - map `lanes.Varying[T]` to array types or scalar loops
+  - Location: Phase 2.2 (LLVM vector type generation)
+  - Status: Deferred - requires dual code generation strategy
+  - Depends On: Phase 2.3-2.8 completion (core SIMD path)
+  - Rationale: Establish SIMD path first, then add scalar fallback for non-SIMD runtimes
+  - Implementation: Conditional code generation based on `-simd` flag
+  - Priority: Medium (Phase 3 milestone)
+
+- [ ] **Phase 2.5: Varying Switch Masking**
+  - Task: Implement varying switch masking (CFG linearization for switch statements)
+  - Location: Phase 2.5 (Control flow masking)
+  - Status: Deferred - requires complex CFG manipulation similar to if/else
+  - Partially Done: Single case varying switch works via Phase 2.5 if/else infrastructure
+  - Blocked By: Need N-way merge for multiple cases
+  - Implementation Strategy: Linearize all cases, compute per-case masks, select final result
+  - Priority: Medium (affects switch-based algorithms)
+  - Related: Phase 2.5 if/else linearization pattern can be reused
+
+- [ ] **Phase 2.5: Varying For-Loop Masking (Continue/Break Accumulation)**
+  - Task: Implement varying for-loop masking - continue/break mask accumulation in regular for loops inside SPMD contexts
+  - Location: Phase 2.5 (Control flow masking)
+  - Status: Deferred - partially implemented in Phase 1.10g for SSA, needs TinyGo backend integration
+  - Partially Done: Phase 1.10g implements mask tracking in SSA generation
+  - Depends On: Phase 2.8 (mask stack infrastructure)
+  - Implementation: Continue mask (reset per iteration), break mask (accumulates), active mask = entryMask & ~breakMask
+  - Priority: High (core feature for complex loop patterns)
+  - Related: See Phase 2.9b for break mask implementation (can be reused)
+
+- [ ] **Phase 2.7b: lanes.Rotate() Builtin**
+  - Task: Intercept `lanes.Rotate[T]()` → `CreateShuffleVector` with rotated indices
+  - Location: Phase 2.7 (lanes/reduce builtin interception)
+  - Status: Deferred - requires shuffle vector generation with computed rotation offset
+  - Dependency: Need lane count at compile time (available via `lanes.Count[T]()`)
+  - Implementation: Generate shuffle indices `[(i+offset) % laneCount for i in range(laneCount)]`
+  - Priority: Low (cross-lane optimization, workaround with explicit shuffles available)
+  - Related: `lanes.Swizzle` uses same `CreateShuffleVector` mechanism
+
+- [ ] **Phase 2.7b: lanes.Swizzle() Builtin**
+  - Task: Intercept `lanes.Swizzle[T]()` → `CreateShuffleVector` with arbitrary indices
+  - Location: Phase 2.7 (lanes/reduce builtin interception)
+  - Status: Deferred - requires compile-time index validation
+  - Dependency: Indices must be constant (verified at type check time)
+  - Implementation: Extract index constants, validate range, generate `CreateShuffleVector`
+  - Priority: Low (cross-lane optimization, workaround with explicit loads available)
+  - Related: `lanes.Rotate` uses same `CreateShuffleVector` mechanism
+
+- [ ] **Phase 2.8d: WASM `<N x i1>` Memory Limitation Resolution**
+  - Task: Resolve `[]Varying[bool]` mask slices from `FromConstrained`
+  - Location: Phase 2.7c (FromConstrained/ToConstrained) - documented in `docs/fromconstrained_mask_issue.md`
+  - Status: BLOCKED - WASM cannot load/store `<N x i1>` vectors (no addressing support)
+  - Current Workaround: `FromConstrained` value decomposition works; mask decomposition fails
+  - Impact: Cannot return mask slices from `FromConstrained`
+  - Possible Solutions:
+    - Convert `<N x i1>` to `<N x i32>` for storage (bit-width overhead)
+    - Store masks as separate memory regions (manual reconstruction overhead)
+    - Restrict mask slices to scalar operations (API limitation)
+  - Priority: High (blocks complete FromConstrained API)
+  - Related: See `docs/fromconstrained_mask_issue.md` for full technical analysis
+
+### Phase 3 Deferred Subtask (NOT STARTED)
+
+**Purpose**: Track all Phase 3 (Validation) implementation work deferred for future phases.
+
+**Deferred Items**: None yet identified (Phase 3 not started)
+
+---
+
 **Last Completed**: FromConstrained/ToConstrained implementation — type system relaxation (constrained→unconstrained), LLVM lowering for value decomposition into platform-sized groups, constraintN type erasure fix. Mask slices (`[]Varying[bool]`) blocked by WASM `<N x i1>` memory limitation (documented in `docs/fromconstrained_mask_issue.md`). E2E: 17 run pass, 4 compile-only pass / 47 tests (+1 run pass). (2026-02-20)
 **Next Action**: Fix remaining 15 compile failures — SIGSEGV (array-counting, type-switch-varying, spmd-call-contexts, varying-universal-constrained), LLVM struct masked load (map-restrictions, panic-recover-varying), closure arg count (defer-varying, spmd-call-contexts), constrained type backend (varying-array-iteration conversion), then varying switch/for-loop masking. Resolve `[]Varying[bool]` mask issue for FromConstrained (see docs/fromconstrained_mask_issue.md).
 

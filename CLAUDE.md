@@ -861,6 +861,36 @@ All implementation work MUST follow this 3-step pipeline using Claude Code agent
 
 Never skip steps. Never commit without review approval. This ensures code quality and catches issues before they enter the commit history.
 
+### Deferred Items Management (MANDATORY)
+
+All implementation work that is explicitly postponed for future phases MUST be tracked in the centralized deferred items collection:
+
+**IMPORTANT**: Any work identified during implementation that needs to be deferred must be:
+1. **Documented**: Add entry to the appropriate Phase Deferred Subtask in PLAN.md (Phase 1, Phase 2, or Phase 3)
+2. **Categorized**: Include task description, location, status, dependencies, and priority
+3. **Rationalized**: Explain WHY it was deferred (blocked on other work, requires extensive refactoring, intentional design decision, etc.)
+4. **Tracked**: Update the corresponding Deferred Subtask status in PLAN.md
+
+**Deferred Item Structure** (see PLAN.md "Deferred Items Collection" section for full format):
+- **Task**: What needs to be done
+- **Location**: Which phase/component/file
+- **Status**: Why deferred (Deferred, Blocked, Partially Done, etc.)
+- **Depends On**: Prerequisites that must be completed first
+- **Implementation**: High-level approach when it's resumed
+- **Priority**: High/Medium/Low
+- **Related**: Cross-references to related work
+
+**Examples**:
+- ✅ **lanes.Rotate() builtin** → Deferred to Phase 2.7b (requires shuffle vector generation pattern)
+- ✅ **WASM `<N x i1>` mask storage** → Blocked by WASM platform limitation (documented in docs/fromconstrained_mask_issue.md)
+- ✅ **Varying switch masking** → Deferred to Phase 2.5 (requires N-way merge similar to if/else linearization)
+
+**Anti-Pattern**: Do NOT mark items as "deferred" without documenting them in the collection:
+- ❌ Leaving code marked `// TODO` or `// FIXME` without PLAN.md entry
+- ❌ Mentioning deferral in commit messages without updating PLAN.md
+- ❌ Planning deferred work verbally — must be in PLAN.md for tracking
+- ❌ Losing track of deferred items as they're scattered across files
+
 ### Git Commit Guidelines
 
 **All commits across the SPMD project must follow these strict rules:**
