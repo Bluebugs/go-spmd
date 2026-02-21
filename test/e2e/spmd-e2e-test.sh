@@ -391,6 +391,37 @@ test_compile_and_run "integ_debug-varying" "$INTEG/debug-varying/main.go" ""    
 test_compile_and_run "integ_lanes-index-restrictions" "$INTEG/lanes-index-restrictions/main.go" "" "" "-scheduler=none"
 test_compile_and_run "integ_mandelbrot"    "$INTEG/mandelbrot/main.go"    ""                    "" "-scheduler=none"
 
+# ========== LEVEL 5e: FromConstrained test ==========
+printf "\n${BLUE}--- Level 5e: FromConstrained constrained decomposition ---${NC}\n"
+
+cat > "$OUTDIR/L5e_from_constrained.go" << 'EOF'
+package main
+
+import (
+    "lanes"
+    "reduce"
+)
+
+//go:export testFromConstrained
+func testFromConstrained() int32 {
+    // Create Varying[int32, 8] = [10, 20, 30, 40, 50, 60, 70, 80]
+    data := lanes.Varying[int32, 8]([8]int32{10, 20, 30, 40, 50, 60, 70, 80})
+
+    // Decompose into 2 groups of 4 (WASM128 has 4 int32 lanes)
+    values, masks := lanes.FromConstrained(data)
+
+    // Sum all groups: 10+20+30+40 + 50+60+70+80 = 360
+    // Masks omitted: []Varying[bool] slice memory ops blocked by
+    // WASM <N x i1> limitation (see fromconstrained_issues.md).
+    _ = masks
+    return int32(reduce.Add(values[0])) + int32(reduce.Add(values[1]))
+}
+
+func main() {}
+EOF
+
+test_compile_and_run "L5e_from_constrained" "$OUTDIR/L5e_from_constrained.go" "360" "testFromConstrained" "-scheduler=none"
+
 # ========== LEVEL 6: SPMD functions with mask ==========
 printf "\n${BLUE}--- Level 6: Complex patterns (compile only) ---${NC}\n"
 
