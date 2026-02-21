@@ -1,8 +1,8 @@
 # SPMD Implementation Plan for Go + TinyGo
 
-**Version**: 2.5
+**Version**: 2.6
 **Last Updated**: 2026-02-20
-**Status**: Phase 1 Complete, Phase 2.0-2.9c complete, constrained type checker fixes (array-to-Varying, varying index error, type switch on Varying[T,0]), Mandelbrot RUNNING (0 differences, ~2.98x speedup), E2E: 16 run pass + 20 compile pass / 46 tests, syntax migration complete
+**Status**: Phase 1 Complete, Phase 2.0-2.9c complete, FromConstrained/ToConstrained implemented (value decomposition works, masks blocked by WASM <N x i1> limitation), Mandelbrot RUNNING (0 differences, ~2.98x speedup), E2E: 17 run pass + 20 compile pass / 47 tests, syntax migration complete
 
 ## Project Overview
 
@@ -694,8 +694,12 @@ Ported 10 `*_ext_spmd.go` files from types2 to go/types with full API translatio
 - [x] Intercept `reduce.Mask()` → bitcast `<N x i1>` to `iN`, zext to int
 - [x] New helpers: `spmdVectorTypeSuffix()`, `spmdCallVectorReduce()`, `spmdCallVectorReduceFloat()`, `spmdIsSignedInt()`, `spmdIsFloat()`
 - [x] Tests: 9 new tests/32 cases (vector type suffix, vector reduce, float reduce, reduce all, reduce count, lanes index, lanes broadcast, is-signed-int, is-float)
+- [x] Intercept `lanes.FromConstrained()` → decompose `<N x T>` into `ceil(N/P)` groups of `<P x T>` + masks (Phase 2.7c)
+- [x] Intercept `lanes.ToConstrained()` → reconstruct `<N x T>` from groups via insert/shuffle (Phase 2.7c)
 - [ ] Intercept `lanes.Rotate()` → `CreateShuffleVector` with rotated indices (deferred to Phase 2.7b)
 - [ ] Intercept `lanes.Swizzle()` → `CreateShuffleVector` with arbitrary indices (deferred to Phase 2.7b)
+
+**Known Limitation**: `[]Varying[bool]` mask slices from `FromConstrained` cannot be used on WASM due to `<N x i1>` memory limitation. Value decomposition works. See `docs/fromconstrained_mask_issue.md`.
 
 ### 2.8 Memory Operations ✅ COMPLETED
 
@@ -1010,7 +1014,7 @@ Ported 10 `*_ext_spmd.go` files from types2 to go/types with full API translatio
     - 1.10j: ✅ lanes/reduce builtin call interception (16 functions -> SPMD opcodes, 7 deferred)
     - 1.10k: ❌ Remaining SSA integration (constrained varying)
     - 1.10L: ✅ Fix pre-existing all.bash failures (6 test suites)
-- **Phase 2**: 🚧 In Progress (stdlib porting complete, TinyGo compiler through Phase 2.7)
+- **Phase 2**: 🚧 In Progress (stdlib porting complete, TinyGo compiler through Phase 2.9c + FromConstrained/ToConstrained)
   - TinyGo architecture explored and documented
   - Critical finding: TinyGo uses `golang.org/x/tools/go/ssa` (not `cmd/compile` SSA)
   - Critical finding: `go/parser`, `go/ast`, `go/types` lack SPMD support (must be ported first)
@@ -1054,10 +1058,14 @@ Ported 10 `*_ext_spmd.go` files from types2 to go/types with full API translatio
   - Fix: ✅ Constrained Varying[T,N] expression-context parser — parseIndexOrSliceOrInstance() SPMD-gated fallback, 3 new tests (20 total)
   - Fix: ✅ SPMD varying upcast restriction — spmdBasicSize() + convertibleToSPMD/checkSPMDtoSPMDAssignability upcast checks + convertibleTo SPMD guard (4 files in go/types + types2)
   - Fix: ✅ Constrained type checker fixes — array-to-Varying conversion, varying index clear error, type switch on Varying[T,0] (3 commits in go/types + types2, 3 new test files each = 6 total, type-casting-varying promoted to compile pass)
+  - Type: ✅ Constrained-to-unconstrained type relaxation — unifier + operand allow Varying[T,N] → Varying[T] flow (2 files go/types + 2 types2, 1 test file each)
+  - 2.7c: ✅ FromConstrained/ToConstrained LLVM lowering — createFromConstrained + createToConstrained (value decomposition works, masks blocked by WASM <N x i1>)
+  - Fix: ✅ constraintN type erasure — derive from max(spmdEffectiveLaneCount, LLVM vector width) after type relaxation
+  - E2E: ✅ L5e FromConstrained test (validates value decomposition, 17 run pass / 47 tests)
 - **Phase 3**: ❌ Not Started
 
-**Last Completed**: Constrained type checker fixes (3 commits + 1 test program fix) — [N]T → Varying[T,N] conversion in convertibleToSPMD(), clear "varying types are not indexable" error in indexExpr(), type switch on Varying[T,0] via isSPMDUniversalConstrained()+assertableTo(). Fixed type-casting-varying (replace Varying indexing with lanes.From) and varying-universal-constrained (int→int32 for SIMD limits). E2E: 16 run pass, 20 compile pass / 46 tests (+1 compile pass). (2026-02-20)
-**Next Action**: Fix remaining 15 compile failures — SIGSEGV (array-counting, type-switch-varying, spmd-call-contexts, varying-universal-constrained), LLVM struct masked load (map-restrictions, panic-recover-varying), closure arg count (defer-varying, spmd-call-contexts), constrained type backend (varying-array-iteration conversion), then varying switch/for-loop masking
+**Last Completed**: FromConstrained/ToConstrained implementation — type system relaxation (constrained→unconstrained), LLVM lowering for value decomposition into platform-sized groups, constraintN type erasure fix. Mask slices (`[]Varying[bool]`) blocked by WASM `<N x i1>` memory limitation (documented in `docs/fromconstrained_mask_issue.md`). E2E: 17 run pass, 20 compile pass / 47 tests (+1 run pass). (2026-02-20)
+**Next Action**: Fix remaining 15 compile failures — SIGSEGV (array-counting, type-switch-varying, spmd-call-contexts, varying-universal-constrained), LLVM struct masked load (map-restrictions, panic-recover-varying), closure arg count (defer-varying, spmd-call-contexts), constrained type backend (varying-array-iteration conversion), then varying switch/for-loop masking. Resolve `[]Varying[bool]` mask issue for FromConstrained (see docs/fromconstrained_mask_issue.md).
 
 ### Recent Major Achievements (Phase 1.5 Extensions)
 

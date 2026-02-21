@@ -990,7 +990,14 @@ Go frontend implementation (Phase 1) is complete with 53 commits on the `spmd` b
      - `compiler/spmd_llvm_test.go`: 9 new tests (vector type suffix, vector reduce, float reduce, reduce all, reduce count, lanes index, lanes broadcast, is-signed-int, is-float) — 32 cases total
      - Implemented: 6 lanes builtins (Index, Count, Broadcast, ShiftLeft, ShiftRight, From) + 13 reduce builtins (Add, Mul, All, Any, Max, Min, Or, And, Xor, From, Count, FindFirstSet, Mask)
      - Key insight: LLVM float reductions (`fadd`/`fmul`) take extra start value parameter (0.0 for add, 1.0 for mul). Signed/unsigned dispatch for `smax`/`umax`/`fmax`. `fmax`/`fmin` are correct for Go semantics (IEEE maxNum, non-NaN propagating).
-     - Deferred: `lanes.Rotate`, `lanes.Swizzle`, `lanes.FromConstrained`, `lanes.ToConstrained`
+     - Deferred: `lanes.Rotate`, `lanes.Swizzle`
+   - **Phase 2.7c: COMPLETED** — FromConstrained/ToConstrained LLVM lowering
+     - `compiler/spmd.go`: `createFromConstrained()` decomposes `<N x T>` into `ceil(N/P)` groups of `<P x T>` + masks, `createToConstrained()` reconstructs `<N x T>` from groups
+     - `compiler/compiler.go`: Wired into `createLanesBuiltin()` switch
+     - `go/src/go/types/unify_ext_spmd.go` + `operand_ext_spmd.go`: Relaxed unifier + assignability to allow constrained→unconstrained varying flow
+     - `go/src/cmd/compile/internal/types2/`: Mirror changes for types2
+     - Fix: constraintN type erasure — derive from `max(spmdEffectiveLaneCount, vec.Type().VectorSize())` when Go type constraint lost after type relaxation
+     - **Known limitation**: `[]Varying[bool]` mask slices blocked by WASM `<N x i1>` memory limitation (see `docs/fromconstrained_mask_issue.md`). Value decomposition works correctly.
    - **Phase 2.8: COMPLETED** — Execution mask stack + vector memory operations
      - `compiler/spmd.go`: `spmdMaskTransition` + `spmdContiguousInfo` types, mask stack ops (`spmdPushMask`/`spmdPopMask`/`spmdCurrentMask`), 4 LLVM intrinsic helpers (`spmdMaskedLoad`/`spmdMaskedStore`/`spmdMaskedGather`/`spmdMaskedScatter`), `spmdContiguousIndexAddr()`, `scalarIterVal` on `spmdActiveLoop`
      - `compiler/compiler.go`: 3 new builder fields (`spmdMaskStack`, `spmdMaskTransitions`, `spmdContiguousPtr`), mask transition application in DomPreorder loop, mask stack initialization at body prologue, contiguous detection in `*ssa.IndexAddr`, contiguous load in `token.MUL` UnOp + gather fallback, contiguous store in `*ssa.Store` + scatter fallback
@@ -1030,8 +1037,8 @@ Go frontend implementation (Phase 1) is complete with 53 commits on the `spmd` b
    - **createConvert SPMDType fix: COMPLETED** — Defensive handling in TinyGo `createConvert()`
      - `tinygo/compiler/compiler.go`: Intercept `*types.SPMDType` before `Underlying()` assertions
      - Four branches: SPMD-to-SPMD (recurse with elem), SPMD-to-scalar (recurse with elem), array-to-SPMD (arrayToVector), scalar-to-SPMD (convert + splat)
-   - **E2E Test Results** (16 run pass, 20 compile pass, 46 total):
-     - Inline tests (10): L0_store, L0_cond, L0_func, L1_reduce_add, L2_lanes_index, L3_varying_var, L4_range_slice, L4b_varying_break, L5a_simple_sum, L5b_odd_even
+   - **E2E Test Results** (17 run pass, 20 compile pass, 47 total):
+     - Inline tests (11): L0_store, L0_cond, L0_func, L1_reduce_add, L2_lanes_index, L3_varying_var, L4_range_slice, L4b_varying_break, L5a_simple_sum, L5b_odd_even, L5e_from_constrained
      - Integration run-pass (6): integ_simple-sum, integ_odd-even, integ_hex-encode, integ_debug-varying, integ_lanes-index-restrictions, integ_mandelbrot (0 differences, ~2.98x speedup)
      - Compile-only pass (5): integ_to-upper, integ_goroutine-varying, integ_select-with-varying-channels, integ_type-casting-varying, integ_varying-universal-constrained
      - Reject OK (11): All illegal examples correctly rejected
@@ -1115,7 +1122,7 @@ Go frontend implementation (Phase 1) is complete with 53 commits on the `spmd` b
      - Legacy backward-compat files intentionally preserved (use `varying`/`uniform` as identifiers)
      - `reduce.Uniform[T]` type alias skipped (Go 1.27dev rejects `type Uniform[T any] = T` with MisplacedTypeParam)
 
-Next priority: Fix SIGSEGV crashes (array-counting, spmd-call-contexts, type-switch-varying, varying-universal-constrained), fix LLVM masked load of struct types (unblocks map-restrictions, panic-recover-varying), fix closure arg count (defer-varying, spmd-call-contexts), fix array-to-constrained-Varying conversion (varying-array-iteration), then varying switch/for-loop masking
+Next priority: Resolve `[]Varying[bool]` mask issue for FromConstrained (see docs/fromconstrained_mask_issue.md), fix SIGSEGV crashes (array-counting, spmd-call-contexts, type-switch-varying, varying-universal-constrained), fix LLVM masked load of struct types (unblocks map-restrictions, panic-recover-varying), fix closure arg count (defer-varying, spmd-call-contexts), fix array-to-constrained-Varying conversion (varying-array-iteration), then varying switch/for-loop masking
 
 ## Proof of Concept Success Criteria
 
