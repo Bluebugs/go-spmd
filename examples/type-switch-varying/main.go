@@ -1,7 +1,7 @@
 // run -goexperiment spmd -target=wasi
 
 // Example demonstrating type switches with varying types
-// Shows explicit varying type cases and constrained varying support
+// Shows explicit varying type cases and uniform/varying mixed handling
 package main
 
 import (
@@ -35,19 +35,6 @@ func processVaryingInterface(value lanes.Varying[any]) {
 		// Handle varying array - each lane processes its own array
 		sum := v[0] + v[1] + v[2] + v[3]
 		fmt.Printf("Varying [4]int case, sum: %v\n", sum)
-
-	case lanes.Varying[byte, 8]:
-		// Handle constrained varying - requires multiple of 8 lanes
-		processed := v + 10
-		fmt.Printf("Constrained Varying[byte, 8] case: %v\n", processed)
-
-	case int: // NOT PERMITTED: must be explicit varying type
-		// Handle uniform int type
-		fmt.Printf("Uniform int case: %d\n", v)
-
-	case string: // NOT PERMITTED: must be explicit varying type
-		// Handle uniform string type
-		fmt.Printf("Uniform string case: %s\n", v)
 
 	default:
 		// Handle other types
@@ -83,37 +70,11 @@ func processMixedInterface(value interface{}) {
 	}
 }
 
-// demonstrateConstrainedTypes shows constrained varying type switches
-func demonstrateConstrainedTypes() {
-	fmt.Println("\n=== Constrained Varying Type Switches ===")
-
-	// Create constrained varying types using lanes.From
-	uniformData := [8]byte{1, 2, 3, 4, 5, 6, 7, 8}
-	constrainedData := lanes.From(uniformData[:])  // Creates lanes.Varying[byte]
-
-	// Process as lanes.Varying[any]
-	var varyingInterface lanes.Varying[any] = constrainedData
-
-	switch v := varyingInterface.(type) {
-	case lanes.Varying[byte, 8]:
-		fmt.Printf("Matched Varying[byte, 8]: %v\n", v)
-
-	case lanes.Varying[int, 4]:
-		fmt.Printf("Matched Varying[int, 4]: %v\n", v)
-
-	case lanes.Varying[byte]:
-		fmt.Printf("Matched unconstrained Varying[byte]: %v\n", v)
-
-	default:
-		fmt.Printf("No constrained match: %T\n", v)
-	}
-}
-
 // demonstrateTypeAssertions shows type assertions with varying
 func demonstrateTypeAssertions() {
 	fmt.Println("\n=== Type Assertions with Varying ===")
 
-	var varyingInterface lanes.Varying[any] = lanes.Varying[int](42)  // broadcast 42 to all lanes
+	var varyingInterface lanes.Varying[any] = lanes.Varying[int](42) // broadcast 42 to all lanes
 
 	// Correct type assertion with explicit varying
 	if v, ok := varyingInterface.(lanes.Varying[int]); ok {
@@ -205,9 +166,9 @@ func main() {
 
 	// Test 1: Basic varying type switches
 	fmt.Println("\n--- Basic Varying Type Switches ---")
-	varyingInt := lanes.Varying[int](42)      // broadcast 42 to all lanes
-	varyingStr := lanes.Varying[string]("hello")  // broadcast to all lanes
-	varyingFloat := lanes.Varying[float64](3.14)  // broadcast to all lanes
+	varyingInt := lanes.Varying[int](42)         // broadcast 42 to all lanes
+	varyingStr := lanes.Varying[string]("hello") // broadcast to all lanes
+	varyingFloat := lanes.Varying[float64](3.14) // broadcast to all lanes
 
 	processVaryingInterface(varyingInt)
 	processVaryingInterface(varyingStr)
@@ -216,27 +177,24 @@ func main() {
 	// Test 2: Mixed uniform/varying handling
 	fmt.Println("\n--- Mixed Type Handling ---")
 	processMixedInterface(varyingInt)
-	processMixedInterface(42)        // uniform int
-	processMixedInterface("world")   // uniform string
+	processMixedInterface(42)      // uniform int
+	processMixedInterface("world") // uniform string
 
-	// Test 3: Constrained varying types
-	demonstrateConstrainedTypes()
-
-	// Test 4: Type assertions
+	// Test 3: Type assertions
 	demonstrateTypeAssertions()
 
-	// Test 5: Realistic mixed data processing
+	// Test 4: Realistic mixed data processing
 	mixedData := []interface{}{
 		lanes.Varying[int](10),
 		lanes.Varying[float64](3.14),
 		lanes.Varying[string]("test"),
-		20,           // uniform int
-		2.71,         // uniform float
-		"uniform",    // uniform string
+		20,        // uniform int
+		2.71,      // uniform float
+		"uniform", // uniform string
 	}
 	processDataWithTypeSwitch(mixedData)
 
-	// Test 6: Generic processing
+	// Test 5: Generic processing
 	fmt.Println("\n--- Generic Processing ---")
 	values := []interface{}{
 		lanes.Varying[int](100),
@@ -249,5 +207,5 @@ func main() {
 		genericProcessor(v)
 	}
 
-	fmt.Println("\n✓ All type switch varying operations completed successfully")
+	fmt.Println("\nAll type switch varying operations completed successfully")
 }

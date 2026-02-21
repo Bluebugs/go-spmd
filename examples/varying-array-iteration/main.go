@@ -61,50 +61,23 @@ func demonstrateVaryingArrayIteration() {
 	}
 }
 
-// Show processing lanes.FromConstrained results
-func processConstrainedResults() {
-	fmt.Println("\n=== Processing lanes.FromConstrained Results ===")
+// processVaryingGroups demonstrates direct processing of varying data groups
+func processVaryingGroups() {
+	fmt.Println("\n=== Processing Varying Data Groups ===")
 
-	// Simulate universal constrained varying (this would come from function parameter)
 	data4 := lanes.From([]int{1, 2, 3, 4})
 	data8 := lanes.From([]int{10, 20, 30, 40, 50, 60, 70, 80})
 
-	// Process different constrained sizes
-	processUniversalConstrained(data4)
-	processUniversalConstrained(data8)
-}
+	// Process each varying group directly
+	for _, data := range []lanes.Varying[int]{data4, data8} {
+		fmt.Printf("\nProcessing varying of type %T\n", data)
 
-// Function accepting universal constrained varying
-// TODO: varying[] T (universal constrained) has no direct package-based equivalent yet;
-// using lanes.Varying[int] as a placeholder for the concept.
-func processUniversalConstrained(data lanes.Varying[int]) lanes.Varying[int] {
-	fmt.Printf("\nProcessing varying of type %T\n", data)
-
-	// Convert to unconstrained varying array
-	values, masks := lanes.FromConstrained(data)
-	fmt.Printf("Converted to %d unconstrained groups\n", len(values))
-
-	// Natural processing pattern: go for over array of varying values
-	go for idx, varyingGroup := range values {
-		mask := masks[idx]  // Get corresponding mask (uniform for this iteration)
-
-		fmt.Printf("  Group %d:\n", idx)
-		fmt.Printf("    Values: %v\n", varyingGroup)
-		fmt.Printf("    Mask: %v\n", mask)
-
-		// Process this varying group with its mask
-		if reduce.Any(mask) {  // Check if any lanes are active
-			processed := varyingGroup * 3
-			result := reduce.Add(processed)
-			fmt.Printf("    Processed (*3): %v\n", processed)
-			fmt.Printf("    Sum: %d\n", result)
-		} else {
-			fmt.Printf("    No active lanes in this group\n")
-		}
+		processed := data * 3
+		result := reduce.Add(processed)
+		fmt.Printf("  Values: %v\n", data)
+		fmt.Printf("  Processed (*3): %v\n", processed)
+		fmt.Printf("  Sum: %d\n", result)
 	}
-
-	// Return original data (for demonstration)
-	return data
 }
 
 // Demonstrate the difference between uniform and varying array iteration
@@ -129,7 +102,7 @@ func compareIterationTypes() {
 			uniformValue, i)
 
 		// Each lane processes the same value but at different indices
-		result := uniformValue + reduce.Add(i)  // Add sum of varying indices
+		result := uniformValue + reduce.Add(i) // Add sum of varying indices
 		fmt.Printf("Result: %d\n", result)
 	}
 
@@ -141,7 +114,7 @@ func compareIterationTypes() {
 			varyingValue, idx)
 
 		// All lanes process different values from the same varying
-		result := varyingValue * (idx + 1)  // Multiply by (index + 1)
+		result := varyingValue * (idx + 1) // Multiply by (index + 1)
 		fmt.Printf("Result: %v\n", result)
 	}
 }
@@ -162,7 +135,7 @@ func demonstrateControlFlowRestrictions() {
 	// But inside go for, they're all legal:
 	fmt.Println("\nInside SPMD context (go for), all control flow is legal:")
 
-	go for i := range 1 {  // Single iteration to demonstrate
+	go for i := range 1 { // Single iteration to demonstrate
 		fmt.Printf("Processing in SPMD context: %v\n", data)
 
 		// All of these are legal inside go for:
@@ -182,8 +155,8 @@ func main() {
 	// Test 1: Basic varying array iteration
 	demonstrateVaryingArrayIteration()
 
-	// Test 2: Processing lanes.FromConstrained results
-	processConstrainedResults()
+	// Test 2: Processing varying data groups directly
+	processVaryingGroups()
 
 	// Test 3: Compare uniform vs varying array iteration
 	compareIterationTypes()
@@ -192,10 +165,8 @@ func main() {
 	demonstrateControlFlowRestrictions()
 
 	fmt.Println("\n=== Summary ===")
-	fmt.Println("✓ go for with []lanes.Varying: idx is uniform, value is varying")
-	fmt.Println("✓ go for with []uniform: idx is varying, value is uniform")
-	fmt.Println("✓ Natural pattern for processing lanes.FromConstrained results")
-	fmt.Println("✓ Control flow with varying only allowed inside SPMD contexts")
-	fmt.Println("✓ Design promotes clear, maintainable SIMD code organization")
-	fmt.Println("✓ All varying array iteration examples completed successfully")
+	fmt.Println("go for with []lanes.Varying: idx is uniform, value is varying")
+	fmt.Println("go for with []uniform: idx is varying, value is uniform")
+	fmt.Println("Control flow with varying only allowed inside SPMD contexts")
+	fmt.Println("All varying array iteration examples completed successfully")
 }

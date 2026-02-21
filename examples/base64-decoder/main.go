@@ -37,7 +37,7 @@ func Decode(ascii []byte) ([]byte, bool) {
 	decoded := make([]byte, 0, len(ascii)*3/4)
 	pattern := outputPattern()
 
-	go for _, v := range[4] ascii {
+	go for _, v := range ascii {
 		decodedChunk, valid := decodeChunk(v, pattern)
 		if !valid {
 			return nil, false
@@ -48,15 +48,15 @@ func Decode(ascii []byte) ([]byte, bool) {
 	return decoded, true
 }
 
-func outputPattern() lanes.Varying[uint8, 4] {
-	var r lanes.Varying[uint8, 4]
-	go for i := range[4] 4 {
+func outputPattern() lanes.Varying[uint8] {
+	var r lanes.Varying[uint8]
+	go for i := range 4 {
 		r[i] = uint8(i + i/3) // Creates: [0,1,2,4]
 	}
 	return r
 }
 
-func decodeChunk(ascii lanes.Varying[byte, 4], pattern lanes.Varying[uint8, 4]) ([]byte, bool) {
+func decodeChunk(ascii lanes.Varying[byte], pattern lanes.Varying[uint8]) ([]byte, bool) {
 	// Step 1: Perfect hash function for table indexing
 	hashes := lanes.ShiftRight(ascii, 4)
 	if ascii == '/' {
@@ -83,12 +83,14 @@ func decodeChunk(ascii lanes.Varying[byte, 4], pattern lanes.Varying[uint8, 4]) 
 	valid := reduce.Or(lo&hi) == 0
 
 	// Step 4: Pack 6-bit values into bytes with cross-lane coordination (Rotation)
+	// The shift pattern operates within the 4-byte base64 group.
 	shiftPattern := lanes.From([]uint16{2, 4, 6, 8})
 	shifted := lanes.ShiftLeft(sextets, shiftPattern)
 
-	shiftedLo := lanes.Varying[byte, 4](shifted)
-	shiftedHi := lanes.Varying[byte, 4](lanes.ShiftRight(shifted, 8))
-	decodedChunks := shiftedLo | lanes.Rotate(shiftedHi, 1)
+	shiftedLo := lanes.Varying[byte](shifted)
+	shiftedHi := lanes.Varying[byte](lanes.ShiftRight(shifted, 8))
+	// Rotate within the 4-element base64 chunk to align the high bits.
+	decodedChunks := shiftedLo | lanes.RotateWithin(shiftedHi, 1, 4)
 
 	// Step 5: Extract final 3 bytes using output pattern (Swizzle)
 	output := lanes.Swizzle(decodedChunks, pattern)
