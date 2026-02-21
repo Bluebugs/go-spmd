@@ -51,12 +51,6 @@ Complex masking and divergent execution:
 - Complex conditional masking in deeply nested contexts
 - `continue` statement masking (basic implementation only)
 
-### ❌ Constraint System
-Full lane count constraint enforcement:
-- `varying[n]` type constraints (syntax recognized, not enforced)
-- `range[n]` grouping (syntax accepted, no validation)
-- Multiple-of-n lane count requirements
-
 ### ❌ Full Standard Library Integration
 Missing integrations that would require extensive work:
 - SPMD-optimized string operations
@@ -164,8 +158,7 @@ The PoC is successful if:
 To make this production-ready:
 
 1. **Implement cross-lane operations** with complex LLVM IR generation
-2. **Add full constraint system** with compile-time validation
-3. **Extend standard library** with comprehensive SPMD functions
+2. **Extend standard library** with comprehensive SPMD functions
 4. **Optimize performance** with better vectorization
 5. **Add debugging support** for SPMD programs
 6. **Port to native Go compiler** for full ecosystem integration

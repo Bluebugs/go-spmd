@@ -1,7 +1,7 @@
 // run -goexperiment spmd -target=wasi
 
 // Example demonstrating union type generics for reduce and lanes functions
-// Shows how functions accept both constrained and unconstrained varying types
+// Shows how functions accept varying types with union type generics
 package main
 
 import (
@@ -223,7 +223,7 @@ func main() {
 	fmt.Println("\n=== Summary ===")
 	fmt.Println("✓ reduce functions work with lanes.Varying[bool/numeric/integer/comparable]")
 	fmt.Println("✓ lanes functions work with lanes.Varying[T] for type-specific operations")
-	fmt.Println("✓ All functions accept both constrained (Varying[T, N]) and unconstrained (Varying[T]) types")
+	fmt.Println("✓ All functions accept Varying[T] types with union type generics")
 	fmt.Println("✓ All reduce and lanes operations are automatically inlined for optimal performance")
 	fmt.Println("✓ Type-safe operations prevent incorrect usage (e.g., bitwise ops only on integers)")
 	fmt.Println("✓ Union type generics provide flexibility while maintaining compile-time type safety")

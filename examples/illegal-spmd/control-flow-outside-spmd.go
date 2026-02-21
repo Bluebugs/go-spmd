@@ -9,7 +9,7 @@ import (
 
 func main() {
 	var data lanes.Varying[int] = lanes.Varying[int](42)
-	var values lanes.Varying[int, 4] = lanes.From([]int{10, 20, 30, 40})
+	var values lanes.Varying[int] = lanes.From([]int{10, 20, 30, 40})
 
 	// ILLEGAL: if statement with varying condition outside SPMD context
 	if data > 30 {  // ERROR: varying condition outside SPMD context

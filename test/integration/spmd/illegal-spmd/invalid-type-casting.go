@@ -17,18 +17,6 @@ func main() {
 	var single lanes.Varying[float32] = lanes.Varying[float32](3.14)
 	var double lanes.Varying[float64] = lanes.Varying[float64](single)  // ERROR: upcasting not allowed
 
-	// ILLEGAL: Upcasting with constrained varying
-	var constrainedSmall lanes.Varying[uint16, 8] = lanes.From([]uint16{1, 2, 3, 4, 5, 6, 7, 8})
-	var constrainedLarge lanes.Varying[uint32, 8] = lanes.Varying[uint32, 8](constrainedSmall)  // ERROR: would need 8×32=256 bits > 128-bit limit
-
-	// ILLEGAL: Upcasting that would require multiple registers
-	var bytes lanes.Varying[uint8, 16] = lanes.From([]uint8{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16})
-	var shorts lanes.Varying[uint16, 16] = lanes.Varying[uint16, 16](bytes)  // ERROR: would need 16×16=256 bits > 128-bit limit
-
-	// ILLEGAL: Cross-constraint upcasting
-	var small4 lanes.Varying[uint16, 4] = lanes.From([]uint16{1, 2, 3, 4})
-	var large4 lanes.Varying[uint64, 4] = lanes.Varying[uint64, 4](small4)  // ERROR: 4×64=256 bits > 128-bit limit
-
 	// ILLEGAL: Mixed type upcasting in expression
 	var a lanes.Varying[uint16] = lanes.Varying[uint16](100)
 	var b lanes.Varying[uint32] = lanes.Varying[uint32](200)
@@ -40,5 +28,5 @@ func main() {
 	destLarge = sourceSmall  // ERROR: implicit upcasting not allowed
 
 	// Use variables to avoid unused variable errors
-	_, _, _, _, _, _, _, _, _ = large32, wide64, double, constrainedLarge, shorts, large4, result, destLarge, b
+	_, _, _, _, _, _ = large32, wide64, double, result, destLarge, b
 }

@@ -135,26 +135,6 @@ Key violations:
 
 **Note**: This example focuses on the still-illegal varying channel syntax. See `examples/select-with-varying-channels/` for comprehensive examples of the now-legal select with channels carrying varying values and infinite SPMD loops (`go for {}`).
 
-### [invalid-lane-constraints.go](invalid-lane-constraints.go)
-**Expected Errors**: Various constraint-related errors
-
-Shows invalid uses of lane count constraints:
-
-```go
-var data1 varying[0] int      // ERROR: constraint must be positive
-var data2 varying[-4] int     // ERROR: constraint must be positive
-var data3 varying[n] int      // ERROR: constraint must be compile-time constant
-var data4 varying[128] byte   // ERROR: 128×8 = 1024 bits > 512-bit limit
-```
-
-Key violations:
-- Zero or negative constraints
-- Non-constant constraints  
-- Constraints exceeding 512-bit practical limit
-- Mismatched constraints in operations
-
-**Note**: Constrained varying types are hardware-independent. The compiler handles any valid constraint through loop unrolling, masking, or multiple iterations regardless of the target SIMD capabilities.
-
 ### [invalid-contexts.go](invalid-contexts.go)
 **Expected Errors**: Various context-related errors
 
@@ -198,13 +178,11 @@ Key violations:
 - Incorrect qualifier placement
 - Malformed `go for` syntax
 - Wrong argument types to built-in functions
-- Complex expressions in constraints
 
 ## Error Categories
 
 ### Type System Violations
 - **Varying-to-Uniform Assignment**: Core rule preventing undefined behavior
-- **Constraint Mismatches**: Ensuring lane count compatibility
 - **Context Violations**: Restricting where SPMD constructs can be used
 
 ### Control Flow Restrictions

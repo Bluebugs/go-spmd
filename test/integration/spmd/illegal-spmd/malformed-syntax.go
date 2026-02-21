@@ -47,17 +47,7 @@ func main() {
 // NOTE: Package-based syntax doesn't have "uniform varying" conflicts anymore
 // These tests are no longer applicable with new syntax
 
-// ILLEGAL: Type conversions between incompatible varying types
-func badConversions() {
-	var a lanes.Varying[int, 4]
-	var b lanes.Varying[int, 8]
-
-	// ERROR: cannot convert between different lane constraints
-	a = lanes.Varying[int, 4](b)
-
-	// Note: 'constrained' variable removed as it's undefined
-	_ = a
-}
+// NOTE: Constrained type conversions removed - constrained varying no longer supported
 
 // ILLEGAL: lanes functions with wrong argument types
 func badLanesFunctions() {
@@ -95,23 +85,7 @@ func badReduceFunctions() {
 	}
 }
 
-// ILLEGAL: Constraint expressions that aren't compile-time constants
-func badConstraints() {
-	const CONST_4 = 4
-	var var_4 int = 4
-
-	// LEGAL: compile-time constant
-	var legal lanes.Varying[int, CONST_4]
-
-	// ILLEGAL: runtime variable - not expressible in new syntax
-	// var illegal1 lanes.Varying[int, var_4]  // Syntax error: type param must be constant
-
-	// ILLEGAL: complex expression - not expressible in new syntax
-	// var illegal2 lanes.Varying[int, CONST_4 + var_4]  // Syntax error
-
-	_ = legal
-	_ = var_4
-}
+// NOTE: badConstraints removed - constrained varying no longer supported
 
 // ILLEGAL: Using SPMD constructs in wrong grammatical positions
 func wrongPositions() {
