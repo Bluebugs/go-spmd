@@ -137,95 +137,16 @@ Before TinyGo can compile any SPMD code, the standard library toolchain must be 
 
 ## SSA Generation Strategy (Following ISPC's Approach)
 
-Based on ISPC's proven methodology, Go SPMD implementation generates SSA that directly maps to LLVM IR operations:
+Go SPMD implementation follows ISPC's proven SSA strategy: direct mapping to LLVM operations using standard SSA constructs (no custom opcodes). Key design principles:
 
-### Direct Vector SSA Generation
+1. **Vector Types and Operations**: LLVM auto-vectorizes `CreateAdd(<4 x i32>, <4 x i32>)` → WASM `v128.add`
+2. **Mask Threading**: Explicit execution masks propagate through vector operations as `<N x i1>` values
+3. **SPMD Function Signatures**: Receive mask as **first implicit parameter** in SSA, allowing selective execution of function bodies
+4. **Control Flow Linearization**: Varying if/else conditions converted to CFG with LLVM select merges (no control flow divergence)
+5. **Per-Lane State Tracking**: Loop breaks and early exits track active lanes via per-lane break masks
+6. **Memory Access**: Contiguous array access uses scalar GEPs + masked load/store; non-contiguous uses gather/scatter intrinsics
 
-Instead of custom opcodes, use standard SSA operations with vector types:
-
-```go
-// Original Go SPMD code
-var data [16]lanes.Varying[int32]
-go for i := range 16 {
-    data[i] = i * 2
-}
-
-// Generated SSA (conceptual)
-%lanes = OpConst <int> 4                    // WASM128 SIMD width
-%indices = OpMakeSlice <[]int32> %lanes     // [0,1,2,3]
-%multiplier = OpConst <int32> 2
-%doubled = OpMul <%4 x int32> %indices %multiplier
-%mask = OpConst <%4 x bool> [true,true,true,true]
-OpVectorStore %data %doubled %mask
-```
-
-### SPMD Function Signature Generation
-
-SPMD functions receive mask as **first parameter** in SSA:
-
-```go
-// Go source
-func process(data lanes.Varying[int32]) lanes.Varying[int32] {
-    return data * 2
-}
-
-// Generated SSA signature (mask first!)
-func @process(mask <%4 x bool>, data <%4 x int32>) <%4 x int32> {
-    %multiplier = OpConst <%4 x int32> [2,2,2,2]
-    %result = OpMul <%4 x int32> %data %multiplier
-    %maskedResult = OpSelect <%4 x int32> %mask %result %zero
-    OpReturn %maskedResult
-}
-```
-
-### Mask Propagation Through Standard SSA
-
-Track execution masks using regular SSA variables and operations:
-
-```go
-// Go SPMD conditional
-var cond lanes.Varying[bool]
-if cond {
-    // true branch  
-} else {
-    // false branch
-}
-
-// Generated SSA with mask tracking
-%currentMask = OpPhi <%4 x bool> ...
-%trueMask = OpAnd <%4 x bool> %currentMask %cond
-%falseMask = OpAndNot <%4 x bool> %currentMask %cond
-
-// True branch basic block
-%trueResult = OpSelect <%4 x int32> %trueMask %trueValue %defaultValue
-
-// False branch basic block  
-%falseResult = OpSelect <%4 x int32> %falseMask %falseValue %defaultValue
-
-// Merge results
-%finalResult = OpOr <%4 x int32> %trueResult %falseResult
-```
-
-### Function Call Transformation
-
-All SPMD function calls get mask as first argument:
-
-```go
-// Go source call
-result := process(data)
-
-// Generated SSA call
-%result = OpCall <%4 x int32> @process %currentMask %data
-```
-
-### Key Advantages of This Approach
-
-1. **No Custom Opcodes**: Uses standard SSA operations that LLVM understands natively
-2. **Clear Mask Threading**: Explicit mask-first parameter makes mask flow obvious
-3. **Incremental Implementation**: Can implement piece by piece without disrupting existing compiler
-4. **Debugging Friendly**: Standard SSA passes work without modification
-5. **Backend Agnostic**: Same SSA works for different LLVM targets
-6. **Optimization Ready**: LLVM's vector optimizations work automatically
+See `/docs/ssa-generation-strategy.md` for detailed examples and implementation patterns used in Phase 1 Go compiler and Phase 2 TinyGo backend.
 
 ## Critical Implementation Rules
 
@@ -956,203 +877,35 @@ All implementation work that is explicitly postponed for future phases MUST be t
 
 ## Current Implementation Status
 
-Go frontend implementation (Phase 1) is complete with 53 commits on the `spmd` branch:
+**Phase Summary**: Phase 1 (Go frontend) complete with 53 commits; Phase 2 (TinyGo LLVM backend) in progress with 36 commits; Phase 3 (validation) not started. See PLAN.md for detailed task breakdown and deferred items tracking.
 
-1. **Phase 1.1-1.5: COMPLETED** - Lexer, parser, type system, type checking (keyword-based)
-2. **Phase 1.6: COMPLETED** - Migration to package-based types (`lanes.Varying[T]` replaces `varying` keyword)
-3. **Phase 1.7: COMPLETED** - SIMD lane count calculation and recording (laneCountForType, computeEffectiveLaneCount, ForStmt.LaneCount)
-4. **Phase 1.8: COMPLETED** - `lanes` package with compiler builtin stubs, `Count()` PoC
-5. **Phase 1.9: PARTIALLY DONE** - `reduce` package stubs (all functions panic, not implemented)
-6. **Phase 1.10: COMPLETED** - Go SSA Generation for SPMD
-   - 1.10a: COMPLETED - SPMD field propagation through noder/IR pipeline (IsSpmd, LaneCount wired to SSA)
-   - 1.10b: COMPLETED - Scalar fallback SSA generation for SPMD go for loops
-   - 1.10c: COMPLETED - 42 SPMD vector opcodes added to SSA generic ops (arithmetic, mask, memory, reduction, cross-lane)
-   - 1.10d: COMPLETED - IR opcodes for vectorized loop index (OSPMDLaneIndex, OSPMDSplat, OSPMDAdd) + walk/range.go stride
-   - 1.10e: COMPLETED - Tail masking for non-multiple loop bounds (spmdBodyWithTailMask, SPMDLess + SPMDMaskAnd)
-   - 1.10f: COMPLETED - Mask propagation through varying if/else (IsVaryingCond flag, spmdIfStmt, SPMDSelect merge)
-   - 1.10i: COMPLETED - Switch masking (IsVaryingSwitch, spmdSwitchStmt, per-case masks, N-way merge, varying case values)
-   - 1.10g: COMPLETED - Varying for-loop masking (spmdLoopMaskState, spmdMaskedBranchStmt, spmdRegularForStmt, spmdVaryingDepth tracking)
-   - 1.10j: COMPLETED - lanes/reduce builtin call interception (16 functions -> SPMD opcodes, 7 deferred)
-   - 1.10h: COMPLETED - Function call mask insertion (OpSPMDCallSetMask, OpSPMDFuncEntryMask, isSPMDCallTarget, spmdFuncEntry)
-   - 1.10L: COMPLETED - Fixed all 6 pre-existing all.bash test failures (copyright, stdPkgs, deps, error codes, gcimporter, go/types)
-7. **Phase 2: IN PROGRESS** - TinyGo LLVM backend with WASM SIMD128 target
-   - **Phase 2.0: Go Standard Library Porting** (prerequisite before TinyGo work):
-     - `go/ast`: COMPLETED — `IsSpmd`, `LaneCount`, `Constraint` fields on `RangeStmt`
-     - `go/parser`: COMPLETED — `go for` parsing + `range[N]` constraints + `Varying[T, N]` in type and expression contexts (20 tests)
-     - `go/types`: COMPLETED — 10 `*_ext_spmd.go` files ported from types2, 10 test files, 8 commits
-     - `go/ssa`: No changes needed — SPMD metadata extracted from typed AST in TinyGo's compiler
-   - **Phase 2.0d: COMPLETED** — SPMD metadata extraction in TinyGo compiler
-     - `compiler/spmd.go`: SPMDInfo side-table with loop/function metadata extraction from typed AST
-     - `compiler/spmd_test.go`: 13 tests (extraction, signature analysis, binary search queries)
-     - `compiler/compiler.go`: `spmdInfo` field on `compilerContext`, `loadSPMDInfo()` call in `CompilePackage()`
-     - Query helpers: `isInSPMDLoop()`, `getSPMDLoopAt()`, `getSPMDFuncInfo()`, `isSPMDFunction()`, `hasSPMDCode()`
-   - **Phase 2.1: COMPLETED** — GOEXPERIMENT support + auto-SIMD128 for WASM
-     - `goenv/goenv.go`: GOEXPERIMENT in Keys + Get()
-     - `compileopts/config.go`: GOExperiment() method, hasExperiment() helper, Features() auto-adds +simd128
-     - `compileopts/config_spmd_test.go`: 12 test cases (auto-SIMD128 logic + accessor)
-     - `main.go`: Wire GOExperiment from environment; `loader/list.go`: pass to go list subprocess
-   - **Phase 2.2: COMPLETED** — LLVM vector type generation for `lanes.Varying[T]`
-     - `compiler/spmd.go`: `spmdLaneCount()`, `splatScalar()`, `spmdBroadcastMatch()`, `createSPMDConst()`
-     - `compiler/compiler.go`: `*types.SPMDType` case in `makeLLVMType()`, bypass `typeutil.Map` for SPMDType in `getLLVMType()`, broadcast in `createBinOp()`, SPMD pre-check in `createConst()`, vector-safe `ConstNull`/`ConstAllOnes` in `createUnOp()`
-     - `compiler/spmd_llvm_test.go`: 6 tests, 34 cases (lane count, type mapping, constants, broadcast, splat, consistency)
-     - `typeutil.Map` from `x/tools` can't hash `*types.SPMDType`; **fixed** with patched x-tools copy at `x-tools-spmd/` (SPMDType cases in hash()/shallowHash(), prime 9181). TinyGo `go.mod` has `replace golang.org/x/tools v0.30.0 => ../x-tools-spmd`. The `getLLVMType()` bypass remains as defense-in-depth.
-   - **Phase 2.3: COMPLETED** — SPMD loop lowering (`go for` range loops)
-     - `compiler/spmd.go`: `analyzeSPMDLoops()` detects rangeint SSA patterns, `emitSPMDBodyPrologue()` generates lane indices + tail mask
-     - `compiler/compiler.go`: `spmdLoopState`/`spmdValueOverride` fields, `getValue()` override, `createFunction()` hooks, BinOp `+1` → `+laneCount`
-     - `compiler/spmd_llvm_test.go`: 4 new tests (lane offset, lane indices, tail mask, analyze nil)
-     - Key insight: SSA `rangeint.iter` phi detected by comment, scalar phi stays for loop logic, vector override for body instructions
-   - **Phase 2.4: COMPLETED** (via Phase 2.2) — Varying arithmetic uses LLVM auto-vectorization
-   - **Phase 2.5: COMPLETED** — Control flow masking (varying if/else linearization)
-     - `compiler/spmd.go`: `spmdVaryingIf` type, `isBlockInSPMDBody()`, `spmdDetectVaryingIf()`, `spmdFindMerge()`, `spmdFindThenExits()`, `spmdShouldRedirectJump()`, `spmdCreateMergeSelect()`, `spmdVectorAnyTrue()`, `spmdIsReachableFrom()`
-     - `compiler/compiler.go`: 3 new builder fields (`spmdVaryingIfs`, `spmdThenExitRedirects`, `spmdMergeSelects`), modified `*ssa.If` (linearize vector conditions), `*ssa.Jump` (then-exit redirects), `*ssa.Phi` (merge select conversion), fixed `spmdValueOverride` scope for if/then/else/done blocks
-     - `compiler/spmd_llvm_test.go`: 4 new tests (vector any-true, select creation, block detection, broadcast for select)
-     - Key insight: go/ssa creates separate "if.done" merge per if statement with exactly 2 predecessors; nesting works by construction
-   - **Phase 2.6: COMPLETED** — SPMD function call handling
-     - `compiler/spmd.go`: `spmdMaskType()`, `spmdMaskTypeFromSig()`, `spmdCallMask()` — compute mask type from first varying param, resolve mask at call site (tail mask > entry mask > all-ones)
-     - `compiler/symbol.go`: `getFunction()` inserts `<N x i1>` mask as first parameter for non-exported SPMD functions
-     - `compiler/func.go`: `getLLVMFunctionType()` inserts mask type for SPMD function pointer types
-     - `compiler/compiler.go`: `spmdEntryMask` field on builder, mask extraction in `createFunctionStart()`, mask insertion in `createFunctionCall()` with exported function guard
-     - `compiler/spmd_llvm_test.go`: 2 new tests (mask type computation, all-ones mask creation) — 9 cases total
-     - Key insight: Mask param must be consistently present/absent across declaration (`getFunction`), type (`getLLVMFunctionType`), definition (`createFunctionStart`), and call site (`createFunctionCall`). Exported SPMD functions are forbidden by type checker.
-   - **Phase 2.7: COMPLETED** — lanes/reduce builtin interception
-     - `compiler/spmd.go`: `spmdVectorTypeSuffix()`, `spmdCallVectorReduce()`, `spmdCallVectorReduceFloat()`, `spmdIsSignedInt()`, `spmdIsFloat()`, `createLanesBuiltin()`, `createReduceBuiltin()`
-     - `compiler/compiler.go`: 2 new switch cases in `createFunctionCall()` — `lanes.*` and `reduce.*` prefix matching before SPMD mask insertion
-     - `compiler/spmd_llvm_test.go`: 9 new tests (vector type suffix, vector reduce, float reduce, reduce all, reduce count, lanes index, lanes broadcast, is-signed-int, is-float) — 32 cases total
-     - Implemented: 6 lanes builtins (Index, Count, Broadcast, ShiftLeft, ShiftRight, From) + 13 reduce builtins (Add, Mul, All, Any, Max, Min, Or, And, Xor, From, Count, FindFirstSet, Mask)
-     - Key insight: LLVM float reductions (`fadd`/`fmul`) take extra start value parameter (0.0 for add, 1.0 for mul). Signed/unsigned dispatch for `smax`/`umax`/`fmax`. `fmax`/`fmin` are correct for Go semantics (IEEE maxNum, non-NaN propagating).
-     - Deferred: `lanes.Rotate`, `lanes.Swizzle`
-   - **Phase 2.7c: COMPLETED** — FromConstrained/ToConstrained LLVM lowering
-     - `compiler/spmd.go`: `createFromConstrained()` decomposes `<N x T>` into `ceil(N/P)` groups of `<P x T>` + masks, `createToConstrained()` reconstructs `<N x T>` from groups
-     - `compiler/compiler.go`: Wired into `createLanesBuiltin()` switch
-     - `go/src/go/types/unify_ext_spmd.go` + `operand_ext_spmd.go`: Relaxed unifier + assignability to allow constrained→unconstrained varying flow
-     - `go/src/cmd/compile/internal/types2/`: Mirror changes for types2
-     - Fix: constraintN type erasure — derive from `max(spmdEffectiveLaneCount, vec.Type().VectorSize())` when Go type constraint lost after type relaxation
-     - **Known limitation**: `[]Varying[bool]` mask slices blocked by WASM `<N x i1>` memory limitation (see `docs/fromconstrained_mask_issue.md`). Value decomposition works correctly.
-   - **Phase 2.8: COMPLETED** — Execution mask stack + vector memory operations
-     - `compiler/spmd.go`: `spmdMaskTransition` + `spmdContiguousInfo` types, mask stack ops (`spmdPushMask`/`spmdPopMask`/`spmdCurrentMask`), 4 LLVM intrinsic helpers (`spmdMaskedLoad`/`spmdMaskedStore`/`spmdMaskedGather`/`spmdMaskedScatter`), `spmdContiguousIndexAddr()`, `scalarIterVal` on `spmdActiveLoop`
-     - `compiler/compiler.go`: 3 new builder fields (`spmdMaskStack`, `spmdMaskTransitions`, `spmdContiguousPtr`), mask transition application in DomPreorder loop, mask stack initialization at body prologue, contiguous detection in `*ssa.IndexAddr`, contiguous load in `token.MUL` UnOp + gather fallback, contiguous store in `*ssa.Store` + scatter fallback
-     - `compiler/spmd_llvm_test.go`: 6 new tests (mask stack, masked load/store intrinsics, mask transitions, contiguous info, mask AND)
-     - Key insight: Phase 2.5 linearization is correct for value computation but wrong for side effects (stores) — both branches always execute, so stores write for ALL lanes. Mask stack fixes this by tracking active lanes through nested if/else. Contiguous `data[i]` uses scalar GEP + masked load/store; non-contiguous uses gather/scatter fallback.
-     - Deferred to Phase 2.8b: ~~Range-over-slice loop detection~~ — **COMPLETED**
-   - **Phase 2.8b: COMPLETED** — Range-over-slice SPMD loop detection
-     - `compiler/spmd.go`: Extended `spmdActiveLoop` with `isRangeIndex`/`bodyIterValue`/`initEdgeIndex`, second detection pass in `analyzeSPMDLoops()` for `rangeindex.body` blocks, `emitSPMDBodyPrologue()` branches on `isRangeIndex`
-     - `compiler/compiler.go`: Rangeindex body prologue trigger at block entry (body has no iter phi), phi init override (-1 to -laneCount on entry edge)
-     - `compiler/spmd_llvm_test.go`: 3 new tests (rangeindex fields, body iter value, phi init override)
-     - Key insight: rangeindex phi is in loop block (not body), starts at -1 (pre-increment), body uses `incr` BinOp as index. Both `loopPhi` and `incrBinOp` registered in `activeLoops` for contiguous detection. All Phase 2.8 infrastructure (masked load/store, gather/scatter, mask stack) works automatically.
-   - **Phase 2.8c: COMPLETED** — Constrained Varying[T,N] backend support
-     - `compiler/spmd.go`: `spmdEffectiveLaneCount()` respects constraint N from `Varying[T, N]`, `arrayToVector()` converts `[N]T` to `<N x T>`, fixed `spmdMaskTypeFromSig()` to use effective lane count
-     - `compiler/compiler.go`: `makeLLVMType()` and `createDIType()` use `spmdEffectiveLaneCount()`, `createConvert()` array-to-SPMD path with bounds check
-     - `compiler/interface.go`: `getTypeCode()` uses `spmdEffectiveLaneCount()` for interface boxing
-     - `compiler/spmd_llvm_test.go`: 5 new tests (constrained lane count, effective lane count, array-to-vector, constrained const, constrained mask type)
-     - Key insight: Backend support is complete but 3 E2E programs using constrained types fail at go/parser level (`expected type, found 2`) because multi-arg index expressions in standalone type contexts aren't supported. Backend works correctly for constrained types that reach it.
-   - **Phase 2.9a: COMPLETED** — SPMD function body mask infrastructure
-     - `compiler/spmd.go`: `spmdFuncIsBody` flag, extended `isBlockInSPMDBody()` for function bodies
-     - `compiler/compiler.go`: Detect SPMD function bodies in `createFunction()`, initialize mask stack from entry mask, extend `*ssa.If` linearization check
-   - **Phase 2.9b: COMPLETED** — Per-lane break mask support
-     - `compiler/spmd.go`: `spmdForLoopInfo`/`spmdBreakRedirect` types, `detectSPMDForLoops()` for regular for-range in SPMD bodies, `spmdIsVaryingBreak()` detection
-     - `compiler/compiler.go`: Break mask alloca init, break redirect in `*ssa.Jump`, active mask computation (entryMask & ~breakMask) after rangeint.iter phi
-   - **Phase 2.9c: COMPLETED** — Vector IndexAddr + break result tracking + mandelbrot
-     - `compiler/spmd.go`: `spmdBreakResult` type, merged body+loop detection, break result alloca population from done-block phis
-     - `compiler/compiler.go`: Vector IndexAddr (vector of GEPs + per-lane bounds check), break result accumulation (`select(mask, breakVal, oldResult)`), break result phi compilation (`select(breakMask, breakResult, phi)`), break edge skip in phi resolution
-     - Mandelbrot: Removed reduce.Any guard, rewrote demonstrateVaryingParameters with reduce.From
-   - **E2E Infrastructure: COMPLETED** — GOEXPERIMENT passthrough fix + go/ssa SPMDType support + Node.js test runner
-     - `tinygo/loader/list.go`: Fixed GOEXPERIMENT stripping that prevented `lanes.go`/`reduce.go` from being visible to `go list`
-     - `x-tools-spmd/go/ssa/subst.go`: Added `*types.SPMDType` cases to `subster.typ()` and `reaches()` for generic instantiation
-     - `test/e2e/run-wasm.mjs`: Node.js WASI WASM runner with asyncify stubs for TinyGo
-     - `test/e2e/spmd-e2e-test.sh`: Progressive 8-level E2E test script (47 tests)
-   - **Range-over-slice type fix: COMPLETED** — Fixed `NewVarying(expr.typ())` → `NewVarying(rVal)` using `rangeKeyVal()`
-     - `go/src/go/types/stmt_ext_spmd.go`: Call `rangeKeyVal()` for proper element type extraction, use `Typ[Int]` for key
-     - `go/src/cmd/compile/internal/types2/stmt_ext_spmd.go`: Identical fix for types2
-     - Test files added in both `go/types/testdata/spmd/` and `types2/testdata/spmd/` (range_over_slice.go)
-   - **createConvert SPMDType fix: COMPLETED** — Defensive handling in TinyGo `createConvert()`
-     - `tinygo/compiler/compiler.go`: Intercept `*types.SPMDType` before `Underlying()` assertions
-     - Four branches: SPMD-to-SPMD (recurse with elem), SPMD-to-scalar (recurse with elem), array-to-SPMD (arrayToVector), scalar-to-SPMD (convert + splat)
-   - **E2E Test Results** (17 run pass, 4 compile-only pass, 15 compile fail, 11 reject OK, 47 total):
-     - Inline tests (11): L0_store, L0_cond, L0_func, L1_reduce_add, L2_lanes_index, L3_varying_var, L4_range_slice, L4b_varying_break, L5a_simple_sum, L5b_odd_even, L5e_from_constrained
-     - Integration run-pass (6): integ_simple-sum, integ_odd-even, integ_hex-encode, integ_debug-varying, integ_lanes-index-restrictions, integ_mandelbrot (0 differences, ~2.98x speedup)
-     - Compile-only pass (4): integ_to-upper, integ_goroutine-varying, integ_select-with-varying-channels, integ_type-casting-varying
-     - Reject OK (11): All illegal examples correctly rejected
-   - **Test program fixes: COMPLETED** — Fixed 12 buggy example programs across 6 commits
-     - hex-encode: removed phantom `lanes.Encode` call (now compiles)
-     - bit-counting: fixed `reduce.Add(count)` return type (uint8 vs int)
-     - map-restrictions: fixed undefined `values` var, split if-init scope issue; then fixed varying-to-uniform struct literal using reduce.From()
-     - defer-varying: fixed `reduce.From` → `reduce.Add`, `allocateResource` signature type mismatch
-     - select-with-varying-channels: fixed `chan int` → `chan string`, unused variable in `go for`; then fixed invalid `go for { }` → `for { }`
-     - to-upper: rewrote as self-contained ASCII SPMD (now compiles after vector width fix)
-     - mandelbrot: fixed `cIm`/`zIm` param types, `benchmark()` missing return type
-     - union-type-generics: fixed shift type mismatch (`[]int` → `[]uint16`)
-     - pointer-varying: fixed `lanes.From(array)` → `lanes.From(array[:])` (remaining errors are unsupported-but-desired patterns)
-     - base64-decoder: fixed constrained range syntax (`go for i := range[4]` → `go for i := range[4] 4`)
-     - All examples/ synced with test/integration/spmd/ copies
-   - **E2E suite expanded: COMPLETED** — From 32 → 47 tests across multiple expansions
-   - **Compiler quick-fixes: COMPLETED** — 2 TinyGo compiler fixes
-     - `compiler/llvm.go`: Added `llvm.VectorTypeKind` to `getPointerBitmap()` no-pointer case (unblocked goroutine-varying)
-     - `compiler/compiler.go`: Added `types.UntypedInt` to `makeLLVMType()` Int/Uint case
-   - **Nested loop deduplication: COMPLETED** — Fixed `analyzeSPMDLoops()` incorrectly vectorizing nested regular `for` loops
-     - `compiler/spmd.go`: Added unified `seenLoopInfo` deduplication map shared across rangeint/rangeindex passes
-     - Only the first (outermost) body block per `SPMDLoopInfo` is registered; nested regular loops are skipped
-     - Handles cross-pattern nesting (rangeint outer + rangeindex inner, or vice versa)
-   - **Performance Optimization Round 1: COMPLETED** — 3 optimizations, ~1.2x → ~2.81x speedup
-     - Early exit when all lanes broken (spmdVectorAllTrue + condBr to done block)
-     - inlinehint on SPMD functions + spmdCallMask uses narrowed mask from stack
-     - Generalized contiguous detection (spmdAnalyzeContiguousIndex traces scalar+iter through BinOp ADD)
-   - **Performance Optimization Round 2: COMPLETED** — 2 optimizations + 1 investigation, ~2.81x → ~2.91x speedup
-     - `compiler/spmd.go`: Added `spmdUnwrapScalar()` to peel `*ssa.ChangeType` chains in contiguous detection — fixes `output[j*width+i]` scatter store. ~38% improvement.
-     - `compiler/spmd.go`: Changed mask format from `<N x i1>` to `<N x i32>` on WASM — added `spmdIsWASM()`, `spmdMaskElemType()`, `spmdWrapMask()`, `spmdUnwrapMaskForIntrinsic()`, `spmdMaskSelect()` with width-safety fallback, `spmdNormalizeBoolVecToI1()`. 8 new tests. ~3% improvement.
-     - Tail mask hoisting: verified via LLVM IR + WAT analysis that V8 TurboFan JIT handles loop-invariant hoisting. No code change needed.
-   - **Performance Optimization Round 3: COMPLETED** — 1 optimization, ~2.91x → ~2.98x speedup
-     - `compiler/spmd.go`: Native WASM `v128.any_true`/`i32x4.all_true` intrinsics via `@llvm.wasm.anytrue`/`@llvm.wasm.alltrue` — replaces bitcast+icmp pattern. Added `spmdWasmAnyTrue()`, `spmdWasmAllTrue()`. 2 new tests. ~2.4% improvement.
-     - WAT verification: `v128.any_true` in inner loop, old `i64x2.extract_lane` pattern eliminated.
-   - **SPMDType interface boxing fix: COMPLETED** — TinyGo `getTypeCode()` now handles `*types.SPMDType`
-     - `tinygo/compiler/interface.go`: Intercept SPMDType in `getTypeCode()`, redirect to `[laneCount]T` array representation
-     - Defensive fallbacks in `getTypeCodeName()` and `typestring()` for `*types.SPMDType`
-     - Fixes `debug-varying` panic when passing `lanes.Varying[int]` to `fmt.Printf("%v", ...)`
-   - **Vector width mismatch fix: COMPLETED** — `spmdBroadcastMatch()` handles vector-vector width normalization
-     - `tinygo/compiler/spmd.go`: Extended `spmdBroadcastMatch()` with vector-vector width case, added `spmdResizeVector()` (shuffle-based truncation)
-     - `tinygo/compiler/spmd_llvm_test.go`: 3 new test cases (narrower_wins, resize_vector_truncate, same_width_noop)
-     - Fixes `to-upper` ICmp type mismatch: byte constants get 16 lanes (128/8) but loop effective lane count is 4 (128/32)
-   - **Constrained Varying[T,N] parser fix: COMPLETED** — both type and expression contexts support non-type arguments
-     - `go/src/go/parser/parser.go`: SPMD-gated fallback in `parseTypeInstance()` (type contexts) and `parseIndexOrSliceOrInstance()` (expression contexts: conversions, type switch cases, composite literals)
-     - `go/src/go/parser/parser_spmd_test.go`: 9 new test cases (6 type-context + 3 expression-context: conversion, type switch case, conversion assign)
-     - Unblocks all constrained type programs past parse stage (type-casting-varying, type-switch-varying, varying-array-iteration, varying-universal-constrained, mandelbrot)
-   - **SPMD varying upcast restriction: COMPLETED** — rejects Varying[smallerType] to Varying[largerType] conversions
-     - `go/src/go/types/operand_ext_spmd.go` + `types2/operand_ext_spmd.go`: `spmdBasicSize()` helper, upcast checks in `convertibleToSPMD()` and `checkSPMDtoSPMDAssignability()`
-     - `go/src/go/types/conversions.go` + `types2/conversions.go`: SPMD-to-SPMD guard in `convertibleTo()` prevents standard Go numeric conversion fallthrough
-     - Downcasts (e.g., Varying[uint32] to Varying[uint16]) and same-size conversions (e.g., Varying[int32] to Varying[float32]) remain allowed
-     - `illegal_invalid-type-casting` now correctly rejected with 8 error sites
-   - **Constrained type checker fixes: COMPLETED** — 4 commits in go/types + types2, 3 new test files each
-     - `go/src/go/types/operand_ext_spmd.go` + types2 mirror: Array-to-constrained-Varying conversion `[N]T` → `Varying[T, N]` in `convertibleToSPMD()`
-     - `go/src/go/types/index.go` + types2 mirror: Clear "varying types are not indexable" error before `Underlying()` type switch in `indexExpr()`
-     - `go/src/go/types/stmt.go` + `lookup.go` + types2 mirrors: Type switch on `Varying[T, 0]` via `isSPMDUniversalConstrained()` + `assertableTo()` SPMD cases
-     - New test files: `array_to_varying.go`, `varying_index.go`, `type_switch_constrained.go` in both go/types and types2 testdata
-     - type-casting-varying promoted from compile fail to compile pass; varying-universal-constrained still SIGSEGV (TinyGo type assert on SPMDType)
-   - **Bug Fixes** (3 commits):
-     - fix: shift bounds check for vector operands — vector-aware splat helpers in asserts.go + compiler.go
-     - fix: non-SPMD varying return call signature — spmdMaskType() consistency at declaration/call/type
-     - fix: varying if/else phi merge inside loop bodies — spmdFindMerge ifBlock barrier + multi-pred merge select + deferred select in else-exit block (L5b 800→404)
-   - **Known E2E Failures** (15 compile fail, categorized):
-     - SIGSEGV (4): array-counting (CreateExtractValue on vector), spmd-call-contexts (wrong arg count in closure), type-switch-varying (nil pointer in compiler), varying-universal-constrained (TinyGo type assert on SPMDType)
-     - LLVM verification (3): defer-varying (wrong arg count in closure), panic-recover-varying (masked load of struct type), non-spmd-varying-return (varying value passed to uniform param inside go for)
-     - Compiler bugs (2): map-restrictions (masked load of `%runtime._string`), union-type-generics (generic SPMD function panic in typeparams)
-     - Scalar-to-SPMD convert (1): bit-counting (scalar-to-SPMD convert received vector value in nested loop)
-     - Constrained type backend (1): varying-array-iteration (array-to-constrained-Varying conversion at TinyGo level)
-     - Design issues (2): pointer-varying (unsupported varying pointer patterns), base64-decoder (constrained types + Rotate/Swizzle)
-     - Missing package (1): ipv4-parser (math/bits not in TinyGo std)
-     - Printf (1): printf-verbs (nil pointer)
-   - **Phase 2.9-2.10: TinyGo Compiler Work (remaining)**:
-     - TinyGo uses `golang.org/x/tools/go/ssa` (NOT Go's `cmd/compile/internal/ssa`)
-     - LLVM auto-vectorizes: `CreateAdd(<4 x i32>, <4 x i32>)` → WASM `v128.add`
-     - Missing: varying switch/for-loop masking, lanes.Rotate/Swizzle, scalar fallback mode
-     - **Performance**: ~2.98x SPMD speedup on mandelbrot (256x256, 256 iterations, 0 differences vs serial)
-8. **Phase 3: NOT STARTED** - Validation and dual-mode testing
+### Phase 1: Go Frontend (COMPLETED)
+- Lexer, parser, and type system with package-based types (`lanes.Varying[T]`)
+- Full SPMD type checking with return/break restrictions per ISPC semantics
+- 42 SPMD vector opcodes in Go SSA (arithmetic, mask, memory, reduction, cross-lane)
+- Mask propagation through if/else, switch, and regular for-loops via masking
+- lanes/reduce builtin interception (6 lanes functions + 13 reduce functions)
+- SPMD function signatures with implicit mask as first parameter
+- All SPMD code gated behind `GOEXPERIMENT=spmd`
 
-   - **Syntax Migration: COMPLETED** — All examples, docs, and tests migrated from old keyword syntax to package-based types
-     - 5 commits: example programs (22 files), illegal-spmd tests (10 files), integration test sync (13 files), markdown docs (10 files), blog config + final cleanup
-     - Old `varying T` → `lanes.Varying[T]`, `uniform T` → plain `T`, `varying[N] T` → `lanes.Varying[T, N]`
-     - Legacy backward-compat files intentionally preserved (use `varying`/`uniform` as identifiers)
-     - `reduce.Uniform[T]` type alias skipped (Go 1.27dev rejects `type Uniform[T any] = T` with MisplacedTypeParam)
+### Phase 2: TinyGo LLVM Backend (IN PROGRESS)
+- **2.0-2.0d** (COMPLETED): Go stdlib porting (go/ast, go/parser, go/types); SPMD metadata extraction in TinyGo
+- **2.1-2.9c** (COMPLETED): GOEXPERIMENT support, LLVM vector types, SPMD loop lowering, control flow masking, function call handling, builtin interception, mask stack, constrained types, break mask support
+- **2.9-2.10** (REMAINING): Varying switch/for-loop masking in regular for loops, lanes.Rotate/Swizzle, scalar fallback mode
+- **Key Metrics**: Mandelbrot runs at ~2.98x SPMD speedup (256x256, 256 iterations, 0 differences vs serial) with 6 performance optimizations applied
+- **E2E Test Results**: 17 run pass, 4 compile-only pass, 15 compile fail, 11 reject OK (47 total)
+- **Known Limitation**: `[]Varying[bool]` mask arrays blocked by WASM `<N x i1>` memory limitation (documented in `docs/fromconstrained_mask_issue.md`)
 
-Next priority: Resolve `[]Varying[bool]` mask issue for FromConstrained (see docs/fromconstrained_mask_issue.md), fix SIGSEGV crashes (array-counting, spmd-call-contexts, type-switch-varying, varying-universal-constrained), fix LLVM masked load of struct types (unblocks map-restrictions, panic-recover-varying), fix closure arg count (defer-varying, spmd-call-contexts), fix array-to-constrained-Varying conversion (varying-array-iteration), then varying switch/for-loop masking
+### Phase 3: Validation (NOT STARTED)
+- **Syntax Migration** (COMPLETED): All examples/docs/tests migrated from keyword syntax to package-based types (5 commits, ~55 files)
+- Dual-mode testing (SIMD vs scalar WASM) and performance benchmarking remain for Phase 3
+
+**Next Priority** (see PLAN.md for full tracking):
+1. Resolve `[]Varying[bool]` mask issue for FromConstrained
+2. Fix SIGSEGV crashes (array-counting, type-switch-varying, spmd-call-contexts, varying-universal-constrained)
+3. Fix LLVM masked load of struct types
+4. Fix constrained type backend for varying-array-iteration
+5. Implement varying switch/for-loop masking for remaining test failures
 
 ## Proof of Concept Success Criteria
 
