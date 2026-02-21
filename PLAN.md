@@ -2,7 +2,7 @@
 
 **Version**: 2.6
 **Last Updated**: 2026-02-20
-**Status**: Phase 1 Complete, Phase 2.0-2.9c complete, FromConstrained/ToConstrained implemented (value decomposition works, masks blocked by WASM <N x i1> limitation), Mandelbrot RUNNING (0 differences, ~2.98x speedup), E2E: 17 run pass + 20 compile pass / 47 tests, syntax migration complete
+**Status**: Phase 1 Complete, Phase 2.0-2.9c complete, FromConstrained/ToConstrained implemented (value decomposition works, masks blocked by WASM <N x i1> limitation), Mandelbrot RUNNING (0 differences, ~2.98x speedup), E2E: 17 run pass + 4 compile-only pass / 47 tests, syntax migration complete
 
 ## Project Overview
 
@@ -739,11 +739,11 @@ Ported 10 `*_ext_spmd.go` files from types2 to go/types with full API translatio
 - [x] Validate 6 core programs compile + run correctly (stores, conditionals, functions, reduce, lanes, varying vars)
 - [x] Validate all 11 illegal examples correctly rejected by type checker
 
-**E2E Test Results (46 tests)**:
-- 16 RUN PASS: L0_store, L0_cond, L0_func, L1_reduce_add, L2_lanes_index, L3_varying_var, L4_range_slice, L4b_varying_break, L5a_simple_sum, L5b_odd_even, integ_simple-sum, integ_odd-even, integ_hex-encode, integ_debug-varying, integ_lanes-index-restrictions, integ_mandelbrot
-- 20 COMPILE PASS: integ_to-upper, integ_goroutine-varying, integ_select-with-varying-channels, integ_type-casting-varying (compile-only); plus all 16 run-pass tests also compile
+**E2E Test Results (47 tests)**:
+- 17 RUN PASS: L0_store, L0_cond, L0_func, L1_reduce_add, L2_lanes_index, L3_varying_var, L4_range_slice, L4b_varying_break, L5a_simple_sum, L5b_odd_even, L5e_from_constrained, integ_simple-sum, integ_odd-even, integ_hex-encode, integ_debug-varying, integ_lanes-index-restrictions, integ_mandelbrot
+- 4 COMPILE-ONLY PASS: integ_to-upper, integ_goroutine-varying, integ_select-with-varying-channels, integ_type-casting-varying
 - 11 REJECT OK: All illegal examples correctly rejected
-- 15 COMPILE FAIL: 1 constrained type backend, 1 constrained type checker (SIGSEGV in type assert), 3 SIGSEGV, 3 LLVM verification, 2 compiler bugs, 1 scalar-to-SPMD convert, 2 design issues, 1 missing package, 1 printf
+- 15 COMPILE FAIL: 4 SIGSEGV (array-counting, type-switch-varying, spmd-call-contexts, varying-universal-constrained), 3 LLVM verification (defer-varying, panic-recover-varying, non-spmd-varying-return), 2 compiler bugs (map-restrictions, union-type-generics), 1 scalar-to-SPMD convert (bit-counting), 1 constrained type backend (varying-array-iteration), 2 design issues (pointer-varying, base64-decoder), 1 missing package (ipv4-parser), 1 printf (printf-verbs)
 
 ### 2.8c Constrained Varying Type Support ✅ COMPLETED
 
@@ -1064,7 +1064,7 @@ Ported 10 `*_ext_spmd.go` files from types2 to go/types with full API translatio
   - E2E: ✅ L5e FromConstrained test (validates value decomposition, 17 run pass / 47 tests)
 - **Phase 3**: ❌ Not Started
 
-**Last Completed**: FromConstrained/ToConstrained implementation — type system relaxation (constrained→unconstrained), LLVM lowering for value decomposition into platform-sized groups, constraintN type erasure fix. Mask slices (`[]Varying[bool]`) blocked by WASM `<N x i1>` memory limitation (documented in `docs/fromconstrained_mask_issue.md`). E2E: 17 run pass, 20 compile pass / 47 tests (+1 run pass). (2026-02-20)
+**Last Completed**: FromConstrained/ToConstrained implementation — type system relaxation (constrained→unconstrained), LLVM lowering for value decomposition into platform-sized groups, constraintN type erasure fix. Mask slices (`[]Varying[bool]`) blocked by WASM `<N x i1>` memory limitation (documented in `docs/fromconstrained_mask_issue.md`). E2E: 17 run pass, 4 compile-only pass / 47 tests (+1 run pass). (2026-02-20)
 **Next Action**: Fix remaining 15 compile failures — SIGSEGV (array-counting, type-switch-varying, spmd-call-contexts, varying-universal-constrained), LLVM struct masked load (map-restrictions, panic-recover-varying), closure arg count (defer-varying, spmd-call-contexts), constrained type backend (varying-array-iteration conversion), then varying switch/for-loop masking. Resolve `[]Varying[bool]` mask issue for FromConstrained (see docs/fromconstrained_mask_issue.md).
 
 ### Recent Major Achievements (Phase 1.5 Extensions)
