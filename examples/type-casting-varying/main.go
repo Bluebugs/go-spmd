@@ -90,12 +90,13 @@ func demonstrateCrossTypeOperations() {
 
 	// Cast down to same size for operations
 	var wideAsNarrow lanes.Varying[uint16, 4] = lanes.Varying[uint16, 4](wide)   // Downcast 32→16
-	var narrowSlice lanes.Varying[uint16, 4] = lanes.From([]uint16{narrow[0], narrow[1], narrow[2], narrow[3]})  // Take first 4 elements
+	var narrowSlice lanes.Varying[uint16, 4] = lanes.From([]uint16{0x1111, 0x2222, 0x3333, 0x4444})  // First 4 elements of narrow
 
 	// Now both are uint16, can combine
 	var combined lanes.Varying[uint16, 4] = wideAsNarrow + narrowSlice
 
 	fmt.Printf("Original wide (uint32): %v\n", wide)
+	fmt.Printf("Original narrow (uint16): %v\n", narrow)
 	fmt.Printf("Wide cast to uint16: %v\n", wideAsNarrow)
 	fmt.Printf("Narrow slice (uint16): %v\n", narrowSlice)
 	fmt.Printf("Combined result: %v\n", combined)

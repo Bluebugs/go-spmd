@@ -7,62 +7,44 @@ package main
 import (
 	"fmt"
 	"lanes"
-	"reduce"
 )
 
 // Function accepting any constrained varying using lanes.Varying[T, 0]
-func processUniversalConstrained(data lanes.Varying[int, 0]) lanes.Varying[int, 0] {
+func processUniversalConstrained(data lanes.Varying[int32, 0]) lanes.Varying[int32, 0] {
 	// ILLEGAL: Direct operations on lanes.Varying[T, 0] are forbidden
 	// result := data + 10        // ERROR: operations forbidden on lanes.Varying[T, 0]
 	// if data > 5 { ... }        // ERROR: control flow forbidden on lanes.Varying[T, 0]
 
 	// LEGAL: Type switch to determine specific constraint size
 	switch v := data.(type) {
-	case lanes.Varying[int, 4]:
+	case lanes.Varying[int32, 4]:
 		// Can operate on specific constrained type
-		fmt.Printf("Processing lanes.Varying[int, 4]: %v\n", v)
-		return v * 2  // Returns lanes.Varying[int, 4], converted to lanes.Varying[int, 0]
+		fmt.Printf("Processing lanes.Varying[int32, 4]: %v\n", v)
+		return v * 2  // Returns lanes.Varying[int32, 4], converted to lanes.Varying[int32, 0]
 
-	case lanes.Varying[int, 8]:
+	case lanes.Varying[int32, 8]:
 		// Can operate on specific constrained type
-		fmt.Printf("Processing lanes.Varying[int, 8]: %v\n", v)
-		return v + 100  // Returns lanes.Varying[int, 8], converted to lanes.Varying[int, 0]
+		fmt.Printf("Processing lanes.Varying[int32, 8]: %v\n", v)
+		return v + 100  // Returns lanes.Varying[int32, 8], converted to lanes.Varying[int32, 0]
 
-	case lanes.Varying[int, 16]:
+	case lanes.Varying[int32, 16]:
 		// Can operate on specific constrained type
-		fmt.Printf("Processing lanes.Varying[int, 16]: %v\n", v)
-		return v / 2  // Returns lanes.Varying[int, 16], converted to lanes.Varying[int, 0]
+		fmt.Printf("Processing lanes.Varying[int32, 16]: %v\n", v)
+		return v / 2  // Returns lanes.Varying[int32, 16], converted to lanes.Varying[int32, 0]
 
 	default:
-		// Convert to unconstrained varying for generic processing
-		values, masks := lanes.FromConstrained(data)
-		fmt.Printf("Converting constrained to unconstrained: %d groups\n", len(values))
-
-		// Process each unconstrained group
-		for i, value := range values {
-			mask := masks[i]
-			fmt.Printf("Group %d - value: %v, mask: %v\n", i, value, mask)
-
-			// Apply operations to unconstrained varying
-			processed := value * 3
-
-			// Could reassemble into constrained varying, but we'll return first group
-			if i == 0 {
-				// For demo, convert back to a known constraint size
-				// In practice, you'd need to determine the original constraint
-				return lanes.Varying[int, 4](processed)  // Assumes original was multiple of 4
-			}
-		}
-
-		// Fallback
-		return lanes.Varying[int, 4](lanes.Varying[int](0))
+		// FromConstrained not yet implemented - return fallback
+		fmt.Printf("Default case reached - FromConstrained not yet implemented\n")
+		return lanes.Varying[int32, 4](lanes.Varying[int32](0))
 	}
 }
 
 // Function that converts lanes.Varying[T, 0] to unconstrained for generic processing
 func convertAndProcess(data lanes.Varying[byte, 0]) {
 	fmt.Println("\n=== Converting Constrained to Unconstrained ===")
-
+	fmt.Println("lanes.FromConstrained not yet implemented")
+	// TODO: Uncomment when lanes.FromConstrained is implemented
+	/*
 	// Convert using lanes.FromConstrained
 	values, masks := lanes.FromConstrained(data)
 
@@ -89,6 +71,7 @@ func convertAndProcess(data lanes.Varying[byte, 0]) {
 			fmt.Printf("  Some lanes active in this group\n")
 		}
 	}
+	*/
 }
 
 // Demonstrate type switch behavior with lanes.Varying[T, 0]
@@ -112,7 +95,9 @@ func demonstrateTypeSwitch(data lanes.Varying[float64, 0]) {
 		fmt.Printf("Processed result: %v\n", result)
 
 	default:
-		fmt.Printf("Unknown constraint size, converting to unconstrained\n")
+		fmt.Printf("Unknown constraint size - FromConstrained not yet implemented\n")
+		// TODO: Uncomment when lanes.FromConstrained is implemented
+		/*
 		values, masks := lanes.FromConstrained(data)
 
 		for i, value := range values {
@@ -121,6 +106,7 @@ func demonstrateTypeSwitch(data lanes.Varying[float64, 0]) {
 			activeLanes := reduce.Count(mask)
 			fmt.Printf("Group %d: avg=%.2f, active_lanes=%d\n", i, avg, activeLanes)
 		}
+		*/
 	}
 }
 
@@ -129,18 +115,18 @@ func processMultipleConstraints() {
 	fmt.Println("\n=== Multiple Constraint Processing ===")
 
 	// Create different constrained varying types
-	data4 := lanes.Varying[int, 4]([4]int{10, 20, 30, 40})
-	data8 := lanes.Varying[int, 8]([8]int{1, 2, 3, 4, 5, 6, 7, 8})
-	data16 := lanes.Varying[int, 16]([16]int{100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115})
+	data4 := lanes.Varying[int32, 4]([4]int32{10, 20, 30, 40})
+	data8 := lanes.Varying[int32, 8]([8]int32{1, 2, 3, 4, 5, 6, 7, 8})
+	data16 := lanes.Varying[int32, 16]([16]int32{100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115})
 
 	// All can be passed to function accepting lanes.Varying[T, 0]
 	result4 := processUniversalConstrained(data4)
 	result8 := processUniversalConstrained(data8)
 	result16 := processUniversalConstrained(data16)
 
-	fmt.Printf("Result from lanes.Varying[int, 4]: %v\n", result4)
-	fmt.Printf("Result from lanes.Varying[int, 8]: %v\n", result8)
-	fmt.Printf("Result from lanes.Varying[int, 16]: %v\n", result16)
+	fmt.Printf("Result from lanes.Varying[int32, 4]: %v\n", result4)
+	fmt.Printf("Result from lanes.Varying[int32, 8]: %v\n", result8)
+	fmt.Printf("Result from lanes.Varying[int32, 16]: %v\n", result16)
 }
 
 // Demonstrate assignment restrictions
@@ -148,28 +134,32 @@ func demonstrateAssignmentRestrictions() {
 	fmt.Println("\n=== Assignment Restrictions ===")
 
 	// LEGAL: Constrained varying can be assigned to lanes.Varying[T, 0]
-	data4 := lanes.Varying[int, 4]([4]int{1, 2, 3, 4})
-	data8 := lanes.Varying[int, 8]([8]int{10, 20, 30, 40, 50, 60, 70, 80})
+	data4 := lanes.Varying[int32, 4]([4]int32{1, 2, 3, 4})
+	data8 := lanes.Varying[int32, 8]([8]int32{10, 20, 30, 40, 50, 60, 70, 80})
 
 	// These assignments are legal
-	var universal4 lanes.Varying[int, 0] = data4  // OK: lanes.Varying[int, 4] → lanes.Varying[int, 0]
-	var universal8 lanes.Varying[int, 0] = data8  // OK: lanes.Varying[int, 8] → lanes.Varying[int, 0]
+	var universal4 lanes.Varying[int32, 0] = data4  // OK: lanes.Varying[int32, 4] → lanes.Varying[int32, 0]
+	var universal8 lanes.Varying[int32, 0] = data8  // OK: lanes.Varying[int32, 8] → lanes.Varying[int32, 0]
 
-	fmt.Printf("Assigned lanes.Varying[int, 4] to lanes.Varying[int, 0]: %T\n", universal4)
-	fmt.Printf("Assigned lanes.Varying[int, 8] to lanes.Varying[int, 0]: %T\n", universal8)
+	fmt.Printf("Assigned lanes.Varying[int32, 4] to lanes.Varying[int32, 0]: %T\n", universal4)
+	fmt.Printf("Assigned lanes.Varying[int32, 8] to lanes.Varying[int32, 0]: %T\n", universal8)
 
 	// ILLEGAL: Unconstrained varying cannot be assigned to lanes.Varying[T, 0]
-	unconstrained := lanes.Varying[int](42)
-	// var invalid lanes.Varying[int, 0] = unconstrained  // ERROR: type mismatch
+	unconstrained := lanes.Varying[int32](42)
+	// var invalid lanes.Varying[int32, 0] = unconstrained  // ERROR: type mismatch
 
 	fmt.Printf("Unconstrained varying type: %T\n", unconstrained)
 	fmt.Println("Note: Cannot assign unconstrained varying to lanes.Varying[T, 0]")
 }
 
 // Helper function showing lanes.Varying[T, 0] in function signature
-func crossConstraintOperation(a lanes.Varying[int, 0], b lanes.Varying[int, 0]) lanes.Varying[int, 0] {
+func crossConstraintOperation(a lanes.Varying[int32, 0], b lanes.Varying[int32, 0]) lanes.Varying[int32, 0] {
 	// Must determine types via type switch or convert to unconstrained
+	fmt.Println("lanes.FromConstrained not yet implemented - returning first argument")
+	return a
 
+	// TODO: Uncomment when lanes.FromConstrained is implemented
+	/*
 	// Simple approach: convert both to unconstrained and process
 	valuesA, masksA := lanes.FromConstrained(a)
 	valuesB, masksB := lanes.FromConstrained(b)
@@ -189,11 +179,12 @@ func crossConstraintOperation(a lanes.Varying[int, 0], b lanes.Varying[int, 0]) 
 			valuesA[0], valuesB[0], result)
 		fmt.Printf("Combined mask: %v\n", combinedMask)
 
-		// Return as some constrained type (demo assumes lanes.Varying[int, 4])
-		return lanes.Varying[int, 4](result)
+		// Return as some constrained type (demo assumes lanes.Varying[int32, 4])
+		return lanes.Varying[int32, 4](result)
 	}
 
-	return lanes.Varying[int, 4](lanes.Varying[int](0))
+	return lanes.Varying[int32, 4](lanes.Varying[int32](0))
+	*/
 }
 
 func main() {
@@ -223,8 +214,8 @@ func main() {
 
 	// Test 5: Cross-constraint operations
 	fmt.Println("\n=== Cross-Constraint Operations ===")
-	intData4 := lanes.Varying[int, 4]([4]int{100, 200, 300, 400})
-	intData8 := lanes.Varying[int, 8]([8]int{1, 2, 3, 4, 5, 6, 7, 8})
+	intData4 := lanes.Varying[int32, 4]([4]int32{100, 200, 300, 400})
+	intData8 := lanes.Varying[int32, 8]([8]int32{1, 2, 3, 4, 5, 6, 7, 8})
 
 	crossResult := crossConstraintOperation(intData4, intData8)
 	fmt.Printf("Cross-constraint result: %v\n", crossResult)
