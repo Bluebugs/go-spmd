@@ -113,7 +113,7 @@ SPMD support is implemented as a **runtime experimental feature** behind `GOEXPE
 Before TinyGo can compile any SPMD code, the standard library toolchain must be ported:
 - `go/ast`: COMPLETED — `IsSpmd`, `LaneCount`, `Constraint` fields on `RangeStmt`
 - `go/parser`: COMPLETED — `go for` loop detection + `range[N]` constraint parsing
-- `go/types`: COMPLETED — 10 `*_ext_spmd.go` files ported from types2, 7 test files, hooks in stmt/expr/typexpr/check/decl/call/index
+- `go/types`: COMPLETED — 10 `*_ext_spmd.go` files ported from types2, 13 test files, hooks in stmt/expr/typexpr/check/decl/call/index
 - `go/ssa`: NO changes — `golang.org/x/tools/go/ssa` is an external module, not in our Go fork
   - SPMD metadata extracted from typed AST in TinyGo's loader instead (avoids forking x/tools)
 
@@ -949,7 +949,7 @@ Go frontend implementation (Phase 1) is complete with 53 commits on the `spmd` b
    - **Phase 2.0: Go Standard Library Porting** (prerequisite before TinyGo work):
      - `go/ast`: COMPLETED — `IsSpmd`, `LaneCount`, `Constraint` fields on `RangeStmt`
      - `go/parser`: COMPLETED — `go for` parsing + `range[N]` constraints + `Varying[T, N]` in type and expression contexts (20 tests)
-     - `go/types`: COMPLETED — 10 `*_ext_spmd.go` files ported from types2, 7 test files, 5 commits
+     - `go/types`: COMPLETED — 10 `*_ext_spmd.go` files ported from types2, 10 test files, 8 commits
      - `go/ssa`: No changes needed — SPMD metadata extracted from typed AST in TinyGo's compiler
    - **Phase 2.0d: COMPLETED** — SPMD metadata extraction in TinyGo compiler
      - `compiler/spmd.go`: SPMDInfo side-table with loop/function metadata extraction from typed AST
@@ -1030,10 +1030,10 @@ Go frontend implementation (Phase 1) is complete with 53 commits on the `spmd` b
    - **createConvert SPMDType fix: COMPLETED** — Defensive handling in TinyGo `createConvert()`
      - `tinygo/compiler/compiler.go`: Intercept `*types.SPMDType` before `Underlying()` assertions
      - Four branches: SPMD-to-SPMD (recurse with elem), SPMD-to-scalar (recurse with elem), array-to-SPMD (arrayToVector), scalar-to-SPMD (convert + splat)
-   - **E2E Test Results** (16 run pass, 19 compile pass, 46 total):
+   - **E2E Test Results** (16 run pass, 20 compile pass, 46 total):
      - Inline tests (10): L0_store, L0_cond, L0_func, L1_reduce_add, L2_lanes_index, L3_varying_var, L4_range_slice, L4b_varying_break, L5a_simple_sum, L5b_odd_even
      - Integration run-pass (6): integ_simple-sum, integ_odd-even, integ_hex-encode, integ_debug-varying, integ_lanes-index-restrictions, integ_mandelbrot (0 differences, ~2.98x speedup)
-     - Compile-only pass (3): integ_to-upper, integ_goroutine-varying, integ_select-with-varying-channels
+     - Compile-only pass (5): integ_to-upper, integ_goroutine-varying, integ_select-with-varying-channels, integ_type-casting-varying, integ_varying-universal-constrained
      - Reject OK (11): All illegal examples correctly rejected
    - **Test program fixes: COMPLETED** — Fixed 12 buggy example programs across 6 commits
      - hex-encode: removed phantom `lanes.Encode` call (now compiles)
@@ -1083,13 +1083,18 @@ Go frontend implementation (Phase 1) is complete with 53 commits on the `spmd` b
      - `go/src/go/types/conversions.go` + `types2/conversions.go`: SPMD-to-SPMD guard in `convertibleTo()` prevents standard Go numeric conversion fallthrough
      - Downcasts (e.g., Varying[uint32] to Varying[uint16]) and same-size conversions (e.g., Varying[int32] to Varying[float32]) remain allowed
      - `illegal_invalid-type-casting` now correctly rejected with 8 error sites
+   - **Constrained type checker fixes: COMPLETED** — 4 commits in go/types + types2, 3 new test files each
+     - `go/src/go/types/operand_ext_spmd.go` + types2 mirror: Array-to-constrained-Varying conversion `[N]T` → `Varying[T, N]` in `convertibleToSPMD()`
+     - `go/src/go/types/index.go` + types2 mirror: Clear "varying types are not indexable" error before `Underlying()` type switch in `indexExpr()`
+     - `go/src/go/types/stmt.go` + `lookup.go` + types2 mirrors: Type switch on `Varying[T, 0]` via `isSPMDUniversalConstrained()` + `assertableTo()` SPMD cases
+     - New test files: `array_to_varying.go`, `varying_index.go`, `type_switch_constrained.go` in both go/types and types2 testdata
+     - type-casting-varying promoted from compile fail to compile pass; varying-universal-constrained still SIGSEGV (TinyGo type assert on SPMDType)
    - **Bug Fixes** (3 commits):
      - fix: shift bounds check for vector operands — vector-aware splat helpers in asserts.go + compiler.go
      - fix: non-SPMD varying return call signature — spmdMaskType() consistency at declaration/call/type
      - fix: varying if/else phi merge inside loop bodies — spmdFindMerge ifBlock barrier + multi-pred merge select + deferred select in else-exit block (L5b 800→404)
-   - **Known E2E Failures** (16 compile fail, categorized):
-     - Constrained type backend (2): type-casting-varying (indexing constrained varying), varying-array-iteration (array-to-constrained-Varying conversion)
-     - Constrained type checker (1): varying-universal-constrained (universal constraint `Varying[T,0]` interface boxing + capacity validation)
+   - **Known E2E Failures** (15 compile fail, categorized):
+     - Constrained type backend (1): varying-array-iteration (array-to-constrained-Varying conversion at TinyGo level)
      - SIGSEGV (3): array-counting (CreateExtractValue on vector), spmd-call-contexts (wrong arg count in closure), type-switch-varying (nil pointer in compiler)
      - LLVM verification (3): defer-varying (wrong arg count in closure), panic-recover-varying (masked load of struct type), non-spmd-varying-return (varying value passed to uniform param inside go for)
      - Compiler bugs (2): map-restrictions (masked load of `%runtime._string`), union-type-generics (generic SPMD function panic in typeparams)
@@ -1110,7 +1115,7 @@ Go frontend implementation (Phase 1) is complete with 53 commits on the `spmd` b
      - Legacy backward-compat files intentionally preserved (use `varying`/`uniform` as identifiers)
      - `reduce.Uniform[T]` type alias skipped (Go 1.27dev rejects `type Uniform[T any] = T` with MisplacedTypeParam)
 
-Next priority: Fix SIGSEGV crashes (array-counting, spmd-call-contexts, type-switch-varying), fix LLVM masked load of struct types (unblocks map-restrictions, panic-recover-varying), fix closure arg count (defer-varying, spmd-call-contexts), fix array-to-constrained-Varying conversion (varying-array-iteration), then varying switch/for-loop masking
+Next priority: Fix SIGSEGV crashes (array-counting, spmd-call-contexts, type-switch-varying, varying-universal-constrained), fix LLVM masked load of struct types (unblocks map-restrictions, panic-recover-varying), fix closure arg count (defer-varying, spmd-call-contexts), fix array-to-constrained-Varying conversion (varying-array-iteration), then varying switch/for-loop masking
 
 ## Proof of Concept Success Criteria
 
