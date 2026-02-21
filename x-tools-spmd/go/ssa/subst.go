@@ -155,9 +155,6 @@ func (subst *subster) typ(t types.Type) (res types.Type) {
 
 	case *types.SPMDType:
 		if r := subst.typ(t.Elem()); r != t.Elem() {
-			if t.IsConstrained() {
-				return types.NewVaryingConstrained(r, t.Constraint())
-			}
 			return types.NewVarying(r)
 		}
 		return t

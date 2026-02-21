@@ -318,7 +318,7 @@ func (h hasher) hash(t types.Type) uint32 {
 		return h.hashTuple(t)
 
 	case *types.SPMDType:
-		return 9181 + 2*uint32(t.Qualifier()) + 3*h.hash(t.Elem()) + 5*uint32(t.Constraint()+2)
+		return 9181 + 2*uint32(t.Qualifier()) + 3*h.hash(t.Elem())
 	}
 
 	panic(fmt.Sprintf("%T: %v", t, t))
