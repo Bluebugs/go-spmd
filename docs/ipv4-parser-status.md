@@ -1,6 +1,6 @@
 # IPv4 Parser SPMD Compilation Status Report
 
-**Date**: 2026-02-21
+**Date**: 2026-02-22
 **Source**: `test/integration/spmd/ipv4-parser/main.go`
 **Based on**: Wojciech Muła's SIMD IPv4 parsing research
 
@@ -18,7 +18,7 @@ it now reaches LLVM IR generation and fails at LLVM verification with type misma
 | Type Checking | PASS | All SPMD rules enforced correctly |
 | SSA Generation | PASS | x-tools SSA builder succeeds (composite literal panic fixed) |
 | LLVM IR Generation | PASS | IR is generated (merge select panic fixed) |
-| LLVM Verification | **FAIL** | 25 verification errors across 5 categories |
+| LLVM Verification | **FAIL** | 25 verification errors across 4 remaining categories (varying switch fixed) |
 | WASM Codegen | BLOCKED | Blocked by verification errors |
 
 ### SPMD Features Used by ipv4-parser
@@ -43,7 +43,12 @@ The parser exercises a wide range of SPMD features, making it an excellent stres
 
 7. **Mixed scalar/vector arithmetic**: bit manipulation (`bits.TrailingZeros16`), type conversions (`uint8(value)`)
 
-### LLVM Verification Errors (25 errors, 5 categories)
+### LLVM Verification Errors (25 errors, 4 remaining categories)
+
+**Note**: Category 3 (varying switch PHI mismatches) and Category 5 (PHI predecessor count)
+are expected to be resolved or reduced by the varying switch masking implementation completed
+on 2026-02-22 (3 TinyGo commits: chain detection, CFG linearization, deferred phi resolution).
+Re-verification needed to confirm actual error count reduction.
 
 #### Category 1: `sext` vector-to-scalar mismatch (8 errors)
 
@@ -90,13 +95,13 @@ phi i1 [ %278, %switch.body29 ], ...               -- scalar phi with vector ope
 **Root cause**: Two sub-issues:
 - `Varying[bool]` uses `<16 x i1>` (128/1 = 16 lanes), but mask operations produce
   `<4 x i32>` (WASM i32 mask format). These collide at phi merge points.
-- The varying switch statement (`switch fieldLen`) produces phis at the switch merge
-  that mix scalar and vector types because switch masking is not yet implemented.
+- The varying switch statement (`switch fieldLen`) previously produced phis at the switch
+  merge that mixed scalar and vector types. **FIXED** by varying switch masking (2026-02-22).
 
 **Fix needed**:
 - `Varying[bool]` mask consistency: the backend currently doesn't distinguish between
   "bool as data" (`<16 x i1>`) and "bool as mask" (`<4 x i32>` on WASM).
-- Varying switch masking (Phase 2.5 deferred item) would handle the switch phi issues.
+- Switch phi issues should be resolved by varying switch masking fix (re-verify needed).
 
 #### Category 4: Invalid select operands (3 errors)
 
@@ -120,14 +125,14 @@ PHINode should have one entry for each predecessor of its parent basic block!
 ```
 
 **Root cause**: After varying if/else CFG linearization, some blocks have their
-predecessors redirected, but the phis aren't updated to match. This likely occurs in
-the switch statement lowering path which doesn't have SPMD-aware phi handling.
+predecessors redirected, but the phis aren't updated to match. This likely occurred in
+the switch statement lowering path which didn't have SPMD-aware phi handling.
 
-**Fix needed**: Varying switch masking implementation would address this.
+**Fix status**: **Expected FIXED** by varying switch masking (2026-02-22). Re-verify needed.
 
 ### Underlying Root Causes (Summary)
 
-The 25 errors stem from 4 underlying issues:
+The 25 errors stem from 3 remaining underlying issues (1 fixed):
 
 1. **Multiple lane counts in one function** (HIGH priority)
    - The parser has loops over `[16]byte` (16 lanes), `[16]bool` (16 lanes),
@@ -140,10 +145,10 @@ The 25 errors stem from 4 underlying issues:
    - Data booleans and mask booleans have different representations and lane counts.
    - Need to distinguish "bool as varying data" from "bool as execution mask".
 
-3. **Varying switch masking** (MEDIUM priority, deferred)
-   - `switch fieldLen` with varying `fieldLen` requires N-way CFG linearization.
-   - Currently listed as a deferred Phase 2.5 item.
-   - Affects the field processing loop (lines 137-151).
+3. ~~**Varying switch masking**~~ — **FIXED** (2026-02-22)
+   - `switch fieldLen` with varying `fieldLen` now handled by switch chain detection,
+     sequential mask narrowing, CFG linearization, and deferred phi resolution.
+   - 3 TinyGo commits + L5f E2E test. Re-verify ipv4-parser to confirm error reduction.
 
 4. **Lane index in scalar contexts** (MEDIUM priority)
    - `sext <4 x i32> to i32` — lane index vector used where scalar expected.
@@ -165,5 +170,5 @@ The 25 errors stem from 4 underlying issues:
    values crossing loop boundaries need explicit conversion
 2. **`Varying[bool]` representation** — Decide on consistent representation:
    either always `<N x i1>` with lane-count-appropriate N, or always platform mask format
-3. **Varying switch masking** — Implement N-way linearization for switch statements
+3. ~~**Varying switch masking**~~ — **DONE** (2026-02-22). Re-verify to confirm error reduction.
 4. **Scalar extraction** — Handle lane index in scalar contexts via reduce/extract
