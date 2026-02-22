@@ -858,6 +858,19 @@ Note: This parser fix has been removed along with all constrained `Varying[T, N]
 
 **Implementation plan**: `docs/plans/2026-02-22-store-coalescing.md`
 
+### 2.9g Gather Shift-Right Load Expansion
+
+**Goal**: Detect `d = s[i >> n]` patterns (varying index right-shifted by constant into uniform array) and replace expensive gather operations with a smaller contiguous load + shufflevector expansion. For 4 i32 lanes, `s[i >> 1]` becomes 1 load + 1 shuffle instead of 4 scalar loads + 4 inserts. See `docs/plans/2026-02-22-gather-shift-load-expansion-design.md` for design. Inspired by ISPC's Gather Coalescing Pass (`opt/GatherCoalescePass.cpp`).
+
+- [ ] Add `spmdShiftedLoadInfo` struct and `spmdShiftedPtr` builder map (parallel to `spmdContiguousPtr`)
+- [ ] Add `spmdAnalyzeShiftedIndex()` in `spmd.go`: detect `BinOp(SHR, contiguous_expr, const)`, compute `uniqueCount` + `shuffleMask`
+- [ ] Integrate into IndexAddr handling (`compiler.go` ~line 2870): call `spmdAnalyzeShiftedIndex` before vector-of-GEPs fallback, register in `spmdShiftedPtr`
+- [ ] Add load dispatch in UnOp/deref path (`compiler.go` ~line 4200): check `spmdShiftedPtr`, emit scalar load + splat (uniqueCount==1) or narrow vector load + shufflevector (uniqueCount<laneCount)
+- [ ] Handle `(base + iter) >> n` pattern (scalar base expression added before shift)
+- [ ] Apply execution mask via select on the expanded result (not on the narrow load)
+- [ ] LLVM IR tests: `i >> 1` (4 i32 lanes), `i >> 2` (broadcast), `(base+i) >> 1`, `i >> 1` (i8/16 lanes), `i >> 3` (16 lanes)
+- [ ] E2E test: lookup table expansion pattern with `go for` loop
+
 ### 2.10 Backend Integration Testing
 
 - [ ] Verify simple-sum example compiles and produces correct WASM
