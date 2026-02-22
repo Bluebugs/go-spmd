@@ -51,10 +51,9 @@ func demonstrateVaryingArrayIteration() {
 		if reduce.Any(varyingData > 25) {
 			filtered := varyingData
 			// Apply processing only to lanes > 25
-			go for i := range lanes.Count(filtered) {
-				lane := lanes.Index()
-				if filtered > 25 {
-					fmt.Printf("    Lane %d has value > 25: %v\n", lane, filtered)
+			go for i, v := range filtered {
+				if v > 25 {
+					fmt.Printf("    Lane %v has value > 25: %v\n", i, v)
 				}
 			}
 		}
