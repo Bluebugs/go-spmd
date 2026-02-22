@@ -741,7 +741,7 @@ Ported 10 `*_ext_spmd.go` files from types2 to go/types with full API translatio
 
 ### 2.8c Constrained Varying Type Support -- REMOVED
 
-**NOTE**: Constrained `Varying[T, N]` support has been completely removed as a design simplification. Cross-lane operations that need group processing now use `*Within` functions (e.g., `lanes.RotateWithin`, `lanes.SwizzleWithin`) which operate within groups of N lanes on unconstrained varying types. This eliminates the complexity of constrained types in the AST, parser, type checker, and backend while preserving the same algorithmic capabilities. See `docs/constrained_removal.md` for the design rationale.
+**NOTE**: Constrained `Varying[T, N]` support has been completely removed as a design simplification. Cross-lane operations that need group processing now use `*Within` functions (e.g., `lanes.RotateWithin`, `lanes.SwizzleWithin`) which operate within groups of N lanes on unconstrained varying types. This eliminates the complexity of constrained types in the AST, parser, type checker, and backend while preserving the same algorithmic capabilities. See `docs/plans/2026-02-21-remove-constrained-varying-design.md` for the design rationale.
 
 ### 2.9a SPMD Function Body Mask Infrastructure ✅ COMPLETED
 

@@ -22,12 +22,14 @@ Remove all constrained varying support and add `*Within` cross-lane operations a
 ## What Gets Removed
 
 ### Language Specification
+
 - `Varying[T, N]` constrained type syntax (only `Varying[T]` remains)
 - `range[N]` constrained loop syntax (only `go for i := range expr` remains)
 - `Varying[T, 0]` universal constraint type
 - `FromConstrained` and `ToConstrained` builtin functions
 
 ### Go Frontend (`go/src/`)
+
 - `Constraint` field on `RangeStmt` in `go/ast/ast.go` and `cmd/compile/internal/syntax/nodes.go`
 - `parseSpmdConstraint()` and constrained parsing branches in both parsers
 - Constraint field and methods on `SPMDType` struct in `go/types/spmd.go` and `types2/spmd.go`
@@ -35,6 +37,7 @@ Remove all constrained varying support and add `*Within` cross-lane operations a
 - Constrained parser tests (~11 test cases) and type checker test files (~3 files per package)
 
 ### TinyGo Backend (`tinygo/compiler/`)
+
 - `Constraint` field on `SPMDLoopInfo` and `SPMDTypeInfo` in `spmd.go`
 - `spmdEffectiveLaneCount()` simplified to always use hardware lane count
 - `createFromConstrained()` implementation (~130 lines)
@@ -44,10 +47,12 @@ Remove all constrained varying support and add `*Within` cross-lane operations a
 - ~10 constrained LLVM test cases
 
 ### Standard Library
+
 - `FromConstrained` function in `lanes/lanes.go`
 - `ToConstrained` function in `lanes/lanes.go`
 
 ### Examples
+
 - `varying-universal-constrained/` — deleted entirely
 - `illegal-spmd/invalid-lane-constraints.go` — deleted entirely
 - `ipv4-parser/main.go` — rewritten with unconstrained varying
@@ -56,6 +61,7 @@ Remove all constrained varying support and add `*Within` cross-lane operations a
 - `type-switch-varying/main.go` — constrained switch cases removed
 
 ### Documentation
+
 - `docs/fromconstrained_mask_issue.md` — deleted (issue no longer exists)
 - Blog posts updated: `cross-lane-communication.md`, `go-spmd-ipv4-parser.md`
 - `CLAUDE.md` updated: remove all `Varying[T, N]` references
@@ -84,12 +90,14 @@ func SwizzleWithin[T any](v Varying[T], indices Varying[int], groupSize int) Var
 ```
 
 **Semantics:**
+
 - `groupSize` must be a compile-time constant
 - `groupSize` must evenly divide the platform lane count (compile-time check)
 - Operations are completely independent between groups
 - Example: `RotateWithin(v, 1, 4)` on 16 byte lanes rotates [0-3], [4-7], [8-11], [12-15] independently
 
 **TinyGo LLVM implementation:**
+
 - Lower to LLVM `shufflevector` with computed per-group masks
 - Same builtin interception pattern as existing cross-lane ops in `compiler/spmd.go`
 
@@ -97,26 +105,7 @@ func SwizzleWithin[T any](v Varying[T], indices Varying[int], groupSize int) Var
 
 ### IPv4 Parser (Unconstrained)
 
-Instead of `range[16]` forcing 16 lanes, use unconstrained `go for` and accumulate per-lane results with post-loop reduction:
-
-```go
-var dotMaskTotal lanes.Varying[uint8]
-var validChars lanes.Varying[bool]
-
-go for i, c := range input {
-    isDot := c == '.'
-    if isDot {
-        dotMaskTotal = 1
-    }
-    validChars = isDot || (c >= '0' && c <= '9') || c == 0
-}
-
-// Reduce outside the loop
-dotCount := reduce.Add(dotMaskTotal)
-dotPositionMask := reduce.Mask(lanes.Varying[bool](dotMaskTotal > 0))
-```
-
-On WASM128, `Varying[byte]` = 16 lanes, so `[16]byte` processes in one iteration. On narrower hardware, the compiler handles cross-iteration state for varying accumulators.
+Instead of `range[16]` forcing 16 lanes, use unconstrained `go for` and accumulate per-lane results with post-loop reduction. The IPv4 parser has been rewritten to use unconstrained `go for` with accumulation patterns.
 
 ### Base64 Decoder (With `*Within`)
 
@@ -137,17 +126,20 @@ func decodeChunk(ascii lanes.Varying[byte]) lanes.Varying[byte] {
 ## Impact Analysis
 
 ### Complexity Budget
+
 - **Removed**: ~1200 lines (600 Go frontend + 350 TinyGo + 250 tests/examples)
 - **Added**: ~200 lines (30 stubs + 150 LLVM lowering + 20 tests)
 - **Net**: ~1000 lines removed
 
 ### Issues Resolved
+
 - `[]Varying[bool]` WASM `<N x i1>` mask limitation — gone
 - `FromConstrained` mask return blocker — gone
 - Potential SIGSEGV causes in constrained code paths — gone
 - Constrained backend failures — gone
 
 ### E2E Test Impact
+
 - `varying-universal-constrained` — removed (was SIGSEGV)
 - `type-switch-varying` — simplified (constrained cases removed)
 - `type-casting-varying` — simplified (constrained sections removed)

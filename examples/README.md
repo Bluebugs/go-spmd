@@ -36,8 +36,8 @@ Demonstrates pointer operations with varying types, including pointers to varyin
 - **Concepts**: Pointer to varying data, varying pointers, address operations, scatter/gather patterns, indirect access
 
 #### [type-switch-varying/](type-switch-varying/)
-Shows type switches with varying interface{} values, requiring explicit varying type cases and supporting constrained varying types.
-- **Concepts**: Type switches with varying interface{}, explicit varying type cases, constrained varying matching, type assertions
+Shows type switches with varying interface{} values, requiring explicit varying type cases.
+- **Concepts**: Type switches with varying interface{}, explicit varying type cases, type assertions
 
 #### [non-spmd-varying-return/](non-spmd-varying-return/)
 Demonstrates non-SPMD functions (no varying parameters) that can return varying values and their usage restrictions.
@@ -51,12 +51,8 @@ Shows SPMD functions being called from different contexts with automatic mask ha
 Demonstrates the specific context requirements for lanes.Index() and shows valid vs invalid usage patterns.
 - **Concepts**: lanes.Index() SPMD context requirements, compile-time enforcement, SPMD vs non-SPMD function distinction
 
-#### [varying-universal-constrained/](varying-universal-constrained/)
-Shows varying[] syntax for accepting any constrained varying type with lanes.FromConstrained conversion and type switch usage.
-- **Concepts**: Universal constrained varying (varying[]), type switch conversion, lanes.FromConstrained, operation restrictions on varying[]
-
 #### [union-type-generics/](union-type-generics/)
-Demonstrates union type generics for reduce and lanes functions accepting both constrained and unconstrained varying types with automatic inlining.
+Demonstrates union type generics for reduce and lanes functions accepting varying types with automatic inlining.
 - **Concepts**: Union type constraints (VaryingNumeric, VaryingBool, etc.), automatic inlining, type-safe operations, generic programming with varying types
 
 #### [type-casting-varying/](type-casting-varying/)
