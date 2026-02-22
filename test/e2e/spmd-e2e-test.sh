@@ -368,6 +368,43 @@ EOF
 
 test_compile_and_run "L5b_odd_even" "$OUTDIR/L5b_odd_even.go" "404" "testOddEven" "-scheduler=none"
 
+# ========== LEVEL 5f: Varying switch ==========
+printf "\n${BLUE}--- Level 5f: Varying switch ---${NC}\n"
+
+cat > "$OUTDIR/L5f_varying_switch.go" << 'EOF'
+package main
+
+import (
+    "lanes"
+    "reduce"
+)
+
+//go:export testVaryingSwitch
+func testVaryingSwitch() int32 {
+    data := [4]int32{1, 2, 3, 1}
+    var result lanes.Varying[int32]
+    go for i := range 4 {
+        switch data[i] {
+        case 1:
+            result = 10
+        case 2:
+            result = 20
+        case 3:
+            result = 30
+        default:
+            result = 0
+        }
+    }
+    // data: [1,2,3,1] -> result: [10,20,30,10]
+    // reduce.Add = 10+20+30+10 = 70
+    return reduce.Add(result)
+}
+
+func main() {}
+EOF
+
+test_compile_and_run "L5f_varying_switch" "$OUTDIR/L5f_varying_switch.go" "70" "testVaryingSwitch" "-scheduler=none"
+
 # ========== LEVEL 5c: Integration test examples ==========
 printf "\n${BLUE}--- Level 5c: Integration examples (compile only) ---${NC}\n"
 
