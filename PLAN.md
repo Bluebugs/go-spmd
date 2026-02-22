@@ -2,7 +2,7 @@
 
 **Version**: 2.6
 **Last Updated**: 2026-02-20
-**Status**: Phase 1 Complete, Phase 2.0-2.9c complete, constrained Varying[T,N] REMOVED (design simplification), *Within cross-lane operations added + LLVM lowered (RotateWithin/ShiftLeftWithin/ShiftRightWithin via shufflevector, 17 tests), Mandelbrot RUNNING (0 differences, ~2.98x speedup), E2E: 16 run pass + 4 compile-only pass / 44 tests, syntax migration complete
+**Status**: Phase 1 Complete, Phase 2.0-2.9c complete, constrained Varying[T,N] REMOVED (design simplification), *Within cross-lane operations added + LLVM lowered (RotateWithin/ShiftLeftWithin/ShiftRightWithin via shufflevector, 17 tests), Mandelbrot RUNNING (0 differences, ~2.98x speedup), E2E: 16 run pass + 5 compile-only pass / 44 tests, ipv4-parser reaches LLVM verification (25 errors, no panics)
 
 ## Project Overview
 
@@ -735,12 +735,11 @@ Ported 10 `*_ext_spmd.go` files from types2 to go/types with full API translatio
 
 **E2E Test Results (44 tests)**:
 - 16 RUN PASS: L0_store, L0_cond, L0_func, L1_reduce_add, L2_lanes_index, L3_varying_var, L4_range_slice, L4b_varying_break, L5a_simple_sum, L5b_odd_even, integ_simple-sum, integ_odd-even, integ_hex-encode, integ_debug-varying, integ_lanes-index-restrictions, integ_mandelbrot
-- 4 COMPILE-ONLY PASS: integ_to-upper, integ_goroutine-varying, integ_select-with-varying-channels, integ_type-casting-varying
+- 5 COMPILE-ONLY PASS: integ_to-upper, integ_goroutine-varying, integ_select-with-varying-channels, integ_type-casting-varying, integ_infinite-loop-exit
 - 10 REJECT OK: All illegal examples correctly rejected
-- 14 COMPILE FAIL (categorized by root cause):
-  - **Compiler backend bugs (9)**: bit-counting (scalar-to-SPMD convert receives vector), array-counting (SIGSEGV), map-restrictions (LLVM masked load of struct `runtime._string`), defer-varying (closure mask arg count), printf-verbs (nil pointer deref crash), panic-recover-varying (struct masked load), non-spmd-varying-return (call param type mismatch), spmd-call-contexts (closure arg count), union-type-generics (x-tools-spmd generic instantiation panic)
-  - **Type checker bug (1)**: varying-array-iteration (`inSPMDFor` flag not cleared in uniform `if` body — nested `go for` after `reduce.Any()` should be allowed since reduce returns uniform bool)
-  - **Test code bugs (2)**: ipv4-parser (wrong import `"bits"`, `lanes.Count()` no args, `reduce.Mask` type mismatch, x-tools composite literal crash), base64-decoder (`Varying[uint16]` doesn't match `Varying[byte]` for `ShiftLeft`)
+- 13 COMPILE FAIL (categorized by root cause):
+  - **Compiler backend bugs (8)**: bit-counting (scalar-to-SPMD convert receives vector), array-counting (SIGSEGV), map-restrictions (LLVM masked load of struct `runtime._string`), defer-varying (closure mask arg count), printf-verbs (nil pointer deref crash), panic-recover-varying (struct masked load), non-spmd-varying-return (call param type mismatch), spmd-call-contexts (closure arg count)
+  - **Complex SPMD patterns (3)**: ipv4-parser (25 LLVM verification errors — multi-lane-count loops, Varying[bool] type collision, varying switch masking — see `docs/ipv4-parser-status.md`), base64-decoder (`Varying[uint16]` doesn't match `Varying[byte]` for `ShiftLeft`), union-type-generics (x-tools-spmd generic instantiation panic)
   - **Missing features (2)**: pointer-varying (pointer ops with varying), type-switch-varying (type switch on varying values)
 
 ### 2.8c Constrained Varying Type Support -- REMOVED
@@ -1124,14 +1123,13 @@ Note: This parser fix has been removed along with all constrained `Varying[T, N]
 
 ---
 
-**Last Completed**: *Within cross-lane LLVM lowering — RotateWithin, ShiftLeftWithin, ShiftRightWithin via LLVM shufflevector (17 tests). Constrained Varying[T,N] removal complete. E2E: 16 run pass, 4 compile-only pass / 44 tests. (2026-02-21)
-**Next Action**: Fix remaining 14 compile failures:
-1. Type checker bug: allow nested `go for` in uniform `if` bodies (after `reduce.Any()` — `inSPMDFor` flag issue in `stmt_ext_spmd.go`)
-2. Closure mask parameter (defer-varying, spmd-call-contexts — arg count mismatch)
-3. LLVM struct masked load (map-restrictions, panic-recover-varying — `runtime._string` not primitive vector)
-4. SIGSEGV (array-counting — compiler crash)
-5. Test code fixes (ipv4-parser imports/types, base64-decoder type inference)
-6. Remaining: scalar-to-SPMD convert, printf nil deref, non-spmd return mask type, union-type-generics x-tools panic, pointer-varying/type-switch-varying features
+**Last Completed**: Return expression type-checking fix (Go) + deferred merge select fix (TinyGo). ipv4-parser now reaches LLVM verification (25 errors) instead of panicking. E2E: 16 run pass, 5 compile-only pass / 44 tests. (2026-02-21)
+**Next Action**: Fix remaining 13 compile failures:
+1. Closure mask parameter (defer-varying, spmd-call-contexts — arg count mismatch)
+2. LLVM struct masked load (map-restrictions, panic-recover-varying — `runtime._string` not primitive vector)
+3. SIGSEGV (array-counting — compiler crash)
+4. ipv4-parser: multi-lane-count loops + Varying[bool] type collision + varying switch masking (see `docs/ipv4-parser-status.md`)
+5. Remaining: scalar-to-SPMD convert (bit-counting), printf nil deref, non-spmd return mask type, union-type-generics x-tools panic, base64-decoder type inference, pointer-varying/type-switch-varying features
 
 ### Recent Major Achievements (Phase 1.5 Extensions)
 
