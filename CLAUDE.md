@@ -19,7 +19,6 @@ This workspace implements Single Program Multiple Data (SPMD) support for Go, si
 - **SPMD**: All lanes execute the same program but on different data elements
 - **Uniform**: Values that are the same across all SIMD lanes (scalars)
 - **Varying**: Values that differ across SIMD lanes (vectors)
-- **Constrained Varying**: `lanes.Varying[T, N]` specifies constraint `N` (hardware-independent, compiler handles via unrolling/masking)
 - **Execution Mask**: Tracks which lanes are active during control flow
 - **lanes.Count(lanes.Varying[T])**: Number of SIMD lanes for a specific type (e.g., 4 for WASM 128-bit SIMD), known at compile time
 - **lanes.Index()**: Current lane index (0 to lanes.Count()-1) in the current SPMD context
@@ -41,20 +40,10 @@ var y float32          // Regular Go value = uniform
 // Varying values use lanes.Varying[T]
 var v lanes.Varying[float32]  // Vector value, different per lane
 
-// Constrained varying - hardware-independent constraints
-var data lanes.Varying[byte, 4]   // Constraint 4 (compiler handles implementation)
-var mask lanes.Varying[bool, 8]   // Constraint 8 (compiler handles implementation)
-
 // SPMD loop construct
 go for i := range 16 {
     // Loop body executes in SIMD fashion
     // i is automatically varying: [i, i+1, i+2, i+3]
-}
-
-// Constrained SPMD loop - process in groups of n
-go for i := range[4] 16 {
-    // Process 4 elements at a time per iteration
-    // Useful for algorithms with specific data relationships
 }
 
 // Builtins
@@ -62,9 +51,13 @@ lanes.Count[int](v)          // Returns SIMD width (e.g., 4)
 lanes.Index()                // Returns current lane [0,1,2,3]
 
 // Cross-lane operations
-lanes.Broadcast(value, lane)  // Broadcast from one lane to all
-lanes.Rotate(value, offset)   // Rotate values across lanes
-lanes.Swizzle(value, indices) // Arbitrary permutation
+lanes.Broadcast(value, lane)         // Broadcast from one lane to all
+lanes.Rotate(value, offset)          // Rotate values across lanes
+lanes.Swizzle(value, indices)        // Arbitrary permutation
+lanes.RotateWithin(value, offset, n) // Rotate within groups of n lanes
+lanes.SwizzleWithin(value, idx, n)   // Swizzle within groups of n lanes
+lanes.ShiftLeftWithin(value, cnt, n) // Shift left within groups of n lanes
+lanes.ShiftRightWithin(val, cnt, n)  // Shift right within groups of n lanes
 ```
 
 ## Implementation Architecture
@@ -88,7 +81,7 @@ SPMD support is implemented as a **runtime experimental feature** behind `GOEXPE
 ### Phase 1: Go Frontend Changes (Runtime Gated)
 
 - **Package-Based Types**: Varying types use `lanes.Varying[T]` generic type (compiler magic, not regular generics). Uniform values are regular Go types (no annotation needed).
-- **Type Checker Intercept**: `lanes.Varying[T]` and `lanes.Varying[T, N]` are intercepted before generic instantiation and converted to internal `SPMDType`
+- **Type Checker Intercept**: `lanes.Varying[T]` is intercepted before generic instantiation and converted to internal `SPMDType`
 - **Backward Compatibility**: `uniform` and `varying` are regular identifiers (not keywords), no backward compatibility issues
 - **Conditional Parsing**: `go for` SPMD loop parsing only active when `buildcfg.Experiment.SPMD` is true
 - **Gated Type System**: SPMD type checking rules only apply when `buildcfg.Experiment.SPMD` is true
@@ -111,8 +104,8 @@ SPMD support is implemented as a **runtime experimental feature** behind `GOEXPE
 **Step 1 — Go Standard Library Porting (Phase 2.0 in PLAN.md)**:
 
 Before TinyGo can compile any SPMD code, the standard library toolchain must be ported:
-- `go/ast`: COMPLETED — `IsSpmd`, `LaneCount`, `Constraint` fields on `RangeStmt`
-- `go/parser`: COMPLETED — `go for` loop detection + `range[N]` constraint parsing
+- `go/ast`: COMPLETED — `IsSpmd`, `LaneCount` fields on `RangeStmt`
+- `go/parser`: COMPLETED — `go for` loop detection
 - `go/types`: COMPLETED — 10 `*_ext_spmd.go` files ported from types2, 13 test files, hooks in stmt/expr/typexpr/check/decl/call/index
 - `go/ssa`: NO changes — `golang.org/x/tools/go/ssa` is an external module, not in our Go fork
   - SPMD metadata extracted from typed AST in TinyGo's loader instead (avoids forking x/tools)
@@ -128,7 +121,6 @@ Before TinyGo can compile any SPMD code, the standard library toolchain must be 
 - Handle SPMD function call mask insertion — DONE (Phase 2.6)
 - Intercept lanes/reduce function calls and lower to LLVM vector intrinsics — DONE (Phase 2.7)
 - Patched `x/tools` (`x-tools-spmd/`) so `typeutil.Map` can hash `*types.SPMDType` — DONE (SPMDType cases in hash/shallowHash, prime 9181, `go.mod` replace directive)
-- Constrained `Varying[T, N]` → `<N x T>` vector types with `spmdEffectiveLaneCount()` — DONE (Phase 2.8c)
 - SPMD function body mask infrastructure: `spmdFuncIsBody` flag, mask stack from entry mask — DONE (Phase 2.9a)
 - Per-lane break mask support: break mask alloca, break redirects, active mask computation — DONE (Phase 2.9b)
 - Vector IndexAddr + break result tracking: vector of GEPs, per-lane bounds check, break result allocas — DONE (Phase 2.9c)
@@ -802,9 +794,8 @@ All implementation work that is explicitly postponed for future phases MUST be t
 - **Related**: Cross-references to related work
 
 **Examples**:
-- ✅ **lanes.Rotate() builtin** → Deferred to Phase 2.7b (requires shuffle vector generation pattern)
-- ✅ **WASM `<N x i1>` mask storage** → Blocked by WASM platform limitation (documented in docs/fromconstrained_mask_issue.md)
-- ✅ **Varying switch masking** → Deferred to Phase 2.5 (requires N-way merge similar to if/else linearization)
+- **lanes.Rotate() builtin** → Deferred to Phase 2.7b (requires shuffle vector generation pattern)
+- **Varying switch masking** → Deferred to Phase 2.5 (requires N-way merge similar to if/else linearization)
 
 **Anti-Pattern**: Do NOT mark items as "deferred" without documenting them in the collection:
 - ❌ Leaving code marked `// TODO` or `// FIXME` without PLAN.md entry
@@ -832,7 +823,7 @@ All implementation work that is explicitly postponed for future phases MUST be t
    - **NO EMOJIS EVER** - plain text only
    - Examples:
      - ✅ "Add lanes.Varying type recognition to type checker"
-     - ✅ "Fix SPMD loop type checking for constrained varying"
+     - ✅ "Fix SPMD loop type checking for varying types"
      - ✅ "Implement SIMD128 vector add instruction generation"
      - ❌ "🚀 Add cool SPMD features and fix some bugs ✨"
 
@@ -890,22 +881,20 @@ All implementation work that is explicitly postponed for future phases MUST be t
 
 ### Phase 2: TinyGo LLVM Backend (IN PROGRESS)
 - **2.0-2.0d** (COMPLETED): Go stdlib porting (go/ast, go/parser, go/types); SPMD metadata extraction in TinyGo
-- **2.1-2.9c** (COMPLETED): GOEXPERIMENT support, LLVM vector types, SPMD loop lowering, control flow masking, function call handling, builtin interception, mask stack, constrained types, break mask support
+- **2.1-2.9c** (COMPLETED): GOEXPERIMENT support, LLVM vector types, SPMD loop lowering, control flow masking, function call handling, builtin interception, mask stack, break mask support, *Within cross-lane operations
 - **2.9-2.10** (REMAINING): Varying switch/for-loop masking in regular for loops, lanes.Rotate/Swizzle, scalar fallback mode
 - **Key Metrics**: Mandelbrot runs at ~2.98x SPMD speedup (256x256, 256 iterations, 0 differences vs serial) with 6 performance optimizations applied
-- **E2E Test Results**: 17 run pass, 4 compile-only pass, 15 compile fail, 11 reject OK (47 total)
-- **Known Limitation**: `[]Varying[bool]` mask arrays blocked by WASM `<N x i1>` memory limitation (documented in `docs/fromconstrained_mask_issue.md`)
+- **E2E Test Results**: 16 run pass, 4 compile-only pass, 14 compile fail, 10 reject OK (44 total)
 
 ### Phase 3: Validation (NOT STARTED)
 - **Syntax Migration** (COMPLETED): All examples/docs/tests migrated from keyword syntax to package-based types (5 commits, ~55 files)
 - Dual-mode testing (SIMD vs scalar WASM) and performance benchmarking remain for Phase 3
 
 **Next Priority** (see PLAN.md for full tracking):
-1. Resolve `[]Varying[bool]` mask issue for FromConstrained
-2. Fix SIGSEGV crashes (array-counting, type-switch-varying, spmd-call-contexts, varying-universal-constrained)
-3. Fix LLVM masked load of struct types
-4. Fix constrained type backend for varying-array-iteration
-5. Implement varying switch/for-loop masking for remaining test failures
+1. Fix SIGSEGV crashes (array-counting, type-switch-varying, spmd-call-contexts)
+2. Fix LLVM masked load of struct types
+3. Implement varying switch/for-loop masking for remaining test failures
+4. Implement scalar fallback mode
 
 ## Proof of Concept Success Criteria
 
@@ -936,7 +925,7 @@ go get github.com/wasmerio/wasmer-go/wasmer
 
 ```bash
 # Compile ALL examples to both SIMD and scalar WASM
-for example in simple-sum odd-even bit-counting array-counting printf-verbs hex-encode to-upper base64-decoder ipv4-parser debug-varying goroutine-varying defer-varying panic-recover-varying map-restrictions pointer-varying type-switch-varying non-spmd-varying-return spmd-call-contexts lanes-index-restrictions varying-universal-constrained union-type-generics infinite-loop-exit uniform-early-return; do
+for example in simple-sum odd-even bit-counting array-counting printf-verbs hex-encode to-upper base64-decoder ipv4-parser debug-varying goroutine-varying defer-varying panic-recover-varying map-restrictions pointer-varying type-switch-varying non-spmd-varying-return spmd-call-contexts lanes-index-restrictions union-type-generics infinite-loop-exit uniform-early-return; do
     echo "Testing $example in dual mode..."
     
     # Compile SIMD version
