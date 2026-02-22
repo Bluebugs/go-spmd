@@ -4,8 +4,9 @@
 package main
 
 import (
-	"math/bits"
 	"fmt"
+	"math/bits"
+
 	"lanes"
 	"reduce"
 )
@@ -61,7 +62,7 @@ func parseIPv4(s string) ([4]byte, error) {
 	// Process all 16 elements using SIMD lanes
 	var dotMaskTotal lanes.Varying[uint32]
 
-	var loop uint
+	var loop int
 	go for i, c := range input {
 		dotMask[i] = c == '.'
 		if dotMask[i] {
@@ -74,9 +75,9 @@ func parseIPv4(s string) ([4]byte, error) {
 
 		// Check character validity with precise error location
 		if !reduce.All(validChars) {
-			return [4]byte{}, parseAddrError{in: s, at: reduce.FindFirstSet(validChars) + int(loop), msg: "unexpected character"}
+			return [4]byte{}, parseAddrError{in: s, at: reduce.FindFirstSet(!validChars) + loop, msg: "unexpected character"}
 		}
-		loop += lanes.Count()
+		loop += lanes.Count(c)
 	}
 
 	// Count dots using reduction
@@ -89,9 +90,9 @@ func parseIPv4(s string) ([4]byte, error) {
 
 	// Create dot position bitmask (mimics _mm_movemask_epi8)
 	loop = 0
-	go for i, isDot := range dotMask {
+	go for _, isDot := range dotMask {
 		mask |= uint16(reduce.Mask(isDot)) << loop
-		loop += lanes.Count()
+		loop += lanes.Count(isDot)
 	}
 
 	// Extract dot positions using bit manipulation
@@ -149,24 +150,14 @@ func parseIPv4(s string) ([4]byte, error) {
 			hasLeadingZero = (d2 == 0)
 		}
 
-		var errors parseAddrError
-		var hasError bool
-
-		// Validation and error handling
-		if hasLeadingZero {
-			errors = parseAddrError{in: s, msg: "IPv4 field has octet with leading zero"}
-			hasError = true
-		} else if value > 255 {
-			errors = parseAddrError{in: s, msg: "IPv4 field has value >255"}
-			hasError = true
-		} else {
-			ip[field] = uint8(value)
+		// Validation: check each error condition across all lanes
+		if reduce.Any(hasLeadingZero) {
+			return [4]byte{}, parseAddrError{in: s, msg: "IPv4 field has octet with leading zero"}
 		}
-
-		if reduce.Any(hasError) {
-			uniformErrors := reduce.From(errors)
-			return [4]byte{}, uniformErrors[reduce.FindFirstSet(hasError)]
+		if reduce.Any(value > 255) {
+			return [4]byte{}, parseAddrError{in: s, msg: "IPv4 field has value >255"}
 		}
+		ip[field] = uint8(value)
 	}
 
 	return ip, nil
