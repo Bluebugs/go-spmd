@@ -4,7 +4,7 @@
 package main
 
 import (
-	"bits"
+	"math/bits"
 	"fmt"
 	"lanes"
 	"reduce"
@@ -61,7 +61,7 @@ func parseIPv4(s string) ([4]byte, error) {
 	// Process all 16 elements using SIMD lanes
 	var dotMaskTotal lanes.Varying[uint32]
 
-	var loop int
+	var loop uint
 	go for i, c := range input {
 		dotMask[i] = c == '.'
 		if dotMask[i] {
@@ -74,7 +74,7 @@ func parseIPv4(s string) ([4]byte, error) {
 
 		// Check character validity with precise error location
 		if !reduce.All(validChars) {
-			return [4]byte{}, parseAddrError{in: s, at: reduce.FindFirstSet(validChars) + loop, msg: "unexpected character"}
+			return [4]byte{}, parseAddrError{in: s, at: reduce.FindFirstSet(validChars) + int(loop), msg: "unexpected character"}
 		}
 		loop += lanes.Count()
 	}
@@ -90,7 +90,7 @@ func parseIPv4(s string) ([4]byte, error) {
 	// Create dot position bitmask (mimics _mm_movemask_epi8)
 	loop = 0
 	go for i, isDot := range dotMask {
-		mask |= reduce.Mask(isDot) << loop
+		mask |= uint16(reduce.Mask(isDot)) << loop
 		loop += lanes.Count()
 	}
 
