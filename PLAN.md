@@ -2,7 +2,7 @@
 
 **Version**: 2.6
 **Last Updated**: 2026-02-20
-**Status**: Phase 1 Complete, Phase 2.0-2.9c complete, constrained Varying[T,N] REMOVED (design simplification), *Within cross-lane operations added + LLVM lowered (RotateWithin/ShiftLeftWithin/ShiftRightWithin via shufflevector, 17 tests), Mandelbrot RUNNING (0 differences, ~2.98x speedup), E2E: 16 run pass + 5 compile-only pass / 44 tests, ipv4-parser reaches LLVM verification (25 errors, no panics)
+**Status**: Phase 1 Complete, Phase 2.0-2.9c complete, Varying switch masking COMPLETED (3 TinyGo commits: detection, CFG linearization, deferred phi fix), constrained Varying[T,N] REMOVED (design simplification), *Within cross-lane operations added + LLVM lowered (RotateWithin/ShiftLeftWithin/ShiftRightWithin via shufflevector, 17 tests), Mandelbrot RUNNING (0 differences, ~2.98x speedup), E2E: 17 run pass + 5 compile-only pass / 45 tests, ipv4-parser reaches LLVM verification (25 errors, no panics)
 
 ## Project Overview
 
@@ -645,7 +645,7 @@ Ported 10 `*_ext_spmd.go` files from types2 to go/types with full API translatio
 - [x] New functions in `compiler/spmd.go`: `spmdVaryingIf` type, `isBlockInSPMDBody`, `spmdDetectVaryingIf`, `spmdFindMerge`, `spmdFindThenExits`, `spmdShouldRedirectJump`, `spmdCreateMergeSelect`, `spmdVectorAnyTrue`, `spmdIsReachableFrom`
 - [x] Integration in `compiler/compiler.go`: 3 new builder fields, modified `*ssa.If`/`*ssa.Jump`/`*ssa.Phi` cases
 - [x] Tests: `TestSPMDVectorAnyTrue`, `TestSPMDSelectCreation`, `TestSPMDIsBlockInSPMDBody`, `TestSPMDBroadcastMatchForSelect`
-- [ ] Implement varying switch masking (deferred)
+- [x] Implement varying switch masking (3 TinyGo commits: chain detection, CFG linearization + cascaded select, deferred phi resolution for DomPreorder ordering)
 - [ ] Implement varying for-loop masking: continue/break mask accumulation (deferred)
 
 ### 2.6 SPMD Function Call Handling — COMPLETED
@@ -733,13 +733,13 @@ Ported 10 `*_ext_spmd.go` files from types2 to go/types with full API translatio
 - [x] Validate 6 core programs compile + run correctly (stores, conditionals, functions, reduce, lanes, varying vars)
 - [x] Validate all 11 illegal examples correctly rejected by type checker
 
-**E2E Test Results (44 tests)**:
-- 16 RUN PASS: L0_store, L0_cond, L0_func, L1_reduce_add, L2_lanes_index, L3_varying_var, L4_range_slice, L4b_varying_break, L5a_simple_sum, L5b_odd_even, integ_simple-sum, integ_odd-even, integ_hex-encode, integ_debug-varying, integ_lanes-index-restrictions, integ_mandelbrot
+**E2E Test Results (45 tests)**:
+- 17 RUN PASS: L0_store, L0_cond, L0_func, L1_reduce_add, L2_lanes_index, L3_varying_var, L4_range_slice, L4b_varying_break, L5a_simple_sum, L5b_odd_even, L5f_varying_switch, integ_simple-sum, integ_odd-even, integ_hex-encode, integ_debug-varying, integ_lanes-index-restrictions, integ_mandelbrot
 - 5 COMPILE-ONLY PASS: integ_to-upper, integ_goroutine-varying, integ_select-with-varying-channels, integ_type-casting-varying, integ_infinite-loop-exit
 - 10 REJECT OK: All illegal examples correctly rejected
 - 13 COMPILE FAIL (categorized by root cause):
   - **Compiler backend bugs (8)**: bit-counting (scalar-to-SPMD convert receives vector), array-counting (SIGSEGV), map-restrictions (LLVM masked load of struct `runtime._string`), defer-varying (closure mask arg count), printf-verbs (nil pointer deref crash), panic-recover-varying (struct masked load), non-spmd-varying-return (call param type mismatch), spmd-call-contexts (closure arg count)
-  - **Complex SPMD patterns (3)**: ipv4-parser (25 LLVM verification errors — multi-lane-count loops, Varying[bool] type collision, varying switch masking — see `docs/ipv4-parser-status.md`), base64-decoder (`Varying[uint16]` doesn't match `Varying[byte]` for `ShiftLeft`), union-type-generics (x-tools-spmd generic instantiation panic)
+  - **Complex SPMD patterns (3)**: ipv4-parser (25 LLVM verification errors — multi-lane-count loops, Varying[bool] type collision — see `docs/ipv4-parser-status.md`), base64-decoder (`Varying[uint16]` doesn't match `Varying[byte]` for `ShiftLeft`), union-type-generics (x-tools-spmd generic instantiation panic)
   - **Missing features (2)**: pointer-varying (pointer ops with varying), type-switch-varying (type switch on varying values)
 
 ### 2.8c Constrained Varying Type Support -- REMOVED
@@ -1062,6 +1062,7 @@ Note: This parser fix has been removed along with all constrained `Varying[T, N]
   - Fix: ✅ SPMD varying upcast restriction — spmdBasicSize() + convertibleToSPMD/checkSPMDtoSPMDAssignability upcast checks + convertibleTo SPMD guard (4 files in go/types + types2)
   - REMOVED: Constrained Varying[T,N] parser, type checker, type relaxation, FromConstrained/ToConstrained, constraintN (design simplification)
   - Added: *Within cross-lane operations (RotateWithin, SwizzleWithin, ShiftLeftWithin, ShiftRightWithin)
+  - Fix: ✅ Varying switch masking — switch chain detection + CFG linearization + deferred phi resolution (3 TinyGo commits, 1 E2E test) — 17 run pass total
 - **Phase 3**: ❌ Not Started
 
 ## Deferred Items Collection
@@ -1094,15 +1095,12 @@ Note: This parser fix has been removed along with all constrained `Varying[T, N]
   - Implementation: Conditional code generation based on `-simd` flag
   - Priority: Medium (Phase 3 milestone)
 
-- [ ] **Phase 2.5: Varying Switch Masking**
+- [x] **Phase 2.5: Varying Switch Masking** -- COMPLETED (2026-02-22)
   - Task: Implement varying switch masking (CFG linearization for switch statements)
   - Location: Phase 2.5 (Control flow masking)
-  - Status: Deferred - requires complex CFG manipulation similar to if/else
-  - Partially Done: Single case varying switch works via Phase 2.5 if/else infrastructure
-  - Blocked By: Need N-way merge for multiple cases
-  - Implementation Strategy: Linearize all cases, compute per-case masks, select final result
-  - Priority: Medium (affects switch-based algorithms)
-  - Related: Phase 2.5 if/else linearization pattern can be reused
+  - Status: COMPLETED — 3 TinyGo commits: (1) switch chain detection, (2) CFG linearization + cascaded select, (3) deferred phi resolution for DomPreorder ordering
+  - Implementation: Sequential mask narrowing (ISPC approach), cascaded select at merge, deferred placeholder phi for DomPreorder ordering
+  - E2E: L5f_varying_switch test added (4-element switch, expected 70, passes)
 
 - [ ] **Phase 2.5: Varying For-Loop Masking (Continue/Break Accumulation)**
   - Task: Implement varying for-loop masking - continue/break mask accumulation in regular for loops inside SPMD contexts
@@ -1142,12 +1140,12 @@ Note: This parser fix has been removed along with all constrained `Varying[T, N]
 
 ---
 
-**Last Completed**: Return expression type-checking fix (Go) + deferred merge select fix (TinyGo). ipv4-parser now reaches LLVM verification (25 errors) instead of panicking. E2E: 16 run pass, 5 compile-only pass / 44 tests. (2026-02-21)
+**Last Completed**: Varying switch masking (3 TinyGo commits: detection, CFG linearization, deferred phi fix) + L5f E2E test. E2E: 17 run pass, 5 compile-only pass / 45 tests. (2026-02-22)
 **Next Action**: Fix remaining 13 compile failures:
 1. Closure mask parameter (defer-varying, spmd-call-contexts — arg count mismatch)
 2. LLVM struct masked load (map-restrictions, panic-recover-varying — `runtime._string` not primitive vector)
 3. SIGSEGV (array-counting — compiler crash)
-4. ipv4-parser: multi-lane-count loops + Varying[bool] type collision + varying switch masking (see `docs/ipv4-parser-status.md`)
+4. ipv4-parser: multi-lane-count loops + Varying[bool] type collision (see `docs/ipv4-parser-status.md`)
 5. Remaining: scalar-to-SPMD convert (bit-counting), printf nil deref, non-spmd return mask type, union-type-generics x-tools panic, base64-decoder type inference, pointer-varying/type-switch-varying features
 
 ### Recent Major Achievements (Phase 1.5 Extensions)

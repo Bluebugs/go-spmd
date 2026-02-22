@@ -868,7 +868,7 @@ All implementation work that is explicitly postponed for future phases MUST be t
 
 ## Current Implementation Status
 
-**Phase Summary**: Phase 1 (Go frontend) complete with 53 commits; Phase 2 (TinyGo LLVM backend) in progress with 40 commits; Phase 3 (validation) not started. See PLAN.md for detailed task breakdown and deferred items tracking.
+**Phase Summary**: Phase 1 (Go frontend) complete with 53 commits; Phase 2 (TinyGo LLVM backend) in progress with 43 commits; Phase 3 (validation) not started. See PLAN.md for detailed task breakdown and deferred items tracking.
 
 ### Phase 1: Go Frontend (COMPLETED)
 - Lexer, parser, and type system with package-based types (`lanes.Varying[T]`)
@@ -882,9 +882,10 @@ All implementation work that is explicitly postponed for future phases MUST be t
 ### Phase 2: TinyGo LLVM Backend (IN PROGRESS)
 - **2.0-2.0d** (COMPLETED): Go stdlib porting (go/ast, go/parser, go/types); SPMD metadata extraction in TinyGo
 - **2.1-2.9c** (COMPLETED): GOEXPERIMENT support, LLVM vector types, SPMD loop lowering, control flow masking, function call handling, builtin interception, mask stack, break mask support, *Within cross-lane operations (RotateWithin, ShiftLeftWithin, ShiftRightWithin via shufflevector)
-- **2.9-2.10** (REMAINING): Varying switch/for-loop masking in regular for loops, lanes.Rotate/Swizzle, scalar fallback mode
+- **Varying switch masking** (COMPLETED): Switch chain detection, sequential mask narrowing, CFG linearization, deferred phi resolution for DomPreorder ordering
+- **2.9-2.10** (REMAINING): Varying for-loop masking in regular for loops, lanes.Rotate/Swizzle, scalar fallback mode
 - **Key Metrics**: Mandelbrot runs at ~2.98x SPMD speedup (256x256, 256 iterations, 0 differences vs serial) with 6 performance optimizations applied
-- **E2E Test Results**: 16 run pass, 5 compile-only pass, 13 compile fail, 10 reject OK (44 total)
+- **E2E Test Results**: 17 run pass, 5 compile-only pass, 13 compile fail, 10 reject OK (45 total)
 
 ### Phase 3: Validation (NOT STARTED)
 - **Syntax Migration** (COMPLETED): All examples/docs/tests migrated from keyword syntax to package-based types (5 commits, ~55 files)
@@ -892,15 +893,15 @@ All implementation work that is explicitly postponed for future phases MUST be t
 
 **E2E Compile Failure Analysis** (13 failures by root cause):
 - **Compiler backend bugs (8)**: bit-counting (scalar-to-SPMD convert), array-counting (SIGSEGV), map-restrictions (LLVM masked load of struct), defer-varying (closure mask arg count), printf-verbs (nil deref crash), panic-recover-varying (struct masked load), non-spmd-varying-return (mask type mismatch), spmd-call-contexts (closure arg count)
-- **Complex SPMD patterns (3)**: ipv4-parser (25 LLVM verification errors — multi-lane-count loops, Varying[bool] collision, varying switch; see `docs/ipv4-parser-status.md`), base64-decoder (type inference mismatch), union-type-generics (x-tools-spmd generic panic)
+- **Complex SPMD patterns (3)**: ipv4-parser (25 LLVM verification errors — multi-lane-count loops, Varying[bool] collision; see `docs/ipv4-parser-status.md`), base64-decoder (type inference mismatch), union-type-generics (x-tools-spmd generic panic)
 - **Missing features (2)**: pointer-varying (pointer ops with varying), type-switch-varying (type switch on varying)
 
 **Next Priority** (see PLAN.md for full tracking):
 1. Fix closure mask parameter handling (defer-varying, spmd-call-contexts)
 2. Fix LLVM masked load of struct types (map-restrictions, panic-recover-varying)
 3. Fix SIGSEGV crashes (array-counting)
-4. Fix ipv4-parser: multi-lane-count loops, Varying[bool] type collision, varying switch masking (see `docs/ipv4-parser-status.md`)
-5. Implement varying switch/for-loop masking, scalar fallback mode
+4. Fix ipv4-parser: multi-lane-count loops, Varying[bool] type collision (see `docs/ipv4-parser-status.md`)
+5. Implement varying for-loop masking, scalar fallback mode
 
 ## Proof of Concept Success Criteria
 
