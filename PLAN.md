@@ -843,6 +843,21 @@ Note: This parser fix has been removed along with all constrained `Varying[T, N]
 - [ ] Verify identical output across all widths for all passing E2E tests
 - [ ] LLVM IR verification: correct number of native-width ops for decomposed widths
 
+### 2.9f Store Coalescing Optimization
+
+**Goal**: Detect matching stores in both branches of varying if/else and emit `select(cond, thenVal, elseVal)` + one store instead of two masked stores. Eliminates redundant masked store intrinsics. See `docs/plans/2026-02-22-store-coalescing-design.md` for design.
+
+- [ ] Add `spmdCoalescedStore` struct, `spmdSameStoreAddr` address matcher, `spmdCoalescedStores` builder map
+- [ ] Add `spmdCollectBranchStores` + `spmdAnalyzeCoalescedStores` SSA pre-analysis (called from `preDetectVaryingIfs`)
+- [ ] Add `spmdParentMask()` helper to access mask before varying if push
+- [ ] Modify `*ssa.Store` codegen: skip then-stores, emit `select + single store` for else-stores
+- [ ] Support both contiguous (masked store with parent mask) and scatter (masked scatter with parent mask) paths
+- [ ] Handle nested varying if/else chains (inner coalescing feeds outer)
+- [ ] LLVM IR tests: simple if/else, nested chain, partial match, type mismatch
+- [ ] E2E test: `examples/store-coalescing/main.go` with varying if/else store patterns
+
+**Implementation plan**: `docs/plans/2026-02-22-store-coalescing.md`
+
 ### 2.10 Backend Integration Testing
 
 - [ ] Verify simple-sum example compiles and produces correct WASM
