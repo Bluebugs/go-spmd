@@ -824,6 +824,25 @@ Note: This parser fix has been removed along with all constrained `Varying[T, N]
 - [ ] Ensure identical behavior between SIMD and scalar modes
 - [ ] Verify scalar WASM contains no v128.* instructions
 
+### 2.9e Virtual SIMD Register Width
+
+**Goal**: Configurable virtual SIMD width (`-simd-width=N|native`) for cross-platform validation. Allows testing SPMD code generation as if targeting 32/64/128/256/512-bit SIMD hardware, while still executing on WASM SIMD128. Full-stack: affects type checker lane counts AND backend code generation. Zero overhead at native width. See `docs/plans/2026-02-22-virtual-simd-width-design.md` for design.
+
+- [ ] Add `SPMDWidth` global to `internal/buildcfg`, parsed from `SPMD_WIDTH` env var (0 = native)
+- [ ] Parameterize `laneCountForType()` in `go/types/check_ext_spmd.go` with `buildcfg.SPMDWidth`
+- [ ] Mirror `laneCountForType()` change in `types2/check_ext_spmd.go`
+- [ ] Add `-simd-width=N|native` flag to TinyGo CLI (`main.go`)
+- [ ] Add `SIMDWidth int` to `compileopts.Options`, `NativeSIMDWidth() int` backend API to Config
+- [ ] Propagate `SPMD_WIDTH` env var in `loader/list.go` for `go list` subprocess
+- [ ] Parameterize `spmdLaneCount()` in `compiler/spmd.go` with virtual width
+- [ ] Implement vector decomposition for widths > native (lo/hi splitting in createBinOp, memory ops, masks, reduce)
+- [ ] Handle narrower vectors for widths < native (fewer lanes, no decomposition)
+- [ ] Add cross-lane op decomposition (Broadcast/RotateWithin across split vectors)
+- [ ] Add `--simd-width` parameter to `test/e2e/spmd-e2e-test.sh`
+- [ ] Create `test/e2e/spmd-width-matrix.sh` for full width matrix validation (32/64/128/256/512)
+- [ ] Verify identical output across all widths for all passing E2E tests
+- [ ] LLVM IR verification: correct number of native-width ops for decomposed widths
+
 ### 2.10 Backend Integration Testing
 
 - [ ] Verify simple-sum example compiles and produces correct WASM
