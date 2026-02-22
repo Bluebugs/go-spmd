@@ -30,7 +30,7 @@ func findFirstVerb(s string) int {
 	// Things stays the same outside of SPMD context, i is by default an uniform int
 	i := 0
 
-	go for _, c := range s {
+	go for _, c := range []byte(s) {
     	check := c == '%'
 
 		if reduce.Any(check) {

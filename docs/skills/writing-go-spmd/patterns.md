@@ -62,7 +62,7 @@ Convert a varying condition to uniform via `reduce.Any()` to enable safe `return
 func findFirstVerb(s string) int {
     i := 0  // uniform position tracker
 
-    go for _, c := range s {
+    go for _, c := range []byte(s) {
         check := c == '%'   // varying bool
 
         if reduce.Any(check) {   // uniform bool -- safe to return
@@ -97,7 +97,7 @@ go for _, c := range data {
 }
 ```
 
-**Key:** `lanes.Count()` returns the number of elements processed per `go for` iteration (e.g., 4 for int32 on WASM128).
+**Key:** `lanes.Count()` returns the number of elements processed per `go for` iteration (e.g., 16 for uint8, 4 for int32 on WASM128).
 
 ---
 
