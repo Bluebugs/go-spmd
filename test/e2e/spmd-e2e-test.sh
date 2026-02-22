@@ -405,11 +405,59 @@ EOF
 
 test_compile_and_run "L5f_varying_switch" "$OUTDIR/L5f_varying_switch.go" "70" "testVaryingSwitch" "-scheduler=none"
 
+# ========== LEVEL 5g: Compound boolean conditions ==========
+printf "\n${BLUE}--- Level 5g: Compound boolean conditions (&&/||) ---${NC}\n"
+
+cat > "$OUTDIR/L5g_compound_conditions.go" << 'EOF'
+package main
+
+import (
+    "lanes"
+    "reduce"
+)
+
+//go:export testCompound
+func testCompound() int32 {
+    s := [4]int32{10, 25, 40, 55}
+
+    // Test &&: s[i]>=20 && s[i]<=50 -> [F,T,T,F] -> 2
+    var r1 lanes.Varying[int32]
+    go for i := range 4 {
+        if s[i] >= 20 && s[i] <= 50 {
+            r1 = 1
+        }
+    }
+
+    // Test ||: s[i]<20 || s[i]>50 -> [T,F,F,T] -> 2
+    var r2 lanes.Varying[int32]
+    go for i := range 4 {
+        if s[i] < 20 || s[i] > 50 {
+            r2 = 1
+        }
+    }
+
+    // Test triple &&: s[i]>=15 && s[i]<=50 && s[i]!=40 -> [F,T,F,F] -> 1
+    var r3 lanes.Varying[int32]
+    go for i := range 4 {
+        if s[i] >= 15 && s[i] <= 50 && s[i] != 40 {
+            r3 = 1
+        }
+    }
+
+    // 2 + 2 + 1 = 5
+    return reduce.Add(r1) + reduce.Add(r2) + reduce.Add(r3)
+}
+
+func main() {}
+EOF
+
+test_compile_and_run "L5g_compound_conditions" "$OUTDIR/L5g_compound_conditions.go" "5" "testCompound" "-scheduler=none"
+
 # ========== LEVEL 5c: Integration test examples ==========
 printf "\n${BLUE}--- Level 5c: Integration examples (compile only) ---${NC}\n"
 
 INTEG="$SPMD_ROOT/test/integration/spmd"
-for dir in bit-counting array-counting to-upper \
+for dir in bit-counting array-counting \
            type-casting-varying varying-array-iteration \
            map-restrictions defer-varying printf-verbs goroutine-varying \
            panic-recover-varying select-with-varying-channels; do
@@ -426,6 +474,7 @@ test_compile_and_run "integ_odd-even"      "$INTEG/odd-even/main.go"      "Resul
 test_compile_and_run "integ_hex-encode"    "$INTEG/hex-encode/main.go"    ""                    "" "-scheduler=none"
 test_compile_and_run "integ_debug-varying" "$INTEG/debug-varying/main.go" ""                    "" "-scheduler=none"
 test_compile_and_run "integ_lanes-index-restrictions" "$INTEG/lanes-index-restrictions/main.go" "" "" "-scheduler=none"
+test_compile_and_run "integ_to-upper"      "$INTEG/to-upper/main.go"      ""                    "" "-scheduler=none"
 test_compile_and_run "integ_mandelbrot"    "$INTEG/mandelbrot/main.go"    ""                    "" "-scheduler=none"
 
 # ========== LEVEL 6: SPMD functions with mask ==========

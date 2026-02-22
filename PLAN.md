@@ -2,7 +2,7 @@
 
 **Version**: 2.6
 **Last Updated**: 2026-02-20
-**Status**: Phase 1 Complete, Phase 2.0-2.9c complete, Varying switch masking COMPLETED (3 TinyGo commits: detection, CFG linearization, deferred phi fix), constrained Varying[T,N] REMOVED (design simplification), *Within cross-lane operations added + LLVM lowered (RotateWithin/ShiftLeftWithin/ShiftRightWithin via shufflevector, 17 tests), Mandelbrot RUNNING (0 differences, ~2.98x speedup), E2E: 17 run pass + 5 compile-only pass / 45 tests, ipv4-parser reaches LLVM verification (25 errors, no panics)
+**Status**: Phase 1 Complete, Phase 2.0-2.9c complete, Varying switch masking COMPLETED (3 TinyGo commits: detection, CFG linearization, deferred phi fix), Compound boolean conditions COMPLETED (&&/|| in varying contexts), constrained Varying[T,N] REMOVED (design simplification), *Within cross-lane operations added + LLVM lowered (RotateWithin/ShiftLeftWithin/ShiftRightWithin via shufflevector, 17 tests), Mandelbrot RUNNING (0 differences, ~2.98x speedup), E2E: 19 run pass + 4 compile-only pass / 46 tests, ipv4-parser reaches LLVM verification (25 errors, no panics)
 
 ## Project Overview
 
@@ -733,9 +733,9 @@ Ported 10 `*_ext_spmd.go` files from types2 to go/types with full API translatio
 - [x] Validate 6 core programs compile + run correctly (stores, conditionals, functions, reduce, lanes, varying vars)
 - [x] Validate all 11 illegal examples correctly rejected by type checker
 
-**E2E Test Results (45 tests)**:
-- 17 RUN PASS: L0_store, L0_cond, L0_func, L1_reduce_add, L2_lanes_index, L3_varying_var, L4_range_slice, L4b_varying_break, L5a_simple_sum, L5b_odd_even, L5f_varying_switch, integ_simple-sum, integ_odd-even, integ_hex-encode, integ_debug-varying, integ_lanes-index-restrictions, integ_mandelbrot
-- 5 COMPILE-ONLY PASS: integ_to-upper, integ_goroutine-varying, integ_select-with-varying-channels, integ_type-casting-varying, integ_infinite-loop-exit
+**E2E Test Results (46 tests)**:
+- 19 RUN PASS: L0_store, L0_cond, L0_func, L1_reduce_add, L2_lanes_index, L3_varying_var, L4_range_slice, L4b_varying_break, L5a_simple_sum, L5b_odd_even, L5f_varying_switch, L5g_compound_conditions, integ_simple-sum, integ_odd-even, integ_hex-encode, integ_debug-varying, integ_lanes-index-restrictions, integ_to-upper, integ_mandelbrot
+- 4 COMPILE-ONLY PASS: integ_goroutine-varying, integ_select-with-varying-channels, integ_type-casting-varying, integ_infinite-loop-exit
 - 10 REJECT OK: All illegal examples correctly rejected
 - 13 COMPILE FAIL (categorized by root cause):
   - **Compiler backend bugs (8)**: bit-counting (scalar-to-SPMD convert receives vector), array-counting (SIGSEGV), map-restrictions (LLVM masked load of struct `runtime._string`), defer-varying (closure mask arg count), printf-verbs (nil pointer deref crash), panic-recover-varying (struct masked load), non-spmd-varying-return (call param type mismatch), spmd-call-contexts (closure arg count)
@@ -1091,6 +1091,7 @@ Note: This parser fix has been removed along with all constrained `Varying[T, N]
   - REMOVED: Constrained Varying[T,N] parser, type checker, type relaxation, FromConstrained/ToConstrained, constraintN (design simplification)
   - Added: *Within cross-lane operations (RotateWithin, SwizzleWithin, ShiftLeftWithin, ShiftRightWithin)
   - Fix: ✅ Varying switch masking — switch chain detection + CFG linearization + deferred phi resolution (3 TinyGo commits, 1 E2E test) — 17 run pass total
+  - Feature: ✅ Compound boolean conditions — &&/|| in varying contexts work automatically via short-circuit CFG (1 E2E test) — 19 run pass total
 - **Phase 3**: ❌ Not Started
 
 ## Deferred Items Collection
@@ -1130,6 +1131,13 @@ Note: This parser fix has been removed along with all constrained `Varying[T, N]
   - Implementation: Sequential mask narrowing (ISPC approach), cascaded select at merge, deferred placeholder phi for DomPreorder ordering
   - E2E: L5f_varying_switch test added (4-element switch, expected 70, passes)
 
+- [x] **Phase 2.5: Compound Boolean Conditions** -- COMPLETED (2026-02-22)
+  - Task: Support compound boolean conditions (&&/||) in varying contexts
+  - Location: Phase 2.5 (Control flow masking)
+  - Status: COMPLETED — No compiler changes needed, TinyGo correctly lowers && and || to SSA short-circuit evaluation + CFG linearization
+  - Implementation: Go's short-circuit evaluation naturally creates if-then-else CFG for `a && b` and `a || b`, which Phase 2.5 control flow masking handles automatically
+  - E2E: L5g_compound_conditions test added (&&, ||, triple && patterns, expected 5, passes). Also promoted integ_to-upper from compile-only to run-pass.
+
 - [ ] **Phase 2.5: Varying For-Loop Masking (Continue/Break Accumulation)**
   - Task: Implement varying for-loop masking - continue/break mask accumulation in regular for loops inside SPMD contexts
   - Location: Phase 2.5 (Control flow masking)
@@ -1168,7 +1176,7 @@ Note: This parser fix has been removed along with all constrained `Varying[T, N]
 
 ---
 
-**Last Completed**: Varying switch masking (3 TinyGo commits: detection, CFG linearization, deferred phi fix) + L5f E2E test. E2E: 17 run pass, 5 compile-only pass / 45 tests. (2026-02-22)
+**Last Completed**: Compound boolean conditions (&&/|| in varying contexts) + L5g E2E test + integ_to-upper promotion to run-pass. E2E: 19 run pass, 4 compile-only pass / 46 tests. No compiler changes needed - TinyGo's existing CFG linearization handles short-circuit evaluation naturally. (2026-02-22)
 **Next Action**: Fix remaining 13 compile failures:
 1. Closure mask parameter (defer-varying, spmd-call-contexts — arg count mismatch)
 2. LLVM struct masked load (map-restrictions, panic-recover-varying — `runtime._string` not primitive vector)
