@@ -29,25 +29,25 @@ func main() {
 }
 
 func Encode(dst, src []byte) int {
-  	go for i := range 2 * len(src) {
-    	v := src[i>>1]
-    	if i%2 == 0 {
-        	dst[i] = hextable[v>>4]
-	    } else {
-    	    dst[i] = hextable[v&0x0f]
-    	}
-  	}
-  
+	go for i := range dst {
+		v := src[i>>1]
+		if i%2 == 0 {
+			dst[i] = hextable[v>>4]
+		} else {
+			dst[i] = hextable[v&0x0f]
+		}
+	}
+
 	return len(src) * 2
 }
 
 func EncodeScalar(dst, src []byte) int {
- 	j := 0
- 	for _, v := range src {
-  		dst[j] = hextable[v>>4]
-  		dst[j+1] = hextable[v&0x0f]
-  		j += 2
- 	}
- 	
+	j := 0
+	for _, v := range src {
+		dst[j] = hextable[v>>4]
+		dst[j+1] = hextable[v&0x0f]
+		j += 2
+	}
+
 	return len(src) * 2
 }
