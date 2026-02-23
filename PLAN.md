@@ -1168,6 +1168,24 @@ Note: This parser fix has been removed along with all constrained `Varying[T, N]
 
 - Note: **Phase 2.8d: WASM `<N x i1>` Memory Limitation** — RESOLVED by removing `FromConstrained`/`ToConstrained` entirely (constrained varying design removed)
 
+- [ ] **Masked bounds check for inactive SPMD lanes**
+  - Task: Bounds checks in `spmdVectorIndexString`, `spmdVectorIndexArray`, and `*ssa.IndexAddr` vector path should mask out inactive lanes to avoid spurious panics on garbage indices
+  - Location: Phase 2.9 (compiler/spmd.go, compiler/compiler.go:2982-3004)
+  - Status: Deferred - all three paths currently OR all lane OOB flags unconditionally
+  - Dependency: Requires `b.spmdCurrentMask()` integration into bounds check loops
+  - Implementation: AND each lane's OOB flag with the corresponding mask lane before ORing
+  - Priority: High (can cause spurious panics when inactive lanes have out-of-bounds indices)
+  - Related: IndexAddr vector path (compiler.go:2994-3001) has the same issue
+
+- [ ] **Fix unconditional SExt in IndexAddr vector bounds check**
+  - Task: `*ssa.IndexAddr` vector path (compiler.go:2998) uses `CreateSExt` unconditionally for unsigned indices
+  - Location: Phase 2.9c (compiler/compiler.go:2997-2998)
+  - Status: Deferred - pre-existing bug, not a regression from vector index support
+  - Dependency: None (simple fix: use `spmdExtendIndex` instead of `CreateSExt`)
+  - Implementation: Replace `b.CreateSExt(idx, b.uintptrType, "")` with `b.spmdExtendIndex(idx, expr.Index.Type(), b.uintptrType)`
+  - Priority: Medium (unsigned indices > 2^31 would be sign-extended incorrectly on 64-bit targets)
+  - Related: New `spmdVectorIndex` code already uses `spmdExtendIndex` correctly
+
 ### Phase 3 Deferred Subtask (NOT STARTED)
 
 **Purpose**: Track all Phase 3 (Validation) implementation work deferred for future phases.
