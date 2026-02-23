@@ -1092,6 +1092,8 @@ Note: This parser fix has been removed along with all constrained `Varying[T, N]
   - Added: *Within cross-lane operations (RotateWithin, SwizzleWithin, ShiftLeftWithin, ShiftRightWithin)
   - Fix: ✅ Varying switch masking — switch chain detection + CFG linearization + deferred phi resolution (3 TinyGo commits, 1 E2E test) — 17 run pass total
   - Feature: ✅ Compound boolean conditions — &&/|| in varying contexts work automatically via short-circuit CFG (1 E2E test) — 19 run pass total
+  - Benchmark: ✅ Hex-encode converted to benchmark (1024-byte data, 1000 iterations, SPMD vs scalar timing + speedup ratio)
+  - Docs: ✅ SIMD optimization analysis for hex-encode (`docs/hex-encode-simd-analysis.md`) — 6 issues identified (gather scalarization, redundant bounds checks, non-constant-folded patterns). SPMD at 0.24x scalar speed.
 - **Phase 3**: ❌ Not Started
 
 ## Deferred Items Collection
@@ -1194,7 +1196,7 @@ Note: This parser fix has been removed along with all constrained `Varying[T, N]
 
 ---
 
-**Last Completed**: Compound boolean conditions (&&/|| in varying contexts) + L5g E2E test + integ_to-upper promotion to run-pass. E2E: 19 run pass, 4 compile-only pass / 46 tests. No compiler changes needed - TinyGo's existing CFG linearization handles short-circuit evaluation naturally. (2026-02-22)
+**Last Completed**: Hex-encode benchmark conversion (1024-byte data, 1000 iterations, SPMD vs scalar timing) + SIMD optimization analysis (`docs/hex-encode-simd-analysis.md`). Benchmark shows SPMD at 0.24x scalar speed due to 6 identified optimization issues (gather scalarization, redundant bounds checks, non-constant-folded patterns). E2E: 19 run pass, 4 compile-only pass / 46 tests. (2026-02-23)
 **Next Action**: Fix remaining 13 compile failures:
 1. Closure mask parameter (defer-varying, spmd-call-contexts — arg count mismatch)
 2. LLVM struct masked load (map-restrictions, panic-recover-varying — `runtime._string` not primitive vector)

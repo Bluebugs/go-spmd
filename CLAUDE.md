@@ -884,8 +884,8 @@ All implementation work that is explicitly postponed for future phases MUST be t
 - **2.1-2.9c** (COMPLETED): GOEXPERIMENT support, LLVM vector types, SPMD loop lowering, control flow masking, function call handling, builtin interception, mask stack, break mask support, *Within cross-lane operations (RotateWithin, ShiftLeftWithin, ShiftRightWithin via shufflevector)
 - **Varying switch masking** (COMPLETED): Switch chain detection, sequential mask narrowing, CFG linearization, deferred phi resolution for DomPreorder ordering
 - **2.9-2.10** (REMAINING): Varying for-loop masking in regular for loops, lanes.Rotate/Swizzle, scalar fallback mode
-- **Key Metrics**: Mandelbrot runs at ~2.98x SPMD speedup (256x256, 256 iterations, 0 differences vs serial) with 6 performance optimizations applied
-- **E2E Test Results**: 17 run pass, 5 compile-only pass, 13 compile fail, 10 reject OK (45 total)
+- **Key Metrics**: Mandelbrot runs at ~2.98x SPMD speedup (256x256, 256 iterations, 0 differences vs serial) with 6 performance optimizations applied; hex-encode benchmark at 0.24x (optimization roadmap in `docs/hex-encode-simd-analysis.md`)
+- **E2E Test Results**: 19 run pass, 4 compile-only pass, 13 compile fail, 10 reject OK (46 total)
 
 ### Phase 3: Validation (NOT STARTED)
 - **Syntax Migration** (COMPLETED): All examples/docs/tests migrated from keyword syntax to package-based types (5 commits, ~55 files)
