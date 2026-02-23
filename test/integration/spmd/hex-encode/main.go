@@ -1,30 +1,55 @@
-// Hexadecimal encoding using SPMD Go
+// Hexadecimal encoding benchmark: SPMD vs Scalar
 // From: practical-vector.md
 package main
 
 import (
 	"fmt"
 	"os"
+	"time"
 )
 
 const hextable = "0123456789abcdef"
+const dataSize = 1024
+const iterations = 1000
 
 func main() {
-	data := []byte{0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE, 0xBA, 0xBE}
-	result1 := make([]byte, len(data)*2)
-	result2 := make([]byte, len(data)*2)
-	r1 := Encode(result1, data)
-	r2 := EncodeScalar(result2, data)
-	fmt.Printf("Input:  %x\n", data)
-	fmt.Printf("Output SPMD: %s\n", result1)
-	fmt.Printf("Output Scalar: %s\n", result2)
-	fmt.Printf("SPMD length: %d, Scalar length: %d\n", r1, r2)
+	// Generate pseudo-random test data (deterministic)
+	data := make([]byte, dataSize)
+	for i := range data {
+		data[i] = byte((i*31 + 17) & 0xFF)
+	}
+	dst1 := make([]byte, len(data)*2)
+	dst2 := make([]byte, len(data)*2)
 
-	if string(result1) != string(result2) && r1 == r2 {
-		fmt.Println("Mismatch between SPMD and Scalar results!")
+	// Correctness check
+	Encode(dst1, data)
+	EncodeScalar(dst2, data)
+	if string(dst1) != string(dst2) {
+		fmt.Println("FAIL: SPMD and Scalar results mismatch!")
 		os.Exit(1)
-	} else {
-		fmt.Println("SPMD and Scalar results match.")
+	}
+	fmt.Println("Correctness: SPMD and Scalar results match.")
+
+	// Benchmark scalar
+	start := time.Now()
+	for n := 0; n < iterations; n++ {
+		EncodeScalar(dst2, data)
+	}
+	scalarTime := time.Since(start)
+	fmt.Printf("Scalar: %v (%d iterations, %d bytes each)\n", scalarTime, iterations, dataSize)
+
+	// Benchmark SPMD
+	start = time.Now()
+	for n := 0; n < iterations; n++ {
+		Encode(dst1, data)
+	}
+	spmdTime := time.Since(start)
+	fmt.Printf("SPMD:   %v (%d iterations, %d bytes each)\n", spmdTime, iterations, dataSize)
+
+	// Speedup
+	if spmdTime > 0 {
+		speedup := float64(scalarTime) / float64(spmdTime)
+		fmt.Printf("Speedup: %.2fx\n", speedup)
 	}
 }
 
