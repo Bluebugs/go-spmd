@@ -11,6 +11,7 @@ import (
 const hextable = "0123456789abcdef"
 const dataSize = 1024
 const iterations = 1000
+const rounds = 5
 
 func main() {
 	// Generate pseudo-random test data (deterministic)
@@ -30,26 +31,28 @@ func main() {
 	}
 	fmt.Println("Correctness: SPMD and Scalar results match.")
 
-	// Benchmark scalar
-	start := time.Now()
-	for n := 0; n < iterations; n++ {
-		EncodeScalar(dst2, data)
-	}
-	scalarTime := time.Since(start)
-	fmt.Printf("Scalar: %v (%d iterations, %d bytes each)\n", scalarTime, iterations, dataSize)
+	// Run multiple benchmark rounds for stable results
+	for round := 0; round < rounds; round++ {
+		// Benchmark scalar
+		start := time.Now()
+		for n := 0; n < iterations; n++ {
+			EncodeScalar(dst2, data)
+		}
+		scalarTime := time.Since(start)
 
-	// Benchmark SPMD
-	start = time.Now()
-	for n := 0; n < iterations; n++ {
-		Encode(dst1, data)
-	}
-	spmdTime := time.Since(start)
-	fmt.Printf("SPMD:   %v (%d iterations, %d bytes each)\n", spmdTime, iterations, dataSize)
+		// Benchmark SPMD
+		start = time.Now()
+		for n := 0; n < iterations; n++ {
+			Encode(dst1, data)
+		}
+		spmdTime := time.Since(start)
 
-	// Speedup
-	if spmdTime > 0 {
-		speedup := float64(scalarTime) / float64(spmdTime)
-		fmt.Printf("Speedup: %.2fx\n", speedup)
+		// Speedup
+		speedup := float64(0)
+		if spmdTime > 0 {
+			speedup = float64(scalarTime) / float64(spmdTime)
+		}
+		fmt.Printf("Round %d: Scalar=%v SPMD=%v Speedup=%.2fx\n", round+1, scalarTime, spmdTime, speedup)
 	}
 }
 
