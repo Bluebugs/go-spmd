@@ -10,6 +10,13 @@ RUNNER="$SPMD_ROOT/test/e2e/run-wasm.mjs"
 WASMOPT="${WASMOPT:-/tmp/wasm-opt}"
 OUTDIR="/tmp/spmd-e2e"
 
+# Detect WASM runtime: prefer wasmtime over Node.js for better performance and stability.
+if command -v wasmtime &>/dev/null; then
+    WASM_RUNTIME="wasmtime"
+else
+    WASM_RUNTIME="node"
+fi
+
 mkdir -p "$OUTDIR"
 
 # Counters
@@ -26,10 +33,18 @@ compile() {
 
 run_wasm() {
     local wasm="$1" export="${2:-}"
-    if [ -n "$export" ]; then
-        node --experimental-wasi-unstable-preview1 "$RUNNER" "$wasm" --export "$export" 2>&1
+    if [ "$WASM_RUNTIME" = "wasmtime" ]; then
+        if [ -n "$export" ]; then
+            wasmtime run --invoke "$export" "$wasm" 2>&1 | grep -v '^warning: using `--invoke`'
+        else
+            wasmtime run "$wasm" 2>&1
+        fi
     else
-        node --experimental-wasi-unstable-preview1 "$RUNNER" "$wasm" 2>&1
+        if [ -n "$export" ]; then
+            node --experimental-wasi-unstable-preview1 "$RUNNER" "$wasm" --export "$export" 2>&1
+        else
+            node --experimental-wasi-unstable-preview1 "$RUNNER" "$wasm" 2>&1
+        fi
     fi
 }
 
@@ -108,6 +123,7 @@ echo ""
 printf "${BLUE}=== SPMD End-to-End Test Suite ===${NC}\n"
 printf "TinyGo: %s\n" "$TINYGO"
 printf "GOROOT: %s\n" "$GOROOT_SPMD"
+printf "Runtime: %s\n" "$WASM_RUNTIME"
 printf "Output: %s\n\n" "$OUTDIR"
 
 # ========== LEVEL 0: Minimal SPMD (no imports) ==========
