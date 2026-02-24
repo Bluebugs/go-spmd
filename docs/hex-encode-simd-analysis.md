@@ -1,19 +1,17 @@
 # Hex-Encode SIMD Optimization Analysis
 
-Analysis of the LLVM IR (376 lines) and WASM output for `main.Encode`, which uses a 16-lane `<16 x i8>` SPMD loop with base+offset decomposition. The benchmark currently shows SPMD at 0.24x scalar speed, confirming these optimization issues are impactful.
+Analysis of the LLVM IR and WASM output for `main.Encode`, which uses a 16-lane `<16 x i8>` SPMD loop with base+offset decomposition. The benchmark currently shows SPMD at ~0.34x scalar speed (improved from 0.24x after bounds check elision, store coalescing, and gather shift-load expansion).
 
 ## Current WASM Instruction Profile
 
 ```
-39 v128.store           — masked store scalarization
 34 v128.const           — constant vectors
-14 i8x16.replace_lane   — gather scalarization
- 2 v128.load            — contiguous loads
+ 3 v128.load            — contiguous loads (incl. shifted load)
  2 i8x16.swizzle        — hextable lookups (good!)
- 1 v128.load8_splat
+ 2 i8x16.shuffle        — interleave + shifted expand (good!)
  1 v128.and             — nibble masking (good!)
- 1 i8x16.shuffle        — interleave (good!)
  1 i8x16.shr_u          — shift right (good!)
+ 0 i8x16.replace_lane   — NO gather scalarization (fixed!)
 ```
 
 ## What Works Well
@@ -25,17 +23,18 @@ Analysis of the LLVM IR (376 lines) and WASM output for `main.Encode`, which use
 - Contiguous `llvm.masked.store.v16i8` for `dst[i]` output
 - `<16 x i8>` tail masks with `v128.any_true` for early exit
 
-## Issue 1: Per-Lane Scalar Gather for `src[i>>1]`
+## Issue 1: Per-Lane Scalar Gather for `src[i>>1]` — FIXED
 
-**Impact**: ~40 instructions instead of 2
+**Impact**: ~40 instructions reduced to 2-3
+**Status**: FIXED via gather shift-load expansion (commit 7afdad4)
 
-The `src[i>>1]` pattern with varying offset `[0,0,1,1,...,7,7]` generates 16 GEPs + 16 insertelements + `llvm.masked.gather.v16i8`. Only 8 unique bytes are accessed per iteration.
+The `src[i>>1]` pattern with varying offset `[0,0,1,1,...,7,7]` previously generated 16 GEPs + 16 insertelements via gather scalarization. Only 8 unique bytes are accessed per iteration.
 
-**Current codegen**: 16 scalar loads + 14 `i8x16.replace_lane` + `v128.load8_splat` = ~16 WASM instructions.
+**Previous codegen**: 16 scalar loads + 14 `i8x16.replace_lane` + `v128.load8_splat` = ~31 WASM instructions.
 
-**Ideal**: `v128.load64_zero` of 8 bytes at `&src[base>>1]` + `i8x16.shuffle` with constant pattern `[0,0,1,1,2,2,...,7,7]` = 2 instructions. (`i8x16.shuffle` is the compile-time constant variant; `i8x16.swizzle` is for runtime indices.)
+**Current codegen**: Narrow contiguous load of 8 bytes + `i8x16.shuffle` with constant pattern `[0,0,1,1,2,2,...,7,7]` = 2-3 instructions. Bounds check simplified from 16 per-lane checks to 1 scalar comparison.
 
-**Fix approach**: Detect gather patterns where indices form a known permutation of a contiguous range. When the gather base is contiguous and the permutation is a compile-time constant, replace `llvm.masked.gather` with `v128.load64_zero` + `i8x16.shuffle`.
+**Implementation**: `spmdAnalyzeShiftedIndex()` detects `iter >> const_k` patterns. `spmdShiftedLoad()` generates narrow load + shufflevector expansion. Restricted to direct loop iterator (no ADD offsets) for shuffle mask correctness.
 
 ## Issue 2: Per-Lane Scalar Bounds Checks for Gather
 
@@ -101,14 +100,14 @@ A `select i1 %cond, i32 %val, i32 %val` at the if/else merge point — both arms
 
 ## Optimization Priority
 
-| Issue | Impact | Difficulty | Priority |
-|-------|--------|------------|----------|
-| 1. Gather → load64_zero+shuffle | High (~40 → 2 inst) | Medium | P1 |
-| 3. Hextable bounds elim | High (~128 inst wasted) | Medium | P1 |
-| 2. Scalar bounds check | Medium (~64 inst/site) | Medium | P2 |
-| 5. Const-fold i%2==0 | Low (7 → 1 inst) | Low | P2 |
-| 4. Dead debug vectors | Low (gated by b.Debug) | N/A | P3 |
-| 6. Dead identity select | Minimal (1 inst) | N/A | P3 |
+| Issue | Impact | Difficulty | Priority | Status |
+|-------|--------|------------|----------|--------|
+| 1. Gather → load+shuffle | High (~40 → 2 inst) | Medium | P1 | DONE |
+| 3. Hextable bounds elim | High (~128 inst wasted) | Medium | P1 | TODO |
+| 2. Scalar bounds check | Medium (~64 inst/site) | Medium | P2 | TODO |
+| 5. Const-fold i%2==0 | Low (7 → 1 inst) | Low | P2 | TODO |
+| 4. Dead debug vectors | Low (gated by b.Debug) | N/A | P3 | TODO |
+| 6. Dead identity select | Minimal (1 inst) | N/A | P3 | TODO |
 
 ## Expected Speedup
 
