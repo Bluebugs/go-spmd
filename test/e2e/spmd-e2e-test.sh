@@ -476,6 +476,7 @@ test_compile_and_run "integ_debug-varying" "$INTEG/debug-varying/main.go" ""    
 test_compile_and_run "integ_lanes-index-restrictions" "$INTEG/lanes-index-restrictions/main.go" "" "" "-scheduler=none"
 test_compile_and_run "integ_to-upper"      "$INTEG/to-upper/main.go"      ""                    "" "-scheduler=none"
 test_compile_and_run "integ_mandelbrot"    "$INTEG/mandelbrot/main.go"    ""                    "" "-scheduler=none"
+test_compile_and_run "integ_store-coalescing" "$INTEG/store-coalescing/main.go" "" "" "-scheduler=none"
 
 # ========== LEVEL 6: SPMD functions with mask ==========
 printf "\n${BLUE}--- Level 6: Complex patterns (compile only) ---${NC}\n"
