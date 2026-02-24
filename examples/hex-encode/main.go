@@ -21,15 +21,23 @@ func main() {
 	}
 	dst1 := make([]byte, len(data)*2)
 	dst2 := make([]byte, len(data)*2)
+	dst3 := make([]byte, len(data)*2)
 
-	// Correctness check
-	Encode(dst1, data)
+	// Correctness check: all three must match
 	EncodeScalar(dst2, data)
+
+	Encode(dst1, data)
 	if string(dst1) != string(dst2) {
-		fmt.Println("FAIL: SPMD and Scalar results mismatch!")
+		fmt.Println("FAIL: Encode (dst-centric) and Scalar results mismatch!")
 		os.Exit(1)
 	}
-	fmt.Println("Correctness: SPMD and Scalar results match.")
+
+	EncodeSrc(dst3, data)
+	if string(dst3) != string(dst2) {
+		fmt.Println("FAIL: EncodeSrc (src-centric) and Scalar results mismatch!")
+		os.Exit(1)
+	}
+	fmt.Println("Correctness: all three implementations match.")
 
 	// Run multiple benchmark rounds for stable results
 	for round := 0; round < rounds; round++ {
@@ -40,19 +48,31 @@ func main() {
 		}
 		scalarTime := time.Since(start)
 
-		// Benchmark SPMD
+		// Benchmark SPMD (dst-centric, original)
 		start = time.Now()
 		for n := 0; n < iterations; n++ {
 			Encode(dst1, data)
 		}
-		spmdTime := time.Since(start)
+		spmdDstTime := time.Since(start)
 
-		// Speedup
-		speedup := float64(0)
-		if spmdTime > 0 {
-			speedup = float64(scalarTime) / float64(spmdTime)
+		// Benchmark SPMD (src-centric, new)
+		start = time.Now()
+		for n := 0; n < iterations; n++ {
+			EncodeSrc(dst3, data)
 		}
-		fmt.Printf("Round %d: Scalar=%v SPMD=%v Speedup=%.2fx\n", round+1, scalarTime, spmdTime, speedup)
+		spmdSrcTime := time.Since(start)
+
+		// Speedups
+		dstSpeedup := float64(0)
+		if spmdDstTime > 0 {
+			dstSpeedup = float64(scalarTime) / float64(spmdDstTime)
+		}
+		srcSpeedup := float64(0)
+		if spmdSrcTime > 0 {
+			srcSpeedup = float64(scalarTime) / float64(spmdSrcTime)
+		}
+		fmt.Printf("Round %d: Scalar=%v DstSPMD=%v (%.2fx) SrcSPMD=%v (%.2fx)\n",
+			round+1, scalarTime, spmdDstTime, dstSpeedup, spmdSrcTime, srcSpeedup)
 	}
 }
 
@@ -64,6 +84,15 @@ func Encode(dst, src []byte) int {
 		} else {
 			dst[i] = hextable[v&0x0f]
 		}
+	}
+
+	return len(src) * 2
+}
+
+func EncodeSrc(dst, src []byte) int {
+	go for i := range src {
+		dst[i*2] = hextable[src[i]>>4]
+		dst[i*2+1] = hextable[src[i]&0x0f]
 	}
 
 	return len(src) * 2
