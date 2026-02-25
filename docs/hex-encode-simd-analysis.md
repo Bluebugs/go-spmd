@@ -1,114 +1,150 @@
 # Hex-Encode SIMD Optimization Analysis
 
-Analysis of the LLVM IR and WASM output for `main.Encode`, which uses a 16-lane `<16 x i8>` SPMD loop with base+offset decomposition. The benchmark currently shows SPMD at ~0.34x scalar speed (improved from 0.24x after bounds check elision, store coalescing, and gather shift-load expansion).
+Analysis of the WASM output for the hex-encode benchmark, which tests two SPMD implementations:
+- `main.Encode` (dst-centric): 16-lane `<16 x i8>` loop over `dst`, processes 8 src bytes/iter
+- `main.EncodeSrc` (src-centric): 16-lane `<16 x i8>` loop over `src`, processes 16 src bytes/iter
 
-## Current WASM Instruction Profile
+## Current Performance (2026-02-24)
 
+| Variant | Speedup | Instr/iter | Bytes/iter | Theoretical |
+|---|---|---|---|---|
+| Scalar | 1.0x | 35 | 1 src → 2 dst | — |
+| Encode (dst) | ~3.0x | 35 | 8 src → 16 dst | 8.0x |
+| EncodeSrc (src) | ~10-11x | 38 | 16 src → 32 dst | 13.3x |
+
+**History**: 0.24x → 0.34x (bounds elision + store coalescing) → 2.68x (loop peeling) → 3.0x/11x (stride interleaved stores + source-centric variant) → 38 instr/iter (phi-ptr offset folding).
+
+## Generated WASM Quality
+
+Both SPMD functions compile to near-optimal WASM:
+- **0 scalarized operations** — no `extract_lane`/`replace_lane` anywhere
+- **0 bounds checks** in the hot loop body (elided or hoisted)
+- Native `i8x16.swizzle` for hextable lookups
+- Native `i8x16.shuffle` for byte duplication and high/low interleaving
+- Plain `v128.store` (not masked) thanks to loop peeling
+- `v128.load64_zero` (Encode) or `v128.load` (EncodeSrc) for contiguous loads
+
+## EncodeSrc Main Loop (38 instructions — near optimal)
+
+```wat
+loop:
+  ;; Bound check (4 instr)
+  local.get i; i32.const 1023; i32.gt_u; br_if exit
+
+  ;; Prepare dst phi pointer (1 instr)
+  local.get dst_phi
+
+  ;; Load hextable as v128 constant (2 instr)
+  v128.const "0123456789abcdef"; local.tee hextable
+
+  ;; Load 16 src bytes (4 instr)
+  local.get src_ptr; local.get i; i32.add; v128.load
+
+  ;; High nibble → hextable lookup (4 instr)
+  local.tee src_bytes; i32.const 4; i8x16.shr_u; i8x16.swizzle
+
+  ;; Low nibble → hextable lookup (6 instr)
+  local.get hextable; local.get src_bytes; v128.const 0x0f..0f; v128.and; i8x16.swizzle
+
+  ;; Interleave 2nd half + store to dst_phi+16 (2 instr)
+  i8x16.shuffle [8,24,9,25,...,15,31]; v128.store offset=16
+
+  ;; Interleave 1st half + store to dst_phi+0 (5 instr)
+  local.get dst_phi; local.get high_chars; local.get low_chars
+  i8x16.shuffle [0,16,1,17,...,7,23]; v128.store
+
+  ;; Advance counters (8 instr)
+  i += 16; dst_phi += 32; br loop
 ```
-34 v128.const           — constant vectors
- 3 v128.load            — contiguous loads (incl. shifted load)
- 2 i8x16.swizzle        — hextable lookups (good!)
- 2 i8x16.shuffle        — interleave + shifted expand (good!)
- 1 v128.and             — nibble masking (good!)
- 1 i8x16.shr_u          — shift right (good!)
- 0 i8x16.replace_lane   — NO gather scalarization (fixed!)
+
+## Encode Main Loop (35 instructions)
+
+```wat
+loop:
+  ;; Bound check (6 instr)
+  local.get i; i32.const -16; i32.add; i32.const 2031; i32.gt_s; br_if exit
+
+  ;; Compute dst+i write address (3 instr)
+  local.get dst; local.get i; i32.add
+
+  ;; Load hextable (2 instr)
+  v128.const "0123456789abcdef"; local.tee hextable
+
+  ;; Load 8 src bytes, duplicate each: [b0,b0,b1,b1,...,b7,b7] (3 instr)
+  local.get src; v128.load64_zero
+  local.get hextable; i8x16.shuffle [0,0,1,1,...,7,7]; local.tee dup_bytes
+
+  ;; High nibble lookup (3 instr)
+  i32.const 4; i8x16.shr_u; i8x16.swizzle
+
+  ;; Low nibble lookup (5 instr)
+  local.get hextable; local.get dup_bytes; v128.const 0x0f..0f; v128.and; i8x16.swizzle
+
+  ;; Interleave + single store (2 instr)
+  i8x16.shuffle [0,17,2,19,...,14,31]; v128.store
+
+  ;; Advance (8 instr)
+  src += 8; i += 16; br loop
 ```
 
-## What Works Well
+## Completed Optimizations
 
-- `i8x16.swizzle` for hextable lookup (native WASM instruction)
-- `i8x16.shr_u` for `v>>4` (native SIMD shift)
-- `v128.and` for `v&0x0f` (native SIMD mask)
-- `i8x16.shuffle` to interleave high/low nibble results (after LLVM opt)
-- Contiguous `llvm.masked.store.v16i8` for `dst[i]` output
-- `<16 x i8>` tail masks with `v128.any_true` for early exit
-
-## Issue 1: Per-Lane Scalar Gather for `src[i>>1]` — FIXED
+### Issue 1: Per-Lane Scalar Gather for `src[i>>1]` — FIXED
 
 **Impact**: ~40 instructions reduced to 2-3
-**Status**: FIXED via gather shift-load expansion (commit 7afdad4)
+**Commit**: 7afdad4 (gather shift-load expansion)
 
-The `src[i>>1]` pattern with varying offset `[0,0,1,1,...,7,7]` previously generated 16 GEPs + 16 insertelements via gather scalarization. Only 8 unique bytes are accessed per iteration.
+The `src[i>>1]` pattern previously generated 16 GEPs + 16 insertelements (~31 WASM instructions). Now: `v128.load64_zero` + `i8x16.shuffle [0,0,1,1,...,7,7]` = 2-3 instructions.
 
-**Previous codegen**: 16 scalar loads + 14 `i8x16.replace_lane` + `v128.load8_splat` = ~31 WASM instructions.
+### Issue 2: Per-Lane Scalar Bounds Checks — FIXED
 
-**Current codegen**: Narrow contiguous load of 8 bytes + `i8x16.shuffle` with constant pattern `[0,0,1,1,2,2,...,7,7]` = 2-3 instructions. Bounds check simplified from 16 per-lane checks to 1 scalar comparison.
+**Impact**: ~64 instructions per site eliminated
+**Fix**: Loop peeling moves all bounds checks out of the main loop. The peeled main loop runs with an aligned bound guarantee, so no per-iteration bounds checks are needed.
 
-**Implementation**: `spmdAnalyzeShiftedIndex()` detects `iter >> const_k` patterns. `spmdShiftedLoad()` generates narrow load + shufflevector expansion. Restricted to direct loop iterator (no ADD offsets) for shuffle mask correctness.
+### Issue 3: Hextable Bounds Checks — FIXED
 
-## Issue 2: Per-Lane Scalar Bounds Checks for Gather
+**Impact**: ~128 instructions eliminated (64 per lookup site, 2 sites)
+**Fix**: `i8x16.swizzle` replaces gather-with-bounds-check entirely. WASM's `swizzle` instruction returns 0 for out-of-range indices (0-15 range guaranteed by `v>>4` and `v&0x0f`), so no explicit bounds check is generated.
 
-**Impact**: ~32 instructions per bounds-check site
+### Issue 5: `i%2==0` Comparison — N/A
 
-Each bounds check for the gather (`src[i>>1]`) generates 16 `extractelement` + 16 `zext` + 16 `icmp` + 15 `or` = ~64 scalar instructions chained together.
+The Encode function now uses `i8x16.shuffle`-based interleaving instead of a modulo condition. The EncodeSrc function iterates over `src` directly and uses stride-2 interleaved stores, avoiding the `i%2` pattern entirely.
 
-**Current**: The compiler checks each of the 16 lane indices individually against `len(src)`.
+### Issue 4: Dead Debug Vectors — N/A
 
-**Ideal**: Since the max offset within the gather is known at compile time (`base>>1 + 7`), a single scalar comparison `base>>1 + 7 < len(src)` suffices for all lanes simultaneously.
+Confirmed absent in release WASM output. TinyGo gates `DebugRef` emission on `b.Debug`.
 
-**Fix approach**: When a gather index is `base + constant_offset`, compute `max(constant_offsets)` and emit a single scalar bounds check `base + max_offset < len`. This is the same optimization as contiguous access bounds checking, generalized to known-offset gathers.
+### Issue 6: Dead Identity Select — N/A
 
-## Issue 3: Provably Unnecessary Hextable Bounds Checks
+Not present in current WASM output. Store coalescing + shuffle interleaving eliminated the merge point that produced identity selects.
 
-**Impact**: ~128 instructions wasted (64 per lookup site, 2 sites)
+## Remaining Optimization Opportunities
 
-`hextable[v>>4]` where `v` is a byte: `v>>4` is always in range 0-15. `hextable` is exactly 16 bytes. The bounds check can never fail. Same for `hextable[v&0x0f]`.
+### OPT-1: Store Offset Folding in Interleaved Stores — DONE
 
-**Current**: Each site generates 16 `extractelement` + 16 `zext` + 16 `icmp` + 16 `or` = 64 instructions per site (128 total for both high and low nibble lookups).
+**Impact**: 4 instructions per iteration (EncodeSrc), ~10% of loop body (42→38)
+**Fix**: Advancing pointer phi + constant GEP offset
 
-**Ideal**: Zero bounds check instructions. The index is provably in-range.
+A simple two-level GEP (`GEP(GEP(buf, base), 16)`) is merged back to a single GEP by InstCombine. Instead, the main peeled loop uses an advancing pointer phi that starts at `dst[0]` and advances by `stride*N` bytes per iteration. Stores use `phi` (k=0) and `GEP(phi, k*N)` (k>0). Since the phi is a structural SSA value, InstCombine cannot merge it with the constant GEP, preserving the `base + const_offset` pattern that the WASM backend folds into `v128.store offset=16`.
 
-**Fix approach**: This is a value-range analysis optimization. When the compiler can prove that a varying index is always within bounds (e.g., result of `>>4` on a byte, or `&0x0f` on any value), skip bounds check generation entirely. This could be done either:
-- In the TinyGo compiler during gather emission (check if index SSA value is a shift/mask with known range)
-- As an LLVM optimization pass (dead branch elimination after range proof)
+**Location**: `tinygo/compiler/spmd.go` — `spmdCreateInterleavedPtrPhis`, `spmdEmitInterleavedStore`
 
-## Issue 4: Dead `<16 x i32>` Vector Materializations
+### OPT-2: Loop Bound Check Simplification — MINOR
 
-**Impact**: 6 unused 512-bit vector constructions in pre-opt IR
+**Impact**: 2 instructions per iteration, both functions
+**Difficulty**: Medium (general-purpose pattern, tradeoff with correctness for edge cases)
 
-Every `getValue(loopVar)` call for debug info materializes a full `<16 x i32>` vector (splat + add offset). These are only referenced by `#dbg_value` metadata.
+The `-16 + gt_s 2031` pattern uses 6 instructions. A simple `i32.ge_u 2048` would be 4. However, the current form handles arbitrary array sizes correctly (avoids unsigned overflow for sizes near UINT_MAX). Not worth changing for a benchmark-only benefit.
 
-**Current**: 6 `<16 x i32>` constructions (each: `insertelement` x16 + `add`) that exist solely for debug info.
+### OPT-3: Encode Architectural Limitation — NO FIX
 
-**Ideal**: Zero cost in release builds.
+Encode processes 8 src bytes per iteration vs 16 for EncodeSrc. This is inherent to the dst-centric formulation: iterating over 2048 dst bytes means each 16-lane iteration covers 16 dst bytes = 8 src bytes. The source-centric formulation is algorithmically 2x more efficient.
 
-**Status**: TinyGo already gates `DebugRef` emission on the `b.Debug` flag, so these vectors should not be materialized in non-debug builds. Verify that no SPMD-specific `getValue` calls for loop variables outside of `DebugRef` instructions trigger spurious vector materialization. If confirmed absent in release WASM, this issue is already handled.
+## Performance Gap Analysis
 
-## Issue 5: Non-Constant-Folded `i%2==0` Comparison
+| Function | Theoretical | Measured | Gap | Likely Cause |
+|---|---|---|---|---|
+| Encode | 8.0x | ~3.0x | 2.7x | Memory latency (8-byte loads), WASM JIT overhead |
+| EncodeSrc | 13.3x | ~10-11x | 1.2-1.3x | Memory bandwidth (32B writes/iter), store buffer |
 
-**Impact**: 7 intermediate instructions instead of 1 constant
-
-The `i%2==0` comparison on the varying loop index generates: diff, clamp, trunc, splat, cmp, neg.sel, over.sel = 7 intermediate values.
-
-**Current**: The SPMD compiler already recognizes `varying_index % constant` patterns and decomposes them via base+offset (in `spmd.go` lines 3272-3305). However, the subsequent EQL comparison against 0 still generates 7 intermediate LLVM values (`diff`, `clamp`, `trunc`, `splat`, `cmp`, `neg.sel`, `over.sel`) because the scalar base contribution (`urem(loopBase, 2)`) is computed dynamically rather than folded to zero.
-
-**Ideal**: Since the SPMD loop base is always a multiple of 16 (the lane count), and `16 % 2 == 0`, the scalar base modulo is statically zero. The EQL comparison reduces to comparing the constant offset vector `[0,1,0,1,...,0,1]` against `zeroinitializer`, which LLVM folds to a single `v128.const`.
-
-**Fix approach**: In the decomposed REM path, when `loopBase` is provably a multiple of `laneCount` and `laneCount % k == 0`, fold the scalar base `urem(loopBase, k)` to a constant zero. This makes the subsequent EQL comparison a constant-vs-constant vector comparison that LLVM can fold entirely.
-
-## Issue 6: Dead Select at Merge Point
-
-**Impact**: 1 unnecessary instruction
-
-A `select i1 %cond, i32 %val, i32 %val` at the if/else merge point — both arms produce the same value. This is a no-op.
-
-**Current**: Generated from phi-to-select conversion when both branches assign the same value to a variable.
-
-**Ideal**: Zero instructions (identity select elimination).
-
-**Status**: LLVM's InstCombine pass should eliminate this. If it persists in final WASM, the phi-to-select conversion in the TinyGo SPMD backend should check for identity selects before emitting.
-
-## Optimization Priority
-
-| Issue | Impact | Difficulty | Priority | Status |
-|-------|--------|------------|----------|--------|
-| 1. Gather → load+shuffle | High (~40 → 2 inst) | Medium | P1 | DONE |
-| 3. Hextable bounds elim | High (~128 inst wasted) | Medium | P1 | TODO |
-| 2. Scalar bounds check | Medium (~64 inst/site) | Medium | P2 | TODO |
-| 5. Const-fold i%2==0 | Low (7 → 1 inst) | Low | P2 | TODO |
-| 4. Dead debug vectors | Low (gated by b.Debug) | N/A | P3 | TODO |
-| 6. Dead identity select | Minimal (1 inst) | N/A | P3 | TODO |
-
-## Expected Speedup
-
-Fixing issues 1-3 alone would eliminate approximately 200 of the ~300 non-trivial instructions in the SPMD loop body. Combined with the existing good SIMD usage (swizzle, shift, and, shuffle), the hex-encode benchmark should achieve meaningful speedup over scalar.
+The EncodeSrc function is within ~80% of theoretical instruction-count parity. The remaining gap is primarily memory subsystem overhead, not instruction inefficiency.
