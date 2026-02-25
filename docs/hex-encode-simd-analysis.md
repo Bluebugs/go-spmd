@@ -148,3 +148,65 @@ Encode processes 8 src bytes per iteration vs 16 for EncodeSrc. This is inherent
 | EncodeSrc | 13.3x | ~10-11x | 1.2-1.3x | Memory bandwidth (32B writes/iter), store buffer |
 
 The EncodeSrc function is within ~80% of theoretical instruction-count parity. The remaining gap is primarily memory subsystem overhead, not instruction inefficiency.
+
+## Cross-Architecture Comparison (2026-02-25)
+
+How does our SPMD hex encoder compare to hand-optimized native implementations?
+
+### 128-bit (same vector width as WASM SIMD128)
+
+| Implementation | ISA | Speedup | Throughput | Source |
+|---|---|---|---|---|
+| Lemire SSSE3 | x86 Ice Lake | 7.1x | 6.4 GB/s | [Lemire 2022] |
+| Lupton SSE | x86-64 | 8.0x | 9.52 GB/s | [Lupton] |
+| Lemire NEON | ARM Apple Si | 13.5x | 42 GB/s | [Lemire 2026] |
+| Lemire auto-vec | ARM Apple Si | 7.4x | 23 GB/s | [Lemire 2026] |
+| **SPMD EncodeSrc** | **WASM SIMD128** | **~10-11x** | **N/A** | this project |
+
+### 256-bit and wider
+
+| Implementation | ISA | Speedup | Throughput | Source |
+|---|---|---|---|---|
+| Lemire AVX2 | x86 Ice Lake | 12.2x | 11 GB/s | [Lemire 2022] |
+| fast-hex (C++) | x86 AVX2 | 11.5x | N/A | [zbjornson] |
+| faster-hex (Rust) | x86 AVX2 | ~10x | N/A | [nervosnetwork] |
+| const-hex (Rust) | x86 Ryzen 9 | 10-15x* | ~34 GB/s | [DaniPopes] |
+
+*vs competitive scalar baseline; up to 99x vs naive byte-at-a-time.
+
+### Key Observations
+
+1. **SPMD EncodeSrc at ~10x exceeds all native 128-bit x86 results** (7-8x for SSE/SSSE3) despite running through a WASM JIT. This is likely because V8's JIT can optimize the simple loop structure aggressively.
+
+2. **Competitive with 256-bit AVX2 hand-optimized C++/Rust** (10-12x). Our 128-bit WASM code matches the speedup of code using 2x wider registers on native hardware.
+
+3. **ARM NEON achieves 13.5x** thanks to `vst2q` (native interleaved store) which WASM SIMD128 does not expose. This is the primary remaining gap.
+
+4. **Theoretical maximum for 128-bit is ~13-14x**. Our 10x captures ~75% of that.
+
+5. **No other known WASM SIMD128 hex encoding benchmarks exist** in public literature.
+
+### Algorithm Comparison
+
+All fast implementations use the same core approach:
+- **Nibble extraction**: `shr 4` (high) and `and 0x0f` (low)
+- **Lookup**: shuffle/swizzle against `"0123456789abcdef"` constant
+- **Interleave**: shuffle or unpack to produce `[h0,l0,h1,l1,...]` output
+
+The differences are in interleaving strategy and store patterns:
+- **x86 SSE**: `punpcklbw`/`punpckhbw` + 2 stores
+- **ARM NEON**: `vst2q_u8` (hardware interleaved store, single instruction)
+- **WASM SIMD128**: `i8x16.shuffle` + 2 `v128.store` (our approach)
+
+### Conclusion
+
+The hex-encode benchmark has reached diminishing returns for SPMD compiler optimization. The EncodeSrc variant at ~10x is within the performance envelope of hand-optimized native SIMD code. Further improvements would require either WASM ISA extensions (interleaved stores) or fundamentally different algorithms. The remaining Encode (dst-centric) gap to 3.0x is an algorithmic limitation (8 vs 16 bytes/iter), not a compiler issue.
+
+### References
+
+- [Lemire 2022] D. Lemire, "Fast base16 encoding", https://lemire.me/blog/2022/12/23/fast-base16-encoding/
+- [Lemire 2026] D. Lemire, "Converting data to hexadecimal outputs quickly", https://lemire.me/blog/2026/02/02/converting-data-to-hexadecimal-outputs-quickly/
+- [Lupton] R. Lupton, "Encoding binary as hex using SIMD instructions", https://richardlupton.com/posts/simd-hex/
+- [zbjornson] fast-hex, https://github.com/zbjornson/fast-hex
+- [nervosnetwork] faster-hex, https://github.com/nervosnetwork/faster-hex
+- [DaniPopes] const-hex, https://github.com/DaniPopes/const-hex
