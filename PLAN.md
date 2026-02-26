@@ -816,6 +816,21 @@ Note: This parser fix has been removed along with all constrained `Varying[T, N]
 - [x] Downcasts (e.g., Varying[uint32] → Varying[uint16]) and same-size conversions (e.g., Varying[int32] → Varying[float32]) remain allowed
 - [x] `illegal_invalid-type-casting` now correctly rejected with 8 error sites
 
+### SPMD Loop Peeling ✅ COMPLETED
+
+Split `go for` loops into main phase (full vectors, ConstAllOnes mask, plain v128.store) + tail phase (0-1 masked iterations). Covers both rangeindex (range-over-slice) and rangeint (range N) patterns.
+
+- [x] Loop peeling infrastructure: `spmdShouldPeelLoop`, `spmdCreateTailBlocks`, `emitSPMDTailCheck`, `emitSPMDTailBody`
+- [x] Rangeindex peeling: entry Jump redirect, loop bound check override, tail iter phi wiring
+- [x] Rangeint peeling: entry If handler (`condBr(alignedBound > 0, mainEntry, tailCheckBlock)`), merged body+loop tail redirect
+- [x] Accumulator phi gate: loops with `totalPhiCount > 1` excluded (requires future RAUW for post-loop dominance)
+- [x] `entryPredecessor()` unified CFG helper: eliminates `isRangeIndex` branching in phi wiring
+- [x] Design docs: `docs/plans/2026-02-23-spmd-loop-peeling-design.md`, `docs/plans/2026-02-24-rangeint-loop-peeling-design.md`
+
+**Result**: Hex-encode ~0.34x → ~2.72x; Mandelbrot ~2.98x → ~3.17x (0 differences, no new E2E regressions)
+
+**Known limitation**: `type-casting-varying` E2E fails with PHI predecessor mismatch for multi-loop functions containing multiple rangeint `go for` loops. Accumulator phi peeling deferred.
+
 ### 2.9d Scalar Fallback Mode
 
 - [ ] When `-simd=false`, map `lanes.Varying[T]` to scalar loops instead of vectors
@@ -1178,6 +1193,24 @@ Note: This parser fix has been removed along with all constrained `Varying[T, N]
   - Implementation: AND each lane's OOB flag with the corresponding mask lane before ORing
   - Priority: High (can cause spurious panics when inactive lanes have out-of-bounds indices)
   - Related: IndexAddr vector path (compiler.go:2994-3001) has the same issue
+
+- [ ] **Accumulator phi peeling (loop peeling + RAUW)**
+  - Task: Enable loop peeling for loops with accumulator phis (e.g., `total += value` in simple-sum)
+  - Location: `compiler/spmd.go:spmdShouldPeelLoop` (totalPhiCount > 1 gate)
+  - Status: Deferred — gate currently excludes accumulator loops because post-loop uses don't dominate exit paths after peeling introduces bypass
+  - Depends On: RAUW infrastructure for replacing post-loop phi references with merged values from tail.check
+  - Implementation: (1) Identify post-loop uses of accumulator phis, (2) Create merge phis at exit that combine entry-bypass zero value with main-loop value, (3) RAUW all post-loop references to point to merge phis
+  - Priority: Medium (simple-sum already correct without peeling; peeling would improve throughput for accumulation patterns)
+  - Related: `accumulatorPhis` collection code in `emitSPMDTailCheck` is already wired but dead-code until this gate is removed
+
+- [ ] **Multi-loop rangeint peeling (type-casting-varying)**
+  - Task: Fix PHI predecessor mismatch when functions contain multiple rangeint `go for` loops
+  - Location: `compiler/compiler.go` entry If handler, `compiler/spmd.go` tail block creation
+  - Status: Deferred — pre-existing from rangeint peeling; each loop gets its own tail blocks but the entry If handler only handles one loop's aligned bound correctly
+  - Depends On: Per-loop entry block tracking to disambiguate which loop's entry If is being processed
+  - Implementation: Track entry block → loop mapping during `analyzeSPMDLoops`, use in entry If handler
+  - Priority: Low (only affects functions with multiple rangeint go-for loops)
+  - Related: `type-casting-varying` E2E test failure
 
 - [ ] **Fix unconditional SExt in IndexAddr vector bounds check**
   - Task: `*ssa.IndexAddr` vector path (compiler.go:2998) uses `CreateSExt` unconditionally for unsigned indices
