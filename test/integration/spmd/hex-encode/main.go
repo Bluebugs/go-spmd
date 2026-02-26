@@ -20,11 +20,13 @@ func main() {
 	}
 	dst1 := make([]byte, len(data)*2)
 	dst2 := make([]byte, len(data)*2)
+	dst3 := make([]byte, len(data)*2)
 
 	// Correctness check
 	Encode(dst1, data)
 	EncodeScalar(dst2, data)
-	if string(dst1) != string(dst2) {
+	EncodeSrc(dst3, data)
+	if string(dst1) != string(dst2) || string(dst1) != string(dst3) {
 		fmt.Println("FAIL: SPMD and Scalar results mismatch!")
 		os.Exit(1)
 	}
@@ -46,10 +48,22 @@ func main() {
 	spmdTime := time.Since(start)
 	fmt.Printf("SPMD:   %v (%d iterations, %d bytes each)\n", spmdTime, iterations, dataSize)
 
+	// Benchmark SPMD (src-centric, new)
+	start = time.Now()
+	for n := 0; n < iterations; n++ {
+		EncodeSrc(dst3, data)
+	}
+	spmdSrcTime := time.Since(start)
+	fmt.Printf("SPMD Src-Centric: %v (%d iterations, %d bytes each)\n", spmdSrcTime, iterations, dataSize)
+
 	// Speedup
 	if spmdTime > 0 {
 		speedup := float64(scalarTime) / float64(spmdTime)
-		fmt.Printf("Speedup: %.2fx\n", speedup)
+		fmt.Printf("SPMD Speedup: %.2fx\n", speedup)
+	}
+	if spmdSrcTime > 0 {
+		speedup := float64(scalarTime) / float64(spmdSrcTime)
+		fmt.Printf("SPMD Src-Centric Speedup: %.2fx\n", speedup)
 	}
 }
 
@@ -61,6 +75,15 @@ func Encode(dst, src []byte) int {
 		} else {
 			dst[i] = hextable[v&0x0f]
 		}
+	}
+
+	return len(src) * 2
+}
+
+func EncodeSrc(dst, src []byte) int {
+	go for i := range src {
+		dst[i*2] = hextable[src[i]>>4]
+		dst[i*2+1] = hextable[src[i]&0x0f]
 	}
 
 	return len(src) * 2
