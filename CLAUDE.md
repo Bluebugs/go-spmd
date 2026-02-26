@@ -114,15 +114,28 @@ See `docs/spmd-type-checker-enforcement.md` for enforcement pseudocode and test 
 ### TinyGo SPMD Build Commands
 
 ```bash
-# Compile SPMD to WebAssembly
-GOEXPERIMENT=spmd tinygo build -target=wasi -o output.wasm examples/simple-sum/main.go
+# Build everything (Go toolchain + TinyGo)
+make build
+
+# Build just the Go toolchain
+make build-go
+
+# Build just TinyGo (requires Go built first)
+make build-tinygo
+
+# Compile an SPMD example to WebAssembly (via Makefile)
+make compile EXAMPLE=hex-encode
+
+# Compile SPMD to WebAssembly (manual)
+# IMPORTANT: The forked Go must be on PATH so TinyGo's `go env` finds it.
+PATH=$(pwd)/go/bin:$PATH GOEXPERIMENT=spmd ./tinygo/build/tinygo build -target=wasi -o output.wasm examples/simple-sum/main.go
 
 # Execute with wasmer-go
 go run wasmer-runner.go output.wasm
 
 # Dual mode testing
-GOEXPERIMENT=spmd tinygo build -target=wasi -simd=true -o test-simd.wasm main.go    # SIMD
-GOEXPERIMENT=spmd tinygo build -target=wasi -simd=false -o test-scalar.wasm main.go  # Scalar
+PATH=$(pwd)/go/bin:$PATH GOEXPERIMENT=spmd ./tinygo/build/tinygo build -target=wasi -simd=true -o test-simd.wasm main.go    # SIMD
+PATH=$(pwd)/go/bin:$PATH GOEXPERIMENT=spmd ./tinygo/build/tinygo build -target=wasi -simd=false -o test-scalar.wasm main.go  # Scalar
 wasm2wat test-simd.wasm | grep "v128"  # Inspect SIMD instructions
 
 # Verify experiment gating (should work without SPMD syntax)
@@ -188,6 +201,7 @@ Lexer, parser, type system with `lanes.Varying[T]`, full SPMD type checking (ISP
 Syntax migration completed (5 commits, ~55 files). Dual-mode testing and benchmarking remain. See `docs/poc-testing-workflow.md`.
 
 **E2E Compile Failures** (13 by root cause):
+
 - **Backend bugs (8)**: bit-counting, array-counting, map-restrictions, defer-varying, printf-verbs, panic-recover-varying, non-spmd-varying-return, spmd-call-contexts
 - **Complex patterns (3)**: ipv4-parser (see `docs/ipv4-parser-status.md`), base64-decoder, union-type-generics
 - **Missing features (2)**: pointer-varying, type-switch-varying

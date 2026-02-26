@@ -16,6 +16,10 @@ TEST_DIR = test
 EXAMPLES_DIR = examples
 INTEGRATION_DIR = test/integration/spmd
 
+# Derived paths
+SPMD_GO = $(GO_DIR)/bin/go
+SPMD_TINYGO = $(TINYGO_DIR)/build/tinygo
+
 # Colors for output
 GREEN = \033[0;32m
 YELLOW = \033[1;33m
@@ -26,10 +30,50 @@ NC = \033[0m # No Color
 .PHONY: all
 all: check-deps test-phase0
 
+# =============================================================================
+# Build targets
+# =============================================================================
+
+.PHONY: build
+build: build-go build-tinygo ## Build both Go and TinyGo with SPMD support
+
+.PHONY: build-go
+build-go: ## Build the forked Go toolchain with SPMD support
+	@echo "$(YELLOW)Building Go toolchain...$(NC)"
+	cd $(GO_DIR)/src && GOEXPERIMENT=$(GOEXPERIMENT) ./make.bash
+	@echo "$(GREEN)✓ Go toolchain built at $(SPMD_GO)$(NC)"
+
+.PHONY: build-tinygo
+build-tinygo: $(SPMD_GO) ## Build TinyGo with SPMD support (requires Go to be built first)
+	@echo "$(YELLOW)Building TinyGo...$(NC)"
+	$(MAKE) -C $(TINYGO_DIR) tinygo GO=$(CURDIR)/$(SPMD_GO)
+	@echo "$(GREEN)✓ TinyGo built at $(SPMD_TINYGO)$(NC)"
+
+$(SPMD_GO):
+	@echo "$(RED)Error: Go toolchain not built. Run 'make build-go' first.$(NC)"
+	@exit 1
+
+# SPMD compilation environment
+# TinyGo resolves GOROOT via `go env`, so the forked Go must be on PATH.
+SPMD_ENV = PATH=$(CURDIR)/$(GO_DIR)/bin:$(PATH) GOEXPERIMENT=$(GOEXPERIMENT)
+
+.PHONY: compile
+compile: $(SPMD_GO) $(SPMD_TINYGO) ## Compile an SPMD example to WASM (usage: make compile EXAMPLE=hex-encode)
+	@test -n "$(EXAMPLE)" || (echo "$(RED)Error: specify EXAMPLE=<name> (e.g., make compile EXAMPLE=hex-encode)$(NC)" && exit 1)
+	@test -f $(EXAMPLES_DIR)/$(EXAMPLE)/main.go || (echo "$(RED)Error: $(EXAMPLES_DIR)/$(EXAMPLE)/main.go not found$(NC)" && exit 1)
+	$(SPMD_ENV) $(SPMD_TINYGO) build -target=wasi -o $(EXAMPLE).wasm $(EXAMPLES_DIR)/$(EXAMPLE)/main.go
+	@echo "$(GREEN)✓ Compiled $(EXAMPLE).wasm$(NC)"
+
 # Help target
 .PHONY: help
 help:
 	@echo "SPMD Implementation Test Automation"
+	@echo ""
+	@echo "Build:"
+	@echo "  build                - Build both Go and TinyGo with SPMD support"
+	@echo "  build-go             - Build the forked Go toolchain"
+	@echo "  build-tinygo         - Build TinyGo (requires Go built first)"
+	@echo "  compile EXAMPLE=name - Compile an example to WASM"
 	@echo ""
 	@echo "Phase Testing:"
 	@echo "  test-phase0          - Run all Phase 0 foundation tests"
