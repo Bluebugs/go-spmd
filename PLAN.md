@@ -733,14 +733,15 @@ Ported 10 `*_ext_spmd.go` files from types2 to go/types with full API translatio
 - [x] Validate 6 core programs compile + run correctly (stores, conditionals, functions, reduce, lanes, varying vars)
 - [x] Validate all 11 illegal examples correctly rejected by type checker
 
-**E2E Test Results (46 tests)**:
-- 19 RUN PASS: L0_store, L0_cond, L0_func, L1_reduce_add, L2_lanes_index, L3_varying_var, L4_range_slice, L4b_varying_break, L5a_simple_sum, L5b_odd_even, L5f_varying_switch, L5g_compound_conditions, integ_simple-sum, integ_odd-even, integ_hex-encode, integ_debug-varying, integ_lanes-index-restrictions, integ_to-upper, integ_mandelbrot
-- 4 COMPILE-ONLY PASS: integ_goroutine-varying, integ_select-with-varying-channels, integ_type-casting-varying, integ_infinite-loop-exit
+**E2E Test Results (47 tests)**:
+- 20 RUN PASS: L0_store, L0_cond, L0_func, L1_reduce_add, L2_lanes_index, L3_varying_var, L4_range_slice, L4b_varying_break, L5a_simple_sum, L5b_odd_even, L5f_varying_switch, L5g_compound_conditions, integ_simple-sum, integ_odd-even, integ_hex-encode, integ_debug-varying, integ_lanes-index-restrictions, integ_to-upper, integ_mandelbrot, integ_store-coalescing
+- 4 COMPILE-ONLY PASS: integ_type-casting-varying, integ_printf-verbs, integ_goroutine-varying, integ_select-with-varying-channels
 - 10 REJECT OK: All illegal examples correctly rejected
 - 13 COMPILE FAIL (categorized by root cause):
-  - **Compiler backend bugs (8)**: bit-counting (scalar-to-SPMD convert receives vector), array-counting (SIGSEGV), map-restrictions (LLVM masked load of struct `runtime._string`), defer-varying (closure mask arg count), printf-verbs (nil pointer deref crash), panic-recover-varying (struct masked load), non-spmd-varying-return (call param type mismatch), spmd-call-contexts (closure arg count)
+  - **Compiler backend bugs (6)**: bit-counting (scalar-to-SPMD convert receives vector), array-counting (SIGSEGV), map-restrictions (LLVM masked load of struct `runtime._string`), defer-varying (closure mask arg count), panic-recover-varying (struct masked load), non-spmd-varying-return (call param type mismatch), spmd-call-contexts (closure arg count)
   - **Complex SPMD patterns (3)**: ipv4-parser (25 LLVM verification errors — multi-lane-count loops, Varying[bool] type collision — see `docs/ipv4-parser-status.md`), base64-decoder (`Varying[uint16]` doesn't match `Varying[byte]` for `ShiftLeft`), union-type-generics (x-tools-spmd generic instantiation panic)
   - **Missing features (2)**: pointer-varying (pointer ops with varying), type-switch-varying (type switch on varying values)
+  - **Frontend errors (1)**: varying-array-iteration (nested go-for)
 
 ### 2.8c Constrained Varying Type Support -- REMOVED
 
@@ -829,7 +830,7 @@ Split `go for` loops into main phase (full vectors, ConstAllOnes mask, plain v12
 
 **Result**: Hex-encode ~0.34x → ~2.72x; Mandelbrot ~2.98x → ~3.17x (0 differences, no new E2E regressions)
 
-**Known limitation**: `type-casting-varying` E2E fails with PHI predecessor mismatch for multi-loop functions containing multiple rangeint `go for` loops. Accumulator phi peeling deferred.
+**Resolved**: `type-casting-varying` now compiles correctly. Multi-loop rangeint peeling and accumulator phi peeling both implemented. Loops with accumulators AND varying control flow in the body excluded from peeling (conservative gate).
 
 ### 2.9d Scalar Fallback Mode
 
@@ -1194,23 +1195,19 @@ Split `go for` loops into main phase (full vectors, ConstAllOnes mask, plain v12
   - Priority: High (can cause spurious panics when inactive lanes have out-of-bounds indices)
   - Related: IndexAddr vector path (compiler.go:2994-3001) has the same issue
 
-- [ ] **Accumulator phi peeling (loop peeling + RAUW)**
+- [x] **Accumulator phi peeling (loop peeling + RAUW)** — DONE
   - Task: Enable loop peeling for loops with accumulator phis (e.g., `total += value` in simple-sum)
-  - Location: `compiler/spmd.go:spmdShouldPeelLoop` (totalPhiCount > 1 gate)
-  - Status: Deferred — gate currently excludes accumulator loops because post-loop uses don't dominate exit paths after peeling introduces bypass
-  - Depends On: RAUW infrastructure for replacing post-loop phi references with merged values from tail.check
-  - Implementation: (1) Identify post-loop uses of accumulator phis, (2) Create merge phis at exit that combine entry-bypass zero value with main-loop value, (3) RAUW all post-loop references to point to merge phis
-  - Priority: Medium (simple-sum already correct without peeling; peeling would improve throughput for accumulation patterns)
-  - Related: `accumulatorPhis` collection code in `emitSPMDTailCheck` is already wired but dead-code until this gate is removed
+  - Location: `compiler/spmd.go:spmdShouldPeelLoop`, `compiler/compiler.go` trampoline section
+  - Status: DONE — trampoline block with merge phis for all done-block values. Loops with accumulators AND varying control flow excluded (trampoline can't handle complex interior blocks).
+  - Implementation: (1) Remove totalPhiCount gate, (2) Create accumulator phis in tail.check with rangeint/rangeindex conditional for back-edge values, (3) Create trampoline block before done block with merge phis for accumulators + non-accumulator done-block phis, (4) Detect accumulator aliases, (5) Gate via spmdLoopHasAccumulatorPhis && spmdLoopBodyHasVaryingControlFlow
+  - Related: simple-sum now peeled correctly, E2E: 24 compile pass (was 23)
 
-- [ ] **Multi-loop rangeint peeling (type-casting-varying)**
+- [x] **Multi-loop rangeint peeling (type-casting-varying)** — DONE
   - Task: Fix PHI predecessor mismatch when functions contain multiple rangeint `go for` loops
-  - Location: `compiler/compiler.go` entry If handler, `compiler/spmd.go` tail block creation
-  - Status: Deferred — pre-existing from rangeint peeling; each loop gets its own tail blocks but the entry If handler only handles one loop's aligned bound correctly
-  - Depends On: Per-loop entry block tracking to disambiguate which loop's entry If is being processed
-  - Implementation: Track entry block → loop mapping during `analyzeSPMDLoops`, use in entry If handler
-  - Priority: Low (only affects functions with multiple rangeint go-for loops)
-  - Related: `type-casting-varying` E2E test failure
+  - Location: `compiler/compiler.go` doneBlockIdx tracking + peeledDoneBlocks skip + manual wiring
+  - Status: DONE — track doneBlockIdx per peeled loop, skip done-block phis in standard resolution, wire manually with correct LLVM predecessors (tailCheckBlock, tailBodyExitBlock). Multi-loop isolation via filtered bodyBlockSet.
+  - Implementation: Track doneBlockIdx, build peeledDoneBlocks map, skip in standard phi resolution, wire done-block phis with [tailCheckBlock, tailBodyExitBlock] or trampoline
+  - Related: `type-casting-varying` E2E now COMPILE OK (was COMPILE FAIL)
 
 - [ ] **Fix unconditional SExt in IndexAddr vector bounds check**
   - Task: `*ssa.IndexAddr` vector path (compiler.go:2998) uses `CreateSExt` unconditionally for unsigned indices
