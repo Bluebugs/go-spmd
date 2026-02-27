@@ -20,7 +20,7 @@ const (
 	X1             = 1.5
 	Y1             = 1.25
 	WARMUP_RUNS    = 3
-	BENCH_RUNS     = 10
+	BENCH_RUNS     = 7
 )
 
 // Serial mandelbrot kernel
