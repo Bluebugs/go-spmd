@@ -1,14 +1,14 @@
 # IPv4 Parser SPMD Compilation Status Report
 
-**Date**: 2026-02-22
+**Date**: 2026-03-01
 **Source**: `test/integration/spmd/ipv4-parser/main.go`
 **Based on**: Wojciech Muła's SIMD IPv4 parsing research
 
-## Current Status: LLVM Verification Errors (Previously: Compiler Panic)
+## Current Status: 1 LLVM Verification Error (Previously: 25 errors)
 
 The ipv4-parser is a key PoC goal — a real-world parsing algorithm using SPMD Go.
-It previously crashed during compilation with panics. After two fixes in this session,
-it now reaches LLVM IR generation and fails at LLVM verification with type mismatches.
+After significant work across multiple sessions, we are down from 25 LLVM verification
+errors to 1. The remaining error is a multi-lane-count select mismatch.
 
 ### Progress Timeline
 
@@ -17,17 +17,82 @@ it now reaches LLVM IR generation and fails at LLVM verification with type misma
 | Parsing | PASS | `go for`, `range input`, `range starts` all parse correctly |
 | Type Checking | PASS | All SPMD rules enforced correctly |
 | SSA Generation | PASS | x-tools SSA builder succeeds (composite literal panic fixed) |
-| LLVM IR Generation | PASS | IR is generated (merge select panic fixed) |
-| LLVM Verification | **FAIL** | 25 verification errors across 4 remaining categories (varying switch fixed) |
-| WASM Codegen | BLOCKED | Blocked by verification errors |
+| LLVM IR Generation | PASS | IR is generated (merge select deferred path fixed) |
+| LLVM Verification | **FAIL** | 1 verification error: multi-lane-count select mismatch |
+| WASM Codegen | BLOCKED | Blocked by remaining verification error |
+
+### Fixes Applied (2026-02-28 to 2026-03-01)
+
+1. **`anytrue.v4i1` intrinsic type mismatch** — FIXED
+   - `Varying[bool]` uses `<4 x i1>` but anytrue.v4i1 was being called with `<4 x i32>`.
+   - Fix: `spmdVectorAnyTrue` now calls `spmdWasmAnyTrue` directly without inserting sext,
+     avoiding `ReplaceAllUsesWith` corruption of `sext <4 x i1>` → `sext <4 x i32>`.
+
+2. **`Varying[bool]` switch merge type mismatch** — FIXED
+   - `spmdCreateSwitchMergeSelect` built cascaded selects mixing `<4 x i1>` and `<4 x i32>`.
+   - Fix: Normalize `<4 x i1>` to `<4 x i32>` before `spmdMaskSelect` in the cascaded
+     select loop. Also truncate `selectVal` back to `<4 x i1>` before `ReplaceAllUsesWith`
+     when the placeholder phi was created with `<4 x i1>` type.
+
+3. **LOR phi tail-phase predecessor mismatch** — FIXED
+   - Value-LOR (`a || b`) deferred phi in the tail phase referenced main-phase block
+     (`binop.rhs19`) instead of the tail-phase equivalent (`binop.rhs.tail`).
+   - Root cause: phi resolution reads `b.blockInfo` after state restoration (main-phase).
+   - Fix: Resolve tail-phase merge phi overrides BEFORE restoring `b.blockInfo`, analogous
+     to how deferred switch phis are resolved in `emitSPMDTailBody`.
+
+4. **Accumulator phi missing predecessor** — FIXED
+   - `rangeindex.loop13` phi had 3 LLVM predecessors but only 2 incoming values.
+   - Root cause: Tail-phase `binop.done.tail` (If body block) branched back to the main
+     loop block (`rangeindex.loop13`) without wiring the phi value.
+   - Fix: In the `*ssa.If` handler, when in tail phase, detect successors that target
+     the loop block and redirect them to `tailExitBlock`.
+
+5. **`<4 x i8>` sub-128-bit vector promotion** — FIXED (partial)
+   - `spmdVectorIndexArray` produced `<4 x i8>` gather results for byte arrays in 4-lane
+     loops. WASM cannot lower sub-128-bit vectors.
+   - Fix: After the per-lane gather, zero-extend `<4 x i8>` to `<4 x i32>` on WASM when
+     the result is sub-128-bit.
+
+### Remaining Issue (1 error)
+
+```
+Invalid operands for select instruction!
+  %70 = select <16 x i1> %69, <4 x i8> %spmd.resize, <4 x i32> zeroinitializer
+```
+
+**Root cause**: Multi-lane-count mismatch in store coalescing for `dotMask[i] = c == '.'`.
+
+The first `go for i, c := range input` loop uses 4-lane `i` (int=i32) but accesses
+`dotMask [16]bool` (naturally 16-element). The comparison `c == '.'` produces `<4 x i1>`
+(4-lane), but after the `zext <4 x i8> to <4 x i32>` fix, the code bitcasts the result
+to `<16 x i8>` (via a `ChangeType` SSA instruction converting between uint8 and the 16-lane
+bool array context). This causes:
+- Comparison: `icmp eq <16 x i8> %changetype.vec, <16 x i8> splat('.')` — 16-lane
+- Store mask: 16-lane `<16 x i1>` from the dotMask array load
+- Store value: 4-lane `<4 x i8>` (from zext result truncated back to 4 elements)
+
+The `select <16 x i1>, <4 x i8>, <4 x i32>` mixes all three types incorrectly.
+
+**Root diagnosis**: The `ChangeType` SSA instruction that converts `c` (uint8) to be used
+with the `dotMask` bool context reinterprets `<4 x i32>` as `<16 x i8>` via bitcast.
+This is the fundamental multi-lane-count problem: a 4-lane loop body accessing a 16-element
+array needs explicit lane-count boundary management.
+
+**Fix needed**: One of:
+1. For the zext approach: intercept `ChangeType` to prevent bitcast reinterpretation of
+   zext'd byte values back to 16-lane context. Or...
+2. Alternative: Instead of zext in `spmdVectorIndexArray`, handle sub-128-bit comparisons
+   by promoting only at the comparison site (not the gather result), ensuring the
+   4-lane context is maintained throughout.
 
 ### SPMD Features Used by ipv4-parser
 
-The parser exercises a wide range of SPMD features, making it an excellent stress test:
+The parser exercises a wide range of SPMD features:
 
 1. **Multiple `go for` loops** with different array types and lane counts:
-   - `go for i, c := range input` — iterates `[16]byte`, 16 lanes for byte
-   - `go for _, isDot := range dotMask` — iterates `[16]bool`, 16 lanes for bool
+   - `go for i, c := range input` — iterates `[16]byte`, 4 lanes (int index)
+   - `go for _, isDot := range dotMask` — iterates `[16]bool`, 4 lanes (int index)
    - `go for i, start := range starts` — iterates `[4]int`, 4 lanes for int
    - `go for field, start := range starts` — same 4-lane int iteration
 
@@ -43,132 +108,25 @@ The parser exercises a wide range of SPMD features, making it an excellent stres
 
 7. **Mixed scalar/vector arithmetic**: bit manipulation (`bits.TrailingZeros16`), type conversions (`uint8(value)`)
 
-### LLVM Verification Errors (25 errors, 4 remaining categories)
-
-**Note**: Category 3 (varying switch PHI mismatches) and Category 5 (PHI predecessor count)
-are expected to be resolved or reduced by the varying switch masking implementation completed
-on 2026-02-22 (3 TinyGo commits: chain detection, CFG linearization, deferred phi resolution).
-Re-verification needed to confirm actual error count reduction.
-
-#### Category 1: `sext` vector-to-scalar mismatch (8 errors)
-
-```
-sext <4 x i32> %spmd.lane.idx to i32
-```
-
-**Root cause**: The lane index (`spmd.lane.idx`) is a `<4 x i32>` vector, but it's being
-sign-extended to scalar `i32`. This happens when the lane index is used in a context
-expecting a scalar — likely in `reduce.Mask`, `reduce.FindFirstSet`, or `lanes.Count`
-calls that should extract a scalar result but receive the raw vector.
-
-**Affected lines**: Lines 78, 80, 94, 95 (first loop), and lines in subsequent loops.
-
-**Fix needed**: When a varying lane index is used in a reduce operation or scalar context,
-the backend needs to either: (a) extract the appropriate lane, or (b) generate the
-reduce operation correctly from the vector input.
-
-#### Category 2: `and` type mismatch — mask format collision (3 errors)
-
-```
-and <4 x i32> %32, <4 x i1> %spmd.load
-and <4 x i32> %32, <16 x i32> %43
-and <16 x i32> %46, <16 x i1> zeroinitializer
-```
-
-**Root cause**: Three distinct sub-issues:
-- `<4 x i32>` mask AND'd with `<4 x i1>` — i32 mask format (WASM) vs i1 mask format (LLVM intrinsics)
-- `<4 x i32>` AND'd with `<16 x i32>` — different lane counts (4 for int vs 16 for byte/bool)
-- `<16 x i32>` AND'd with `<16 x i1>` — same lane count but different mask representations
-
-**Fix needed**: Consistent mask format conversion. When masks from different-width
-SPMD loops interact, they need explicit conversion. The `spmdWrapMask`/`spmdUnwrapMask`
-functions may need to handle cross-loop-width mask operations.
-
-#### Category 3: PHI type mismatches (4 errors)
-
-```
-phi <16 x i1> [...], [ %81, %binop.rhs7 ]        -- <16 x i1> phi with non-i1 operand
-phi i32 [ %276, %switch.body29 ], ...              -- scalar phi with vector operands
-phi i1 [ %278, %switch.body29 ], ...               -- scalar phi with vector operands
-```
-
-**Root cause**: Two sub-issues:
-- `Varying[bool]` uses `<16 x i1>` (128/1 = 16 lanes), but mask operations produce
-  `<4 x i32>` (WASM i32 mask format). These collide at phi merge points.
-- The varying switch statement (`switch fieldLen`) previously produced phis at the switch
-  merge that mixed scalar and vector types. **FIXED** by varying switch masking (2026-02-22).
-
-**Fix needed**:
-- `Varying[bool]` mask consistency: the backend currently doesn't distinguish between
-  "bool as data" (`<16 x i1>`) and "bool as mask" (`<4 x i32>` on WASM).
-- Switch phi issues should be resolved by varying switch masking fix (re-verify needed).
-
-#### Category 4: Invalid select operands (3 errors)
-
-```
-select <4 x i1> %193, <4 x i1> <i1 true, ...>, <4 x i32> %192
-select <4 x i1> %275, <16 x i32> %222, <16 x i32> %295
-select <4 x i1> %277, <16 x i1> zeroinitializer, <16 x i32> %297
-```
-
-**Root cause**: Select instructions require condition and operand types to match in width.
-- `<4 x i1>` condition with `<4 x i1>` true-val but `<4 x i32>` false-val — type mismatch
-- `<4 x i1>` condition with `<16 x i32>` operands — lane count mismatch (4 vs 16)
-
-**Fix needed**: Same underlying issues as Categories 2 and 3. Mask format consistency
-and lane count consistency across loops.
-
-#### Category 5: PHI predecessor count mismatch (2 errors)
-
-```
-PHINode should have one entry for each predecessor of its parent basic block!
-```
-
-**Root cause**: After varying if/else CFG linearization, some blocks have their
-predecessors redirected, but the phis aren't updated to match. This likely occurred in
-the switch statement lowering path which didn't have SPMD-aware phi handling.
-
-**Fix status**: **Expected FIXED** by varying switch masking (2026-02-22). Re-verify needed.
-
-### Underlying Root Causes (Summary)
-
-The 25 errors stem from 3 remaining underlying issues (1 fixed):
-
-1. **Multiple lane counts in one function** (HIGH priority)
-   - The parser has loops over `[16]byte` (16 lanes), `[16]bool` (16 lanes),
-     and `[4]int` (4 lanes) in the same function.
-   - The SPMD backend currently assumes a single lane count per SPMD region.
-   - Masks, selects, and phis from different loops collide when values flow between them.
-
-2. **`Varying[bool]` type representation** (HIGH priority)
-   - `Varying[bool]` → `<16 x i1>` (128/1=16 lanes) but platform masks are `<4 x i32>`.
-   - Data booleans and mask booleans have different representations and lane counts.
-   - Need to distinguish "bool as varying data" from "bool as execution mask".
-
-3. ~~**Varying switch masking**~~ — **FIXED** (2026-02-22)
-   - `switch fieldLen` with varying `fieldLen` now handled by switch chain detection,
-     sequential mask narrowing, CFG linearization, and deferred phi resolution.
-   - 3 TinyGo commits + L5f E2E test. Re-verify ipv4-parser to confirm error reduction.
-
-4. **Lane index in scalar contexts** (MEDIUM priority)
-   - `sext <4 x i32> to i32` — lane index vector used where scalar expected.
-   - Affects `reduce.Mask`, `reduce.FindFirstSet`, `lanes.Count` calls.
-   - Backend needs to extract/reduce appropriately when vector meets scalar context.
-
 ### What Works
 
 - Parsing and type checking are fully correct
-- SSA generation succeeds (composite literal return type-checking fixed)
-- LLVM IR generation completes without panics (merge select deferred path fixed)
+- SSA generation succeeds
+- LLVM IR generation completes without panics
 - Simple `go for` loops with single lane count compile fine (simple-sum, mandelbrot, etc.)
 - Reduce operations work for single-lane-count programs
 - Uniform early returns work correctly
+- Varying switch statements work (simple-base64, type-casting-varying)
+- Value-LOR (`a || b`) expressions work (for single-lane-count programs)
 
-### Recommended Fix Order
+### Recommended Next Fix
 
-1. **Lane count consistency** — Ensure each `go for` loop properly scopes its lane count;
-   values crossing loop boundaries need explicit conversion
-2. **`Varying[bool]` representation** — Decide on consistent representation:
-   either always `<N x i1>` with lane-count-appropriate N, or always platform mask format
-3. ~~**Varying switch masking**~~ — **DONE** (2026-02-22). Re-verify to confirm error reduction.
-4. **Scalar extraction** — Handle lane index in scalar contexts via reduce/extract
+The remaining `select <16 x i1> %69, <4 x i8> %spmd.resize, <4 x i32> zeroinitializer`
+error can be fixed by intercepting `ChangeType` (convert) SSA instructions for byte values
+inside SPMD loops. When a `uint8` value (which after `spmdVectorIndexArray` is `<4 x i32>`)
+gets converted via `ChangeType` to another integer type, the conversion should use the
+SPMD-zext'd `<4 x i32>` value directly, not bitcast it to `<16 x i8>`.
+
+Alternatively, revert the blanket `spmdVectorIndexArray` zext and instead handle the
+WASM promotion at the comparison site in `createBinOp` — only when a `<N x i8>` value
+would be used in an icmp against a splat constant.
