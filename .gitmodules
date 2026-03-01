@@ -13,3 +13,6 @@
 [submodule "go-llvm"]
 	path = go-llvm
 	url = https://github.com/tinygo-org/go-llvm.git
+[submodule "x-tools-spmd"]
+	path = x-tools-spmd
+	url = git@github.com:Bluebugs/tools.git
