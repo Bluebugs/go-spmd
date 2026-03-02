@@ -194,15 +194,15 @@ Lexer, parser, type system with `lanes.Varying[T]`, full SPMD type checking (ISP
 - **2.1-2.9c** (DONE): GOEXPERIMENT support, LLVM vector types, SPMD loop lowering, control flow masking, function calls, builtin interception, mask stack, break masks, *Within cross-lane ops, varying switch, compound booleans, vector index, bounds check elision, store coalescing, gather shift-load expansion
 - **2.9-2.10** (REMAINING): Varying for-loop masking, lanes.Rotate/Swizzle (full-width), scalar fallback mode
 - **Key Metrics**: Mandelbrot ~2.98x SPMD speedup (0 diffs vs serial); hex-encode ~0.34x (optimization roadmap in `docs/hex-encode-simd-analysis.md`)
-- **E2E Results**: 20 run pass, 4 compile-only pass, 13 compile fail, 10 reject OK (47 total)
+- **E2E Results**: 20 run pass, 5 compile-only pass, 12 compile fail, 10 reject OK (47 total)
 
 ### Phase 3: Validation (NOT STARTED)
 
 Syntax migration completed (5 commits, ~55 files). Dual-mode testing and benchmarking remain. See `docs/poc-testing-workflow.md`.
 
-**E2E Compile Failures** (13 by root cause):
+**E2E Compile Failures** (12 by root cause):
 
-- **Backend bugs (8)**: bit-counting, array-counting, map-restrictions, defer-varying, printf-verbs, panic-recover-varying, non-spmd-varying-return, spmd-call-contexts
+- **Backend bugs (7)**: bit-counting, array-counting, map-restrictions, defer-varying, panic-recover-varying, non-spmd-varying-return, spmd-call-contexts
 - **Complex patterns (3)**: ipv4-parser (see `docs/ipv4-parser-status.md`), base64-decoder, union-type-generics
 - **Missing features (2)**: pointer-varying, type-switch-varying
 
