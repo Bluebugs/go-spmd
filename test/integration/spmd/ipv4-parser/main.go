@@ -6,6 +6,7 @@ package main
 import (
 	"fmt"
 	"math/bits"
+	"time"
 
 	"lanes"
 	"reduce"
@@ -24,20 +25,27 @@ func (e parseAddrError) Error() string {
 	return fmt.Sprintf("parse %s: %s", e.in, e.msg)
 }
 
-func main() {
-	testCases := []string{
-		"192.168.1.1",
-		"10.0.0.1",
-		"255.255.255.255",
-		"0.0.0.0",
-		"127.0.0.1",
-		"192.168.01.1",  // Invalid: leading zero
-		"256.1.1.1",     // Invalid: >255
-		"192.168.1",     // Invalid: too few octets
-		"192.168.1.1.1", // Invalid: too many octets
-		"192.168.1.a",   // Invalid: non-digit
-	}
+const iterations = 10000
 
+const (
+	WARMUP_RUNS = 3
+	BENCH_RUNS  = 7
+)
+
+var testCases = []string{
+	"192.168.1.1",
+	"10.0.0.1",
+	"255.255.255.255",
+	"0.0.0.0",
+	"127.0.0.1",
+	"192.168.01.1",  // Invalid: leading zero
+	"256.1.1.1",     // Invalid: >255
+	"192.168.1",     // Invalid: too few octets
+	"192.168.1.1.1", // Invalid: too many octets
+	"192.168.1.a",   // Invalid: non-digit
+}
+
+func main() {
 	for _, addr := range testCases {
 		ip, err := parseIPv4(addr)
 		if err != nil {
@@ -46,6 +54,177 @@ func main() {
 			fmt.Printf("'%s' -> %d.%d.%d.%d\n", addr, ip[0], ip[1], ip[2], ip[3])
 		}
 	}
+
+	benchmark()
+}
+
+func benchmark() {
+	fmt.Println("\n=== IPv4 Parser SPMD Benchmark ===")
+	fmt.Printf("Test cases: %d, Iterations: %d per run\n", len(testCases), iterations)
+	fmt.Printf("Warmup: %d runs, Bench: %d runs\n\n", WARMUP_RUNS, BENCH_RUNS)
+
+	// Correctness check: scalar and SPMD must agree on every test case.
+	fmt.Println("Verifying correctness...")
+	for _, addr := range testCases {
+		spmdIP, spmdErr := parseIPv4(addr)
+		scalarIP, scalarErr := parseIPv4Scalar(addr)
+		// Both must error or both must succeed.
+		if (spmdErr == nil) != (scalarErr == nil) {
+			fmt.Printf("FAIL: mismatch for %q: SPMD=%v scalar=%v\n", addr, spmdErr, scalarErr)
+			return
+		}
+		// On success the byte values must match.
+		if spmdErr == nil && spmdIP != scalarIP {
+			fmt.Printf("FAIL: result mismatch for %q: SPMD=%v scalar=%v\n", addr, spmdIP, scalarIP)
+			return
+		}
+	}
+	fmt.Println("Correctness: SPMD and scalar results match.")
+
+	// Warmup (not timed).
+	fmt.Println("Warming up...")
+	for r := 0; r < WARMUP_RUNS; r++ {
+		for n := 0; n < iterations; n++ {
+			for _, addr := range testCases {
+				parseIPv4Scalar(addr)
+			}
+		}
+		for n := 0; n < iterations; n++ {
+			for _, addr := range testCases {
+				parseIPv4(addr)
+			}
+		}
+	}
+
+	// Benchmark scalar.
+	fmt.Println("Benchmarking scalar...")
+	scalarTimes := make([]int64, BENCH_RUNS)
+	for i := 0; i < BENCH_RUNS; i++ {
+		start := time.Now()
+		for n := 0; n < iterations; n++ {
+			for _, addr := range testCases {
+				parseIPv4Scalar(addr)
+			}
+		}
+		scalarTimes[i] = time.Since(start).Nanoseconds()
+	}
+
+	// Benchmark SPMD.
+	fmt.Println("Benchmarking SPMD...")
+	spmdTimes := make([]int64, BENCH_RUNS)
+	for i := 0; i < BENCH_RUNS; i++ {
+		start := time.Now()
+		for n := 0; n < iterations; n++ {
+			for _, addr := range testCases {
+				parseIPv4(addr)
+			}
+		}
+		spmdTimes[i] = time.Since(start).Nanoseconds()
+	}
+
+	// Statistics.
+	scalarMin, scalarAvg, scalarMax := stats(scalarTimes)
+	spmdMin, spmdAvg, spmdMax := stats(spmdTimes)
+
+	fmt.Println("\n--- Results ---")
+	fmt.Printf("Scalar: min=%s  avg=%s  max=%s\n",
+		fmtDur(scalarMin), fmtDur(scalarAvg), fmtDur(scalarMax))
+	fmt.Printf("SPMD:   min=%s  avg=%s  max=%s\n",
+		fmtDur(spmdMin), fmtDur(spmdAvg), fmtDur(spmdMax))
+
+	fmt.Printf("\nSpeedup (avg): %.2fx\n", float64(scalarAvg)/float64(spmdAvg))
+	fmt.Printf("Speedup (min): %.2fx\n", float64(scalarMin)/float64(spmdMin))
+
+	fmt.Println("\n--- Per-run times ---")
+	fmt.Println("Run  Scalar        SPMD          Ratio")
+	for i := 0; i < BENCH_RUNS; i++ {
+		ratio := float64(scalarTimes[i]) / float64(spmdTimes[i])
+		fmt.Printf("%2d   %-13s %-13s %.2fx\n",
+			i+1, fmtDur(scalarTimes[i]), fmtDur(spmdTimes[i]), ratio)
+	}
+}
+
+func stats(times []int64) (min, avg, max int64) {
+	min = times[0]
+	max = times[0]
+	var sum int64
+	for _, t := range times {
+		sum += t
+		if t < min {
+			min = t
+		}
+		if t > max {
+			max = t
+		}
+	}
+	avg = sum / int64(len(times))
+	return
+}
+
+func fmtDur(ns int64) string {
+	if ns < 1000 {
+		return fmt.Sprintf("%dns", ns)
+	}
+	if ns < 1000000 {
+		return fmt.Sprintf("%.1fus", float64(ns)/1000)
+	}
+	return fmt.Sprintf("%.3fms", float64(ns)/1000000)
+}
+
+// parseIPv4Scalar parses an IPv4 address string using plain serial Go.
+// It enforces the same rules as parseIPv4: no leading zeros, values 0-255,
+// exactly three dots, valid digit/dot characters only.
+func parseIPv4Scalar(s string) ([4]byte, error) {
+	if len(s) < 7 || len(s) > 15 {
+		return [4]byte{}, parseAddrError{in: s, msg: "IPv4 address string too short or too long"}
+	}
+
+	var ip [4]byte
+	field := 0   // current octet index (0-3)
+	value := 0   // accumulated decimal value of current octet
+	digitCount := 0 // digits seen in current octet
+
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case c >= '0' && c <= '9':
+			digit := int(c - '0')
+			// Leading-zero check: first digit is 0 and more digits follow in this field.
+			if digitCount == 1 && value == 0 {
+				return [4]byte{}, parseAddrError{in: s, msg: "IPv4 field has octet with leading zero"}
+			}
+			value = value*10 + digit
+			digitCount++
+			if value > 255 {
+				return [4]byte{}, parseAddrError{in: s, msg: "IPv4 field has value >255"}
+			}
+		case c == '.':
+			if field == 3 {
+				// Fourth dot means too many octets.
+				return [4]byte{}, parseAddrError{in: s, msg: "invalid dot count"}
+			}
+			if digitCount == 0 {
+				return [4]byte{}, parseAddrError{in: s, msg: "invalid field length"}
+			}
+			ip[field] = byte(value)
+			field++
+			value = 0
+			digitCount = 0
+		default:
+			return [4]byte{}, parseAddrError{in: s, at: i, msg: "unexpected character"}
+		}
+	}
+
+	// Flush the last field.
+	if digitCount == 0 {
+		return [4]byte{}, parseAddrError{in: s, msg: "invalid field length"}
+	}
+	if field != 3 {
+		return [4]byte{}, parseAddrError{in: s, msg: "invalid dot count"}
+	}
+	ip[field] = byte(value)
+
+	return ip, nil
 }
 
 func parseIPv4(s string) ([4]byte, error) {
