@@ -1,6 +1,7 @@
 # Compound Boolean Chain Annotation in go/ssa Design
 
 **Date:** 2026-03-01
+**Updated:** 2026-03-02 (corrected construction site from logicalBinop to cond)
 **Status:** Not Started
 **Phase:** Post-Phase 2 (go/ssa SPMD Extensions)
 **Depends On:** Phase 2 feature completion, stable compound boolean handling in TinyGo
@@ -36,18 +37,7 @@ block4 (if.then):        // body
     body()
 ```
 
-When `a`, `b`, or `c` are varying, TinyGo must recognize this chain to apply correct mask transitions. Currently, TinyGo reconstructs chains by analyzing CFG topology:
-
-```go
-func (c *compilerContext) spmdDetectBooleanChain(block *ssa.BasicBlock, ...) {
-    // Walk successors: if false-branch of block N is the false-branch of block N+1,
-    // they form an AND chain. If true-branch matches, it's an OR chain.
-    // Must handle sub-chain absorption for triple &&
-    // Must handle asymmetric DomPreorder visitation order for && vs ||
-}
-```
-
-This reconstruction is one of the most subtle parts of the TinyGo SPMD compiler:
+When `a`, `b`, or `c` are varying, TinyGo must recognize this chain to apply correct mask transitions. Currently, TinyGo reconstructs chains by analyzing CFG topology (~167 lines in `spmdDetectCondChains`):
 
 1. **DomPreorder asymmetry**: For `&&`, the then-body is dominated by the last inner block (visited after inner blocks). For `||`, the then-body is dominated by the outer block (visited before inner blocks). Mask transitions must be registered differently for each.
 
@@ -61,34 +51,27 @@ All of this complexity exists because `go/ssa` discards the AST structure (which
 
 ## Current TinyGo Analysis (What Gets Replaced)
 
-### Chain Detection (~60 lines)
+### Data Structures
 ```go
-func (c *compilerContext) spmdDetectBooleanChain(block *ssa.BasicBlock, ...) {
-    ifInstr := block.Instrs[len(block.Instrs)-1].(*ssa.If)
-    thenBlock := block.Succs[0]
-    elseBlock := block.Succs[1]
-
-    // Check if thenBlock is another comparison block with same else target (AND)
-    if len(thenBlock.Instrs) > 0 {
-        if innerIf, ok := thenBlock.Instrs[len(thenBlock.Instrs)-1].(*ssa.If); ok {
-            if thenBlock.Succs[1] == elseBlock {
-                // AND chain detected
-                // But: is thenBlock already a chain head? Absorb it.
-                // But: what about DomPreorder ordering?
-                // But: pre-register redirects for then-exit...
-            }
-        }
-    }
-    // Similar for OR chains (true-branch matching)
+type spmdCondChain struct {
+    outerIfBlock int         // block index of outermost If
+    innerBlocks  []int       // cond.true/cond.false block indices (ordered outer→inner)
+    op           token.Token // token.LAND or token.LOR
+    thenTarget   int         // actual then-body entry block index
+    elseTarget   int         // actual else-body entry (or merge for no-else)
+    combinedCond llvm.Value  // filled during compilation: a & b [& c...]
 }
 ```
 
-### Mask Transition Registration (~40 lines)
-```go
-// && chains: register pushThen/swapElse for each inner block
-// || chains: skip mask transitions (outer block dominates)
-// Must be done at analysis time, not compilation time
-```
+### Chain Detection (~167 lines in `spmdDetectCondChains`)
+Scans blocks for `cond.true`/`cond.false` SSA patterns, validates shared successor invariants, handles sub-chain absorption when inner blocks are visited before outer blocks.
+
+### Integration Points
+- `preDetectVaryingIfs()` calls `spmdDetectCondChains()` before block compilation
+- `spmdAnalyzeVaryingIf()` unwraps chain targets, handles DomPreorder asymmetry
+- `spmdDetectVaryingIf()` fills LLVM condition values during compilation
+- `spmdCreateValueLOR()` handles value-context `||` chains specially
+- Maps: `spmdCondChains`, `spmdCondChainInner`, `spmdMaskTransitions`
 
 ## Proposed go/ssa Extension
 
@@ -98,11 +81,11 @@ func (c *compilerContext) spmdDetectBooleanChain(block *ssa.BasicBlock, ...) {
 // SPMDBooleanChain represents a short-circuit boolean expression (&&/||)
 // that was lowered into a chain of If blocks.
 type SPMDBooleanChain struct {
-    Op          token.Token    // token.LAND (&&) or token.LOR (||)
-    Blocks      []*BasicBlock  // ordered chain: [outer, inner0, inner1, ...]
-    ThenBlock   *BasicBlock    // target when chain evaluates to true
-    ElseBlock   *BasicBlock    // target when chain evaluates to false (all share this for &&)
-    IsVarying   bool           // true when any condition in chain is varying
+    Op        token.Token    // token.LAND (&&) or token.LOR (||)
+    Blocks    []*BasicBlock  // ordered chain: [first, ..., last] condition blocks
+    ThenBlock *BasicBlock    // true-exit target
+    ElseBlock *BasicBlock    // false-exit target
+    IsVarying bool           // true when any condition in chain is varying
 }
 
 // On Function:
@@ -112,122 +95,261 @@ type Function struct {
 }
 ```
 
-### Construction Site
+### Construction Site: `cond()` with Recursive Accumulator
 
-The `go/ssa` builder processes `&&` and `||` through `cond()` or `logicalBinop()`. This is where the chain of blocks is created:
+The block chains are created in `cond()` (`builder.go:180`), not `logicalBinop()`. The `cond()` function recursively lowers `&&`/`||` into block chains:
 
 ```go
-func (b *builder) logicalBinop(fn *Function, e *ast.BinaryExpr, ...) {
-    // Currently creates the block chain implicitly
-    // After: also record the chain structure
+func (b *builder) cond(fn *Function, e ast.Expr, t, f *BasicBlock) {
+    case token.LAND:
+        ltrue := fn.newBasicBlock("cond.true")
+        b.cond(fn, e.X, ltrue, f)    // recurse left
+        fn.currentBlock = ltrue
+        b.cond(fn, e.Y, t, f)        // recurse right
 
-    chain := &SPMDBooleanChain{
-        Op: e.Op,
-    }
-
-    // For a && b:
-    //   block0: if a goto block1 else elseBlock
-    //   block1: if b goto thenBlock else elseBlock
-    outerBlock := fn.currentBlock
-    chain.Blocks = append(chain.Blocks, outerBlock)
-
-    // Recursively handle nested && / ||
-    // Each creates an inner block appended to chain.Blocks
-    innerBlock := fn.newBasicBlock("cond.true")
-    chain.Blocks = append(chain.Blocks, innerBlock)
-
-    chain.ThenBlock = thenBlock
-    chain.ElseBlock = elseBlock
-
-    // Check if any condition involves SPMDType
-    chain.IsVarying = b.exprInvolvesVarying(e.X) || b.exprInvolvesVarying(e.Y)
-
-    fn.SPMDBooleanChains = append(fn.SPMDBooleanChains, chain)
+    case token.LOR:
+        lfalse := fn.newBasicBlock("cond.false")
+        b.cond(fn, e.X, t, lfalse)   // recurse left
+        fn.currentBlock = lfalse
+        b.cond(fn, e.Y, t, f)        // recurse right
 }
 ```
 
-### Nested Chain Handling
+For `a && b && c` (AST: `(a && b) && c`), the recursion creates blocks inside-out:
 
-For `a && b || c`, the builder produces:
-```go
-// Outer chain: LOR
-//   Blocks: [block_or_outer, block_or_inner]
-// Inner chain: LAND  (nested inside block_or_outer)
-//   Blocks: [block_and_outer, block_and_inner]
+```
+cond("(a&&b)&&c", t, f)          ← LAND, creates ltrue_C
+  cond("a&&b", ltrue_C, f)       ← LAND, creates ltrue_B
+    cond("a", ltrue_B, f)        ← leaf: emitIf in B0
+    cond("b", ltrue_C, f)        ← leaf: emitIf in ltrue_B
+  cond("c", t, f)                ← leaf: emitIf in ltrue_C
 ```
 
-The chain tree naturally matches the AST nesting. TinyGo walks the chains in order, with inner chains automatically contained within outer chain blocks.
+Result: blocks `[B0, ltrue_B, ltrue_C]` all share `elseBlock=f`.
+
+### Stack-Based Chain Accumulator
+
+A temporary stack on Function tracks chains during construction:
+
+```go
+// booleanChainCtx is a temporary accumulator used during cond() recursion.
+// Not exported; cleared after building.
+type booleanChainCtx struct {
+    op           token.Token    // LAND or LOR
+    sharedTarget *BasicBlock    // f for LAND, t for LOR
+    blocks       []*BasicBlock  // leaf If blocks, appended in execution order
+    expr         ast.Expr       // the top-level expression (for IsVarying)
+}
+
+// On Function (cleared after building):
+pendingBoolChains []*booleanChainCtx
+```
+
+#### Algorithm
+
+**At LAND/LOR nodes in `cond()`**:
+
+```go
+case token.LAND:
+    // Determine the shared target for this op
+    sharedTarget := f  // LAND chains share the false target
+
+    // Check if continuing an existing chain (flat a && b && c)
+    continuing := false
+    if n := len(fn.pendingBoolChains); n > 0 {
+        top := fn.pendingBoolChains[n-1]
+        if top.op == token.LAND && top.sharedTarget == sharedTarget {
+            continuing = true
+        }
+    }
+    if !continuing {
+        fn.pendingBoolChains = append(fn.pendingBoolChains, &booleanChainCtx{
+            op: token.LAND, sharedTarget: sharedTarget, expr: e,
+        })
+    }
+
+    ltrue := fn.newBasicBlock("cond.true")
+    b.cond(fn, e.X, ltrue, f)
+    fn.currentBlock = ltrue
+    b.cond(fn, e.Y, t, f)
+
+    if !continuing {
+        ctx := fn.pendingBoolChains[len(fn.pendingBoolChains)-1]
+        fn.pendingBoolChains = fn.pendingBoolChains[:len(fn.pendingBoolChains)-1]
+        if len(ctx.blocks) > 1 {
+            chain := &SPMDBooleanChain{
+                Op:        token.LAND,
+                Blocks:    ctx.blocks,
+                ElseBlock: ctx.sharedTarget,
+                ThenBlock: ctx.blocks[len(ctx.blocks)-1].Succs[0],
+                IsVarying: exprHasSPMDType(fn, ctx.expr),
+            }
+            fn.SPMDBooleanChains = append(fn.SPMDBooleanChains, chain)
+        }
+    }
+    return
+```
+
+**At leaf nodes** (base case `emitIf`):
+
+```go
+// After emitIf(fn, val, t, f):
+if n := len(fn.pendingBoolChains); n > 0 {
+    top := fn.pendingBoolChains[n-1]
+    // Only add if shared target matches (excludes NOT inversions)
+    if (top.op == token.LAND && f == top.sharedTarget) ||
+       (top.op == token.LOR && t == top.sharedTarget) {
+        top.blocks = append(top.blocks, block)
+    }
+}
+```
+
+#### Target Derivation
+
+Instead of recording targets from `cond()` parameters (which may be intermediate blocks), derive them from the actual block successors:
+
+- **LAND**: `ElseBlock = sharedTarget` (all blocks' false branch), `ThenBlock = lastBlock.Succs[0]` (last block's true branch)
+- **LOR**: `ThenBlock = sharedTarget` (all blocks' true branch), `ElseBlock = lastBlock.Succs[1]` (last block's false branch)
+
+### NOT (!) Handling
+
+When `!` appears inside a chain (e.g., `!a && b`), the `cond()` NOT handler swaps `t` and `f` before recursing. At the leaf, the swapped `f` parameter no longer matches the chain's `sharedTarget`, so the block is silently excluded from the chain.
+
+Example: `!a && b`:
+```
+cond("!a&&b", t, f)     ← LAND, push chain{sharedTarget=f}
+  cond("!a", ltrue, f)  ← NOT, swaps to:
+    cond("a", f, ltrue)  ← leaf: emitIf(a, f, ltrue), this f_param=ltrue ≠ chain.sharedTarget=f
+                           → NOT added to chain
+  cond("b", t, f)        ← leaf: emitIf(b, t, f), f_param=f = chain.sharedTarget=f
+                           → added, blocks=[ltrue]
+→ Only 1 block, no chain created
+```
+
+This matches TinyGo's existing behavior — its pattern detection also fails for NOT-inverted chains because the successor pattern is broken.
+
+### Nested Mixed Chains
+
+For `(a && b) || c`, separate chains are produced:
+
+```
+cond("(a&&b)||c", t, f)        ← LOR, push LOR{sharedTarget=t}
+  cond("a&&b", t, lfalse)      ← LAND, push LAND{sharedTarget=lfalse}
+    cond("a", ltrue, lfalse)    ← leaf: added to LAND chain
+    cond("b", t, lfalse)        ← leaf: added to LAND chain
+  → LAND chain finalized: [B0, ltrue], then=t, else=lfalse  ✓
+  cond("c", t, f)               ← leaf: t=t=LOR.sharedTarget → added to LOR
+→ LOR chain: [lfalse], only 1 block → no chain created
+```
+
+Result: only the inner LAND chain is captured. This correctly reflects CFG structure — `lfalse` has 2 predecessors (B0 and ltrue), so it doesn't form a simple chain pattern.
+
+### `logicalBinop()` Integration
+
+`logicalBinop()` handles value-context `&&`/`||` (e.g., `x := a && b && c`). It calls `cond(fn, e.X, ...)` for the left-hand side, which naturally triggers chain accumulation:
+
+```go
+func (b *builder) logicalBinop(fn *Function, e *ast.BinaryExpr) Value {
+    rhs := fn.newBasicBlock("binop.rhs")
+    done := fn.newBasicBlock("binop.done")
+    // For LAND: cond(fn, e.X, rhs, done) — chain with sharedTarget=done
+    // For LOR:  cond(fn, e.X, done, rhs) — chain with sharedTarget=done
+}
+```
+
+For `x := a && b && c`, the chain within `cond(e.X="a&&b", rhs, done)` produces: `[B0, ltrue]`, LAND, then=rhs, else=done. No changes to `logicalBinop()` are needed.
+
+### Resolution After `optimizeBlocks()`
+
+Following the same pattern as `SPMDSwitchChain`:
+
+```go
+func resolveSPMDBooleanChains(fn *Function) {
+    for _, chain := range fn.SPMDBooleanChains {
+        chain.ThenBlock = resolveBlock(fn, chain.ThenBlock)
+        chain.ElseBlock = resolveBlock(fn, chain.ElseBlock)
+        // Blocks themselves survive since they contain If instructions
+    }
+}
+```
+
+Called from `finishBody()` right after `optimizeBlocks()` and `resolveSPMDSwitchChains()`.
 
 ## What TinyGo Code Gets Simplified
 
 ### Before (CFG reconstruction)
 ```go
-// Chain detection: ~60 lines of successor/predecessor analysis
-// Sub-chain absorption: ~20 lines of existing chain head checking
-// DomPreorder workarounds: ~30 lines of pre-registration and ordering
-// Mask transition asymmetry: ~40 lines of && vs || special cases
-// Total: ~150 lines of subtle, bug-prone code
+// spmdDetectCondChains: ~167 lines of block scanning, successor validation,
+//   sub-chain absorption, pattern matching
+// spmdAnalyzeVaryingIf chain unwrapping: ~15 lines
+// DomPreorder asymmetry for LOR vs LAND: ~20 lines of conditional mask skipping
+// Total: ~200 lines of subtle, bug-prone code
 ```
 
 ### After (metadata access)
 ```go
-func (c *compilerContext) processCompoundBooleans(fn *ssa.Function) {
-    for _, chain := range fn.SPMDBooleanChains {
+func (b *spmdBuilder) spmdPopulateCondChains() {
+    for _, chain := range b.fn.SPMDBooleanChains {
         if !chain.IsVarying {
             continue
         }
-        switch chain.Op {
-        case token.LAND:
-            // Register pushThen mask for each inner block
-            for i := 1; i < len(chain.Blocks); i++ {
-                c.registerMaskTransition(chain.Blocks[i], pushThen)
-            }
-            // Register swapElse for else block
-            c.registerMaskTransition(chain.ElseBlock, swapElse)
-
-        case token.LOR:
-            // OR chains: outer block dominates, minimal mask work
-            c.registerMaskTransition(chain.ElseBlock, pushElse)
+        cc := &spmdCondChain{
+            outerIfBlock: chain.Blocks[0].Index,
+            op:           chain.Op,
+            thenTarget:   chain.ThenBlock.Index,
+            elseTarget:   chain.ElseBlock.Index,
+        }
+        for _, blk := range chain.Blocks[1:] {
+            cc.innerBlocks = append(cc.innerBlocks, blk.Index)
+        }
+        b.spmdCondChains[cc.outerIfBlock] = cc
+        for _, idx := range cc.innerBlocks {
+            b.spmdCondChainInner[idx] = cc
         }
     }
 }
 ```
 
 ### Eliminated Code
-- `spmdDetectBooleanChain()` — entire CFG-based chain reconstruction
+- `spmdDetectCondChains()` — entire CFG-based chain reconstruction (~167 lines)
 - Sub-chain absorption logic
-- DomPreorder pre-registration workarounds
-- `spmdLORChainBlocks` / `spmdLANDChainBlocks` tracking maps
+- Block comment matching (`"cond.true"`, `"cond.false"` pattern detection)
+- Predecessor count validation
+- Successor invariant checking
 
 ## Scope of Changes
 
 ### x-tools-spmd/ (go/ssa)
-- `go/ssa/ssa.go`: Add `SPMDBooleanChain` struct, add field on `Function`
-- `go/ssa/builder.go`: Record chain during `logicalBinop`/`cond` lowering
-- `go/ssa/print.go`: Optional debug printing
-- Tests: Verify chains populated for `&&`, `||`, nested combinations
+- `go/ssa/ssa.go`: Add `SPMDBooleanChain` struct, add field on `Function`, add `booleanChainCtx` and `pendingBoolChains` field (cleared after building)
+- `go/ssa/builder.go`: Modify `cond()` to push/pop/continue chain contexts at LAND/LOR nodes, append blocks at leaf nodes
+- `go/ssa/spmd_varying.go`: Add `resolveSPMDBooleanChains()`, call from `finishBody()`
+- `go/ssa/func.go`: Call `resolveSPMDBooleanChains()` after `optimizeBlocks()`
+- `go/ssa/print.go`: Optional debug printing of chain metadata
+- Tests: Verify chains for `&&`, `||`, triple `&&`, triple `||`, mixed `(a&&b)||c`, NOT exclusion, value-context chains
 
 ### tinygo/compiler/spmd.go
-- Replace `spmdDetectBooleanChain` with direct chain metadata access
+- Replace `spmdDetectCondChains` with `spmdPopulateCondChains` reading `fn.SPMDBooleanChains`
 - Remove sub-chain absorption logic
-- Simplify DomPreorder mask transition registration
-- Remove `spmdLORChainBlocks` / `spmdLANDChainBlocks` maps
+- Remove block comment pattern matching
+- Keep existing `spmdCondChain`/`spmdCondChainInner` maps (just change how they're populated)
+- Keep existing mask transition logic in `spmdAnalyzeVaryingIf` (already correct)
 
 ### Risks
-- **Builder refactoring**: `go/ssa`'s `cond()`/`logicalBinop()` implementation may change. The chain annotation is tied to the current lowering approach.
+- **Builder refactoring**: `go/ssa`'s `cond()` implementation may change. The chain annotation is tied to the current recursive lowering approach.
 - **Nested expression depth**: Deeply nested `a && b && c && d || e && f` must produce correct chain trees. Need thorough test cases.
-- **Interaction with varying condition tagging**: The `IsVarying` flag on chains and on `If` instructions should be consistent. If both features are implemented, they should share the `exprInvolvesVarying` helper.
+- **Interaction with varying condition tagging**: Already implemented — `If.IsVarying` and `exprHasSPMDType` are shared infrastructure.
 
 ## Migration Strategy
 
-1. Add `SPMDBooleanChain` to `go/ssa`, populate during logical expression lowering
-2. In TinyGo, read chain metadata alongside existing CFG-based detection
-3. Assert both approaches produce identical chain structures for all E2E tests
-4. Remove CFG-based chain detection once validated
+1. Add `SPMDBooleanChain` to `go/ssa`, populate during `cond()` lowering
+2. Add tests verifying chains for all patterns
+3. In TinyGo, replace `spmdDetectCondChains` with `spmdPopulateCondChains` reading metadata
+4. Assert E2E tests still produce identical WASM output
+5. Remove dead detection code
 
 ## Relationship to Varying Condition Tagging
 
-This design complements the varying condition tagging design (`ssa-varying-condition-tagging-design.md`). Together they cover:
+This design complements the already-implemented varying condition tagging. Together they cover:
 
 | Feature | Varying Condition Tagging | Compound Boolean Chains |
 |---------|--------------------------|------------------------|
@@ -235,9 +357,9 @@ This design complements the varying condition tagging design (`ssa-varying-condi
 | `if a && b { }` | IsVarying on each If in chain | Chain structure (blocks, op, targets) |
 | `switch v { }` | SPMDSwitchChain metadata | Not needed |
 
-Both share the `exprInvolvesVarying` helper in the SSA builder. Implementing them together would be efficient.
+Both use the `exprHasSPMDType` helper in `spmd_varying.go`.
 
 ## Related Documents
 
-- `docs/plans/2026-03-01-ssa-varying-condition-tagging-design.md` — companion design
+- `docs/plans/2026-03-01-ssa-varying-condition-tagging-design.md` — companion design (implemented)
 - `docs/spmd-control-flow-masking.md` — control flow masking reference
