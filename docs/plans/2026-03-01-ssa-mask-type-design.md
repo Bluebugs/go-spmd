@@ -2,6 +2,8 @@
 
 ## Date: 2026-03-01
 
+## Status: IMPLEMENTED
+
 ## Problem
 
 The TinyGo SPMD backend currently guesses mask representation from context using
