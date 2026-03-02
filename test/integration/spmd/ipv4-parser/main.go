@@ -239,7 +239,7 @@ func parseIPv4(s string) ([4]byte, error) {
 	var dotMask [16]bool
 
 	// Process all 16 elements using SIMD lanes
-	var dotMaskTotal lanes.Varying[uint32]
+	var dotMaskTotal lanes.Varying[uint8]
 
 	var loop int
 	go for i, c := range input {
