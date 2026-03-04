@@ -1,8 +1,8 @@
 # SPMD Implementation Plan for Go + TinyGo
 
-**Version**: 2.6
-**Last Updated**: 2026-02-20
-**Status**: Phase 1 Complete, Phase 2.0-2.9c complete, Varying switch masking COMPLETED (3 TinyGo commits: detection, CFG linearization, deferred phi fix), Compound boolean conditions COMPLETED (&&/|| in varying contexts), constrained Varying[T,N] REMOVED (design simplification), *Within cross-lane operations added + LLVM lowered (RotateWithin/ShiftLeftWithin/ShiftRightWithin via shufflevector, 17 tests), Mandelbrot RUNNING (0 differences, ~2.98x speedup), E2E: 19 run pass + 4 compile-only pass / 46 tests, ipv4-parser reaches LLVM verification (25 errors, no panics)
+**Version**: 2.7
+**Last Updated**: 2026-03-03
+**Status**: Phase 1 Complete, Phase 2.0-2.9c complete, SPMD function body predication COMPLETED (SSA-level, TinyGo break code removed ~560 lines), SSA-level loop peeling COMPLETED, E2E: 20 run pass, 25 compile pass, 12 compile fail, 10 reject OK (47 total)
 
 ## Project Overview
 
@@ -755,7 +755,7 @@ Ported 10 `*_ext_spmd.go` files from types2 to go/types with full API translatio
 - [x] Enable varying if/else linearization (Phase 2.5) in SPMD function bodies
 - [x] Extend `*ssa.If` linearization check to use `spmdFuncIsBody` alongside `spmdLoopState`
 
-### 2.9b Per-Lane Break Mask Support ✅ COMPLETED
+### 2.9b Per-Lane Break Mask Support ✅ COMPLETED (SSA-level predication replaces TinyGo LLVM code)
 
 - [x] Add `spmdForLoopInfo` type: tracks regular for-range loops in SPMD function bodies
 - [x] Add `spmdBreakRedirect` type: tracks varying if → break redirections
@@ -764,6 +764,9 @@ Ported 10 `*_ext_spmd.go` files from types2 to go/types with full API translatio
 - [x] Implement break redirect: accumulate `breakMask |= (activeMask & condition)`, redirect jump
 - [x] Compute active mask at loop body entry: `entryMask & ~breakMask`
 - [x] Deferred mask computation: emit after rangeint.iter phi to respect LLVM phi grouping
+- [x] **SSA-level predication** (2026-03-03): `predicateVaryingBreaks()` in x-tools-spmd replaces TinyGo LLVM break handling
+  - Break mask phi at loop header, SPMDSelect for break results, accumulator phis for loop-carried results
+  - Removed from TinyGo: `detectSPMDForLoops` (~290 lines), `spmdIsVaryingBreak` (~30 lines), `spmdForLoopInfo`/`spmdBreakResult`/`spmdBreakRedirect` types, break mask alloca init, varying break detection in If handler, break redirect in Jump handler (~560 lines total)
 
 ### 2.9c Vector IndexAddr + Break Result Tracking ✅ COMPLETED
 
@@ -1093,8 +1096,9 @@ Split `go for` loops into main phase (full vectors, ConstAllOnes mask, plain v12
   - Fix: ✅ Nested loop deduplication — seenLoopInfo map in analyzeSPMDLoops() prevents nested regular for loops from being vectorized
   - 2.8c: REMOVED — Constrained Varying[T,N] backend (design simplification)
   - 2.9a: ✅ SPMD function body mask infrastructure
-  - 2.9b: ✅ Per-lane break mask support (break mask alloca, break redirects)
+  - 2.9b: ✅ Per-lane break mask support (break mask alloca, break redirects) — SSA-level predication replaces TinyGo LLVM code (2026-03-03)
   - 2.9c: ✅ Vector IndexAddr + break result tracking + mandelbrot
+  - Feature: ✅ SPMD function body predication (2026-03-03) — `predicateSPMDFuncBody()` + `predicateSPMDScope()` in x-tools-spmd; TinyGo break code removed (~560 lines)
   - Perf: ✅ Round 1 — Early exit + inlining + generalized contiguous (~1.2x → ~2.81x)
   - Perf: ✅ Round 2 — ChangeType unwrap + i32 masks (~2.81x → ~2.91x)
   - Perf: ✅ Round 3 — Native WASM v128.any_true/alltrue intrinsics (~2.91x → ~2.98x)
@@ -1226,7 +1230,7 @@ Split `go for` loops into main phase (full vectors, ConstAllOnes mask, plain v12
 
 ---
 
-**Last Completed**: SSA-level loop peeling (2026-03-03) — moved loop peeling from TinyGo LLVM layer to x-tools-spmd SSA layer. Fixed 3 bugs: getTypeSize platform-dependent sizes, accMergeMap done-block phi wiring, LOR elsePred, BodyBlock position lookup. E2E: 20 run pass, 25 compile pass, 12 compile fail, 10 reject OK / 47 tests.
+**Last Completed**: SPMD function body predication (2026-03-03) — `predicateSPMDFuncBody()` enabled in x-tools-spmd, `predicateSPMDScope()` extracted from loop predication for reuse. Accumulator phis for loop-carried break results. TinyGo break-specific code removed (~560 lines: types, detectSPMDForLoops, spmdIsVaryingBreak, break mask alloca, break redirects). E2E: 20 run pass, 25 compile pass, 12 compile fail, 10 reject OK / 47 tests.
 **Next Action**: Fix remaining 12 compile failures:
 1. Closure mask parameter (defer-varying, spmd-call-contexts — arg count mismatch)
 2. LLVM struct masked load (map-restrictions, panic-recover-varying — `runtime._string` not primitive vector)
