@@ -1062,7 +1062,7 @@ Split `go for` loops into main phase (full vectors, ConstAllOnes mask, plain v12
     - 1.10j: ✅ lanes/reduce builtin call interception (16 functions -> SPMD opcodes, 7 deferred)
     - 1.10k: REMOVED — Constrained varying SSA integration (design simplification)
     - 1.10L: ✅ Fix pre-existing all.bash failures (6 test suites)
-- **Phase 2**: 🚧 In Progress (stdlib porting complete, TinyGo compiler through Phase 2.9c + *Within ops LLVM lowered, constrained Varying[T,N] REMOVED, 39 SPMD commits)
+- **Phase 2**: 🚧 In Progress (stdlib porting complete, TinyGo compiler through Phase 2.9c, predicated SSA + SSA-level loop peeling done, 82 SPMD commits)
   - TinyGo architecture explored and documented
   - Critical finding: TinyGo uses `golang.org/x/tools/go/ssa` (not `cmd/compile` SSA)
   - Critical finding: `go/parser`, `go/ast`, `go/types` lack SPMD support (must be ported first)
@@ -1226,13 +1226,16 @@ Split `go for` loops into main phase (full vectors, ConstAllOnes mask, plain v12
 
 ---
 
-**Last Completed**: Hex-encode benchmark conversion (1024-byte data, 1000 iterations, SPMD vs scalar timing) + SIMD optimization analysis (`docs/hex-encode-simd-analysis.md`). Benchmark shows SPMD at 0.24x scalar speed due to 6 identified optimization issues (gather scalarization, redundant bounds checks, non-constant-folded patterns). E2E: 19 run pass, 4 compile-only pass / 46 tests. (2026-02-23)
-**Next Action**: Fix remaining 13 compile failures:
+**Last Completed**: SSA-level loop peeling (2026-03-03) — moved loop peeling from TinyGo LLVM layer to x-tools-spmd SSA layer. Fixed 3 bugs: getTypeSize platform-dependent sizes, accMergeMap done-block phi wiring, LOR elsePred, BodyBlock position lookup. E2E: 20 run pass, 25 compile pass, 12 compile fail, 10 reject OK / 47 tests.
+**Next Action**: Fix remaining 12 compile failures:
 1. Closure mask parameter (defer-varying, spmd-call-contexts — arg count mismatch)
 2. LLVM struct masked load (map-restrictions, panic-recover-varying — `runtime._string` not primitive vector)
 3. SIGSEGV (array-counting — compiler crash)
-4. ipv4-parser: multi-lane-count loops + Varying[bool] type collision (see `docs/ipv4-parser-status.md`)
-5. Remaining: scalar-to-SPMD convert (bit-counting), printf nil deref, non-spmd return mask type, union-type-generics x-tools panic, base64-decoder type inference, pointer-varying/type-switch-varying features
+4. Invalid cast (to-upper — LLVM bitcode reader error)
+5. Call parameter type mismatch (non-spmd-varying-return — mask type issue)
+6. Type checker errors (pointer-varying, type-switch-varying, base64-decoder — missing features)
+7. x-tools panic (union-type-generics — SPMDType in typeparams.Free)
+8. Nested go for (varying-array-iteration — needs test fix)
 
 ### Recent Major Achievements (Phase 1.5 Extensions)
 

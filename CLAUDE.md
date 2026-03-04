@@ -63,7 +63,7 @@ lanes.ShiftRightWithin(val, cnt, n)  // Shift right within groups of n lanes
 
 Lexer, parser, type system with `lanes.Varying[T]` (compiler magic, not regular generics). 42 SPMD vector opcodes in `cmd/compile/internal/ssa`. Full type checking with ISPC-based return/break restrictions. All gated behind `GOEXPERIMENT=spmd`.
 
-### Phase 2: TinyGo LLVM Backend (IN PROGRESS -- 54 commits)
+### Phase 2: TinyGo LLVM Backend (IN PROGRESS -- 82 commits)
 
 **Critical**: TinyGo uses `go/parser` + `go/types` + `golang.org/x/tools/go/ssa` (standard library), NOT `cmd/compile` internals. The 42 Phase 1 opcodes are invisible to TinyGo. Vectorization happens in the TinyGo compiler layer via direct LLVM IR generation.
 
@@ -192,9 +192,11 @@ Lexer, parser, type system with `lanes.Varying[T]`, full SPMD type checking (ISP
 
 - **2.0-2.0d** (DONE): Go stdlib porting (go/ast, go/parser, go/types); SPMD metadata extraction
 - **2.1-2.9c** (DONE): GOEXPERIMENT support, LLVM vector types, SPMD loop lowering, control flow masking, function calls, builtin interception, mask stack, break masks, *Within cross-lane ops, varying switch, compound booleans, vector index, bounds check elision, store coalescing, gather shift-load expansion
+- **Predicated SSA** (DONE): go/ssa linearizes varying control flow (if/else, switch, boolean chains) into SPMDSelect/SPMDLoad/SPMDStore/SPMDIndex
+- **SSA-level loop peeling** (DONE): go/ssa splits loops into main (all-ones mask) + tail (masked). TinyGo consumes mechanically.
 - **2.9-2.10** (REMAINING): Varying for-loop masking, lanes.Rotate/Swizzle (full-width), scalar fallback mode
-- **Key Metrics**: Mandelbrot ~2.98x SPMD speedup (0 diffs vs serial); hex-encode ~0.34x (optimization roadmap in `docs/hex-encode-simd-analysis.md`)
-- **E2E Results**: 20 run pass, 5 compile-only pass, 12 compile fail, 10 reject OK (47 total)
+- **Key Metrics**: Mandelbrot ~3.19x SPMD speedup (0 diffs vs serial); hex-encode Dst ~4.5x, Src ~14.1x (wasmtime)
+- **E2E Results**: 20 run pass, 25 compile pass, 12 compile fail, 10 reject OK (47 total)
 
 ### Phase 3: Validation (NOT STARTED)
 
@@ -202,11 +204,12 @@ Syntax migration completed (5 commits, ~55 files). Dual-mode testing and benchma
 
 **E2E Compile Failures** (12 by root cause):
 
-- **Backend bugs (7)**: bit-counting, array-counting, map-restrictions, defer-varying, panic-recover-varying, non-spmd-varying-return, spmd-call-contexts
-- **Complex patterns (3)**: ipv4-parser (see `docs/ipv4-parser-status.md`), base64-decoder, union-type-generics
-- **Missing features (2)**: pointer-varying, type-switch-varying
+- **Backend bugs (5)**: array-counting (SIGSEGV), map-restrictions (LLVM struct masked load), defer-varying (LLVM struct masked store), panic-recover-varying (LLVM struct masked load), non-spmd-varying-return (call param type mismatch)
+- **Closure/context bugs (2)**: spmd-call-contexts (LLVM struct masked store), to-upper (LLVM invalid cast)
+- **Missing features (3)**: pointer-varying (varying index), type-switch-varying (varying index), base64-decoder (type inference + varying index)
+- **External bugs (2)**: union-type-generics (x-tools SPMDType in typeparams.Free), varying-array-iteration (test uses nested go for)
 
-**Next Priority**: (1) Fix closure mask params, (2) Fix LLVM struct masked load, (3) Fix SIGSEGV crashes, (4) Fix ipv4-parser, (5) Implement varying for-loop masking + scalar fallback
+**Next Priority**: (1) Fix LLVM struct masked load/store, (2) Fix array-counting SIGSEGV, (3) Implement scalar fallback mode
 
 ## Debugging Tips
 
