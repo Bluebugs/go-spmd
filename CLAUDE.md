@@ -191,21 +191,22 @@ Lexer, parser, type system with `lanes.Varying[T]`, full SPMD type checking (ISP
 ### Phase 2: TinyGo LLVM Backend (IN PROGRESS)
 
 - **2.0-2.0d** (DONE): Go stdlib porting (go/ast, go/parser, go/types); SPMD metadata extraction
-- **2.1-2.9c** (DONE): GOEXPERIMENT support, LLVM vector types, SPMD loop lowering, control flow masking, function calls, builtin interception, mask stack, break masks, *Within cross-lane ops, varying switch, compound booleans, vector index, bounds check elision, store coalescing, gather shift-load expansion
+- **2.1-2.9c** (DONE): GOEXPERIMENT support, LLVM vector types, SPMD loop lowering, control flow masking, function calls, builtin interception, break masks, *Within cross-lane ops, varying switch, compound booleans, vector index, bounds check elision, store coalescing, gather shift-load expansion
 - **Predicated SSA** (DONE): go/ssa linearizes varying control flow (if/else, switch, boolean chains) into SPMDSelect/SPMDLoad/SPMDStore/SPMDIndex
 - **SSA-level loop peeling** (DONE): go/ssa splits loops into main (all-ones mask) + tail (masked). TinyGo consumes mechanically.
+- **Mask stack removed** (DONE): All memory op masking migrated to SSA level (explicit masks on SPMDLoad/SPMDStore). spmdMaskStack/push/pop/current removed. Interleaved store analysis migrated to scan SPMDStore.
 - **2.9-2.10** (REMAINING): Varying for-loop masking, lanes.Rotate/Swizzle (full-width), scalar fallback mode
 - **Key Metrics**: Mandelbrot ~3.19x SPMD speedup (0 diffs vs serial); hex-encode Dst ~4.5x, Src ~14.1x (wasmtime)
-- **E2E Results**: 20 run pass, 25 compile pass, 12 compile fail, 10 reject OK (47 total)
+- **E2E Results**: 21 run pass, 26 compile pass, 11 compile fail, 10 reject OK (47 total)
 
 ### Phase 3: Validation (NOT STARTED)
 
 Syntax migration completed (5 commits, ~55 files). Dual-mode testing and benchmarking remain. See `docs/poc-testing-workflow.md`.
 
-**E2E Compile Failures** (12 by root cause):
+**E2E Compile Failures** (11 by root cause):
 
-- **Backend bugs (5)**: array-counting (SIGSEGV), map-restrictions (LLVM struct masked load), defer-varying (LLVM struct masked store), panic-recover-varying (LLVM struct masked load), non-spmd-varying-return (call param type mismatch)
-- **Closure/context bugs (2)**: spmd-call-contexts (LLVM struct masked store), to-upper (LLVM invalid cast)
+- **Backend bugs (5)**: array-counting (SIGSEGV), map-restrictions (LLVM struct masked load), defer-varying (LLVM struct masked store), panic-recover-varying (LLVM struct masked load/branch i1), non-spmd-varying-return (call param type mismatch)
+- **Closure/context bugs (1)**: spmd-call-contexts (LLVM struct masked store)
 - **Missing features (3)**: pointer-varying (varying index), type-switch-varying (varying index), base64-decoder (type inference + varying index)
 - **External bugs (2)**: union-type-generics (x-tools SPMDType in typeparams.Free), varying-array-iteration (test uses nested go for)
 

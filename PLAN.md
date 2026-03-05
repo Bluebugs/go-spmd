@@ -1,8 +1,8 @@
 # SPMD Implementation Plan for Go + TinyGo
 
-**Version**: 2.7
-**Last Updated**: 2026-03-03
-**Status**: Phase 1 Complete, Phase 2.0-2.9c complete, SPMD function body predication COMPLETED (SSA-level, TinyGo break code removed ~560 lines), SSA-level loop peeling COMPLETED, E2E: 20 run pass, 25 compile pass, 12 compile fail, 10 reject OK (47 total)
+**Version**: 2.8
+**Last Updated**: 2026-03-05
+**Status**: Phase 1 Complete, Phase 2.0-2.9c complete, SPMD function body predication COMPLETED, SSA-level loop peeling COMPLETED, mask stack removed (SSA-level masking complete), E2E: 21 run pass, 26 compile pass, 11 compile fail, 10 reject OK (47 total)
 
 ## Project Overview
 
@@ -733,15 +733,15 @@ Ported 10 `*_ext_spmd.go` files from types2 to go/types with full API translatio
 - [x] Validate 6 core programs compile + run correctly (stores, conditionals, functions, reduce, lanes, varying vars)
 - [x] Validate all 11 illegal examples correctly rejected by type checker
 
-**E2E Test Results (47 tests)**:
-- 20 RUN PASS: L0_store, L0_cond, L0_func, L1_reduce_add, L2_lanes_index, L3_varying_var, L4_range_slice, L4b_varying_break, L5a_simple_sum, L5b_odd_even, L5f_varying_switch, L5g_compound_conditions, integ_simple-sum, integ_odd-even, integ_hex-encode, integ_debug-varying, integ_lanes-index-restrictions, integ_to-upper, integ_mandelbrot, integ_store-coalescing
-- 4 COMPILE-ONLY PASS: integ_type-casting-varying, integ_printf-verbs, integ_goroutine-varying, integ_select-with-varying-channels
+**E2E Test Results (47 tests)** — updated 2026-03-05 after mask stack removal:
+- 21 RUN PASS: L0_store, L0_cond, L0_func, L1_reduce_add, L2_lanes_index, L3_varying_var, L4_range_slice, L4b_varying_break, L5a_simple_sum, L5b_odd_even, L5f_varying_switch, L5g_compound_conditions, integ_simple-sum, integ_odd-even, integ_hex-encode, integ_debug-varying, integ_lanes-index-restrictions, integ_to-upper, integ_mandelbrot, integ_store-coalescing, integ_ipv4-parser
+- 5 COMPILE-ONLY PASS: integ_type-casting-varying, integ_printf-verbs, integ_goroutine-varying, integ_select-with-varying-channels, integ_bit-counting
 - 10 REJECT OK: All illegal examples correctly rejected
-- 13 COMPILE FAIL (categorized by root cause):
-  - **Compiler backend bugs (6)**: bit-counting (scalar-to-SPMD convert receives vector), array-counting (SIGSEGV), map-restrictions (LLVM masked load of struct `runtime._string`), defer-varying (closure mask arg count), panic-recover-varying (struct masked load), non-spmd-varying-return (call param type mismatch), spmd-call-contexts (closure arg count)
-  - **Complex SPMD patterns (3)**: ipv4-parser (25 LLVM verification errors — multi-lane-count loops, Varying[bool] type collision — see `docs/ipv4-parser-status.md`), base64-decoder (`Varying[uint16]` doesn't match `Varying[byte]` for `ShiftLeft`), union-type-generics (x-tools-spmd generic instantiation panic)
-  - **Missing features (2)**: pointer-varying (pointer ops with varying), type-switch-varying (type switch on varying values)
-  - **Frontend errors (1)**: varying-array-iteration (nested go-for)
+- 11 COMPILE FAIL (categorized by root cause):
+  - **Compiler backend bugs (5)**: array-counting (SIGSEGV), map-restrictions (LLVM struct masked load), defer-varying (LLVM struct masked store), panic-recover-varying (LLVM struct masked load/branch i1), non-spmd-varying-return (call param type mismatch)
+  - **Closure/context bugs (1)**: spmd-call-contexts (LLVM struct masked store)
+  - **Missing features (3)**: pointer-varying (varying index), type-switch-varying (varying index), base64-decoder (type inference + varying index)
+  - **External bugs (2)**: union-type-generics (x-tools SPMDType in typeparams.Free), varying-array-iteration (test uses nested go for)
 
 ### 2.8c Constrained Varying Type Support -- REMOVED
 
@@ -1230,16 +1230,14 @@ Split `go for` loops into main phase (full vectors, ConstAllOnes mask, plain v12
 
 ---
 
-**Last Completed**: SPMD function body predication (2026-03-03) — `predicateSPMDFuncBody()` enabled in x-tools-spmd, `predicateSPMDScope()` extracted from loop predication for reuse. Accumulator phis for loop-carried break results. TinyGo break-specific code removed (~560 lines: types, detectSPMDForLoops, spmdIsVaryingBreak, break mask alloca, break redirects). E2E: 20 run pass, 25 compile pass, 12 compile fail, 10 reject OK / 47 tests.
-**Next Action**: Fix remaining 12 compile failures:
-1. Closure mask parameter (defer-varying, spmd-call-contexts — arg count mismatch)
-2. LLVM struct masked load (map-restrictions, panic-recover-varying — `runtime._string` not primitive vector)
-3. SIGSEGV (array-counting — compiler crash)
-4. Invalid cast (to-upper — LLVM bitcode reader error)
-5. Call parameter type mismatch (non-spmd-varying-return — mask type issue)
-6. Type checker errors (pointer-varying, type-switch-varying, base64-decoder — missing features)
-7. x-tools panic (union-type-generics — SPMDType in typeparams.Free)
-8. Nested go for (varying-array-iteration — needs test fix)
+**Last Completed**: Mask stack removal (2026-03-05) — `spmdMaskStack`/push/pop/current removed (~330 lines dead code). All memory op masking via explicit SSA-level masks on SPMDLoad/SPMDStore. Interleaved store analysis migrated to scan SPMDStore. to-upper and ipv4-parser promoted to run-pass. E2E: 21 run pass, 26 compile pass, 11 compile fail, 10 reject OK / 47 tests.
+**Next Action**: Fix remaining 11 compile failures:
+1. LLVM struct masked load/store (map-restrictions, defer-varying, panic-recover-varying, spmd-call-contexts)
+2. SIGSEGV (array-counting — compiler crash)
+3. Call parameter type mismatch (non-spmd-varying-return — mask type issue)
+4. Type checker errors (pointer-varying, type-switch-varying, base64-decoder — missing features)
+5. x-tools panic (union-type-generics — SPMDType in typeparams.Free)
+6. Nested go for (varying-array-iteration — needs test fix)
 
 ### Recent Major Achievements (Phase 1.5 Extensions)
 
