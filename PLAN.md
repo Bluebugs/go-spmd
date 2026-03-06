@@ -733,14 +733,14 @@ Ported 10 `*_ext_spmd.go` files from types2 to go/types with full API translatio
 - [x] Validate 6 core programs compile + run correctly (stores, conditionals, functions, reduce, lanes, varying vars)
 - [x] Validate all 11 illegal examples correctly rejected by type checker
 
-**E2E Test Results (47 tests)** — updated 2026-03-05 after mask stack removal:
-- 21 RUN PASS: L0_store, L0_cond, L0_func, L1_reduce_add, L2_lanes_index, L3_varying_var, L4_range_slice, L4b_varying_break, L5a_simple_sum, L5b_odd_even, L5f_varying_switch, L5g_compound_conditions, integ_simple-sum, integ_odd-even, integ_hex-encode, integ_debug-varying, integ_lanes-index-restrictions, integ_to-upper, integ_mandelbrot, integ_store-coalescing, integ_ipv4-parser
-- 5 COMPILE-ONLY PASS: integ_type-casting-varying, integ_printf-verbs, integ_goroutine-varying, integ_select-with-varying-channels, integ_bit-counting
+**E2E Test Results (47 tests)** — updated 2026-03-06 after interface mask embedding:
+- 22 RUN PASS: L0_store, L0_cond, L0_func, L1_reduce_add, L2_lanes_index, L3_varying_var, L4_range_slice, L4b_varying_break, L5a_simple_sum, L5b_odd_even, L5f_varying_switch, L5g_compound_conditions, integ_simple-sum, integ_odd-even, integ_hex-encode, integ_debug-varying, integ_lanes-index-restrictions, integ_to-upper, integ_mandelbrot, integ_store-coalescing, integ_ipv4-parser, integ_type-switch-varying
+- 4 COMPILE-ONLY PASS: integ_type-casting-varying, integ_printf-verbs, integ_goroutine-varying, integ_select-with-varying-channels, integ_bit-counting
 - 10 REJECT OK: All illegal examples correctly rejected
-- 11 COMPILE FAIL (categorized by root cause):
+- 10 COMPILE FAIL (categorized by root cause):
   - **Compiler backend bugs (5)**: array-counting (SIGSEGV), map-restrictions (LLVM struct masked load), defer-varying (LLVM struct masked store), panic-recover-varying (LLVM struct masked load/branch i1), non-spmd-varying-return (call param type mismatch)
   - **Closure/context bugs (1)**: spmd-call-contexts (LLVM struct masked store)
-  - **Missing features (3)**: pointer-varying (varying index), type-switch-varying (varying index), base64-decoder (type inference + varying index)
+  - **Missing features (2)**: pointer-varying (varying index), base64-decoder (type inference + varying index)
   - **External bugs (2)**: union-type-generics (x-tools SPMDType in typeparams.Free), varying-array-iteration (test uses nested go for)
 
 ### 2.8c Constrained Varying Type Support -- REMOVED
@@ -876,6 +876,25 @@ Split `go for` loops into main phase (full vectors, ConstAllOnes mask, plain v12
 - [ ] E2E test: `examples/store-coalescing/main.go` with varying if/else store patterns
 
 **Implementation plan**: `docs/plans/2026-02-22-store-coalescing.md`
+
+### 2.9h Interface Mask Embedding ✅ COMPLETED
+
+**Goal**: When `lanes.Varying[T]` is boxed into `interface{}` inside a masked context (varying if, SPMD function body, loop tail), embed the per-block condition mask alongside the value so unboxing can restore which lanes are valid and thread the mask into subsequent operations.
+
+- [x] Add `SPMDMask Value` and `SPMDLanes int` fields to `MakeInterface` in go/ssa (`ssa.go`)
+- [x] Add new `SPMDExtractMask` SSA instruction with `Type()` returning `VaryingMask`
+- [x] Update `Operands()`, `String()`, `sanity.go`, `spmd_peel.go` clone for new instruction
+- [x] Add `case *MakeInterface` to `spmdMaskMemOps`, `spmdConvertScopedMemOps`, `spmdConvertAllMemOps`
+- [x] Add `spmdMaskScopedMakeInterfaceOps` and `spmdMaskAllMakeInterfaceOps` sweep functions
+- [x] Add `spmdNarrowMaskAtTypeAsserts` — inserts SPMDExtractMask + AND after TypeAssert on SPMDType, composes multiple TypeAsserts via chained ANDs, handles main/tail scope separately
+- [x] Wire into `spmdConvertLoopOps` (mainBlocks/allOnesMask + tailBlocks/tailMask) and `predicateSPMDFuncBody`
+- [x] Change boxed representation from `[N]T` to `struct{Value [N]T; Mask [N]int32}` in `getTypeCode` (`interface.go`)
+- [x] Update `MakeInterface` case in `compiler.go` to pack struct with mask (from `SPMDMask` or all-ones)
+- [x] Rewrite `createTypeAssertSPMD` for struct format (extract field 0 = value array)
+- [x] Add `createSPMDExtractMask` (extract field 1 = mask array, convert to mask vector)
+- [x] Design doc: `docs/plans/2026-03-06-spmd-interface-mask-embedding-design.md`
+
+**Result**: type-switch-varying promoted from compile-fail to run-pass (22 run pass total, 0 regressions)
 
 ### 2.9g Gather Shift-Right Load Expansion
 

@@ -197,17 +197,17 @@ Lexer, parser, type system with `lanes.Varying[T]`, full SPMD type checking (ISP
 - **Mask stack removed** (DONE): All memory op masking migrated to SSA level (explicit masks on SPMDLoad/SPMDStore). spmdMaskStack/push/pop/current removed. Interleaved store analysis migrated to scan SPMDStore.
 - **2.9-2.10** (REMAINING): Varying for-loop masking, lanes.Rotate/Swizzle (full-width), scalar fallback mode
 - **Key Metrics**: Mandelbrot ~3.19x SPMD speedup (0 diffs vs serial); hex-encode Dst ~4.5x, Src ~14.1x (wasmtime)
-- **E2E Results**: 21 run pass, 26 compile pass, 11 compile fail, 10 reject OK (47 total)
+- **E2E Results**: 22 run pass, 26 compile pass, 10 compile fail, 10 reject OK (47 total)
 
 ### Phase 3: Validation (NOT STARTED)
 
 Syntax migration completed (5 commits, ~55 files). Dual-mode testing and benchmarking remain. See `docs/poc-testing-workflow.md`.
 
-**E2E Compile Failures** (11 by root cause):
+**E2E Compile Failures** (10 by root cause):
 
 - **Backend bugs (5)**: array-counting (SIGSEGV), map-restrictions (LLVM struct masked load), defer-varying (LLVM struct masked store), panic-recover-varying (LLVM struct masked load/branch i1), non-spmd-varying-return (call param type mismatch)
 - **Closure/context bugs (1)**: spmd-call-contexts (LLVM struct masked store)
-- **Missing features (3)**: pointer-varying (varying index), type-switch-varying (varying index), base64-decoder (type inference + varying index)
+- **Missing features (2)**: pointer-varying (varying index), base64-decoder (type inference + varying index)
 - **External bugs (2)**: union-type-generics (x-tools SPMDType in typeparams.Free), varying-array-iteration (test uses nested go for)
 
 **Next Priority**: (1) Fix LLVM struct masked load/store, (2) Fix array-counting SIGSEGV, (3) Implement scalar fallback mode
