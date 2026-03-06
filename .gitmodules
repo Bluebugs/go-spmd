@@ -16,3 +16,6 @@
 [submodule "x-tools-spmd"]
 	path = x-tools-spmd
 	url = git@github.com:Bluebugs/tools.git
+[submodule "llvm-project"]
+	path = llvm-project
+	url = git@github.com:Bluebugs/llvm-project.git
