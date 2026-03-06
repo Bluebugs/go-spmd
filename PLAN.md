@@ -733,13 +733,12 @@ Ported 10 `*_ext_spmd.go` files from types2 to go/types with full API translatio
 - [x] Validate 6 core programs compile + run correctly (stores, conditionals, functions, reduce, lanes, varying vars)
 - [x] Validate all 11 illegal examples correctly rejected by type checker
 
-**E2E Test Results (47 tests)** — updated 2026-03-06 after interface mask embedding:
-- 22 RUN PASS: L0_store, L0_cond, L0_func, L1_reduce_add, L2_lanes_index, L3_varying_var, L4_range_slice, L4b_varying_break, L5a_simple_sum, L5b_odd_even, L5f_varying_switch, L5g_compound_conditions, integ_simple-sum, integ_odd-even, integ_hex-encode, integ_debug-varying, integ_lanes-index-restrictions, integ_to-upper, integ_mandelbrot, integ_store-coalescing, integ_ipv4-parser, integ_type-switch-varying
-- 4 COMPILE-ONLY PASS: integ_type-casting-varying, integ_printf-verbs, integ_goroutine-varying, integ_select-with-varying-channels, integ_bit-counting
+**E2E Test Results (47 tests)** — updated 2026-03-06 after struct store fix + defer mask + boxing lane count fix:
+- 23 RUN PASS: L0_store, L0_cond, L0_func, L1_reduce_add, L2_lanes_index, L3_varying_var, L4_range_slice, L4b_varying_break, L5a_simple_sum, L5b_odd_even, L5f_varying_switch, L5g_compound_conditions, integ_simple-sum, integ_odd-even, integ_hex-encode, integ_debug-varying, integ_lanes-index-restrictions, integ_to-upper, integ_mandelbrot, integ_store-coalescing, integ_ipv4-parser, integ_type-switch-varying, integ_defer-varying
+- 6 COMPILE-ONLY PASS: integ_type-casting-varying, integ_printf-verbs, integ_goroutine-varying, integ_select-with-varying-channels, integ_bit-counting, integ_spmd-call-contexts
 - 10 REJECT OK: All illegal examples correctly rejected
-- 10 COMPILE FAIL (categorized by root cause):
-  - **Compiler backend bugs (5)**: array-counting (SIGSEGV), map-restrictions (LLVM struct masked load), defer-varying (LLVM struct masked store), panic-recover-varying (LLVM struct masked load/branch i1), non-spmd-varying-return (call param type mismatch)
-  - **Closure/context bugs (1)**: spmd-call-contexts (LLVM struct masked store)
+- 8 COMPILE FAIL (categorized by root cause):
+  - **Compiler backend bugs (4)**: array-counting (SIGSEGV), map-restrictions (varying→scalar call mismatch), panic-recover-varying (varying branch condition), non-spmd-varying-return (call param type mismatch)
   - **Missing features (2)**: pointer-varying (varying index), base64-decoder (type inference + varying index)
   - **External bugs (2)**: union-type-generics (x-tools SPMDType in typeparams.Free), varying-array-iteration (test uses nested go for)
 
@@ -895,6 +894,31 @@ Split `go for` loops into main phase (full vectors, ConstAllOnes mask, plain v12
 - [x] Design doc: `docs/plans/2026-03-06-spmd-interface-mask-embedding-design.md`
 
 **Result**: type-switch-varying promoted from compile-fail to run-pass (22 run pass total, 0 regressions)
+
+### 2.9i Struct Masked Store/Load Fix ✅ COMPLETED
+
+**Goal**: Fix LLVM crashes when SPMDStore/SPMDLoad encounters struct element types (interface, closure, slice header). LLVM masked intrinsics only support integer, float, and pointer vector elements — not structs.
+
+- [x] Add `spmdIsVectorizableElemType()` type check (int, float, double, pointer → true)
+- [x] Add `spmdConditionalStore()` — scalar address struct store with anyTrue mask guard
+- [x] Add `spmdPerLaneScatterStore()` — vector-of-pointers struct scatter with per-lane conditional stores
+- [x] Add `spmdPerLaneGather()` — vector-of-pointers struct gather with PHI merge, returns `[N x T]` array
+- [x] Guard in `createSPMDStore` before splat: dispatch to per-lane helpers for non-vectorizable types
+- [x] Guard in `createSPMDLoad`: vector address path → `spmdPerLaneGather`, scalar address path → scalar load for non-vectorizable types
+
+**Result**: map-restrictions and panic-recover-varying promoted from compile-fail to compile-pass (fixes "Do not know how to split the result of this operator!" LLVM error). spmd-call-contexts promoted from compile-fail to compile-pass.
+
+### 2.9j Defer SPMD Mask Threading ✅ COMPLETED
+
+**Goal**: Thread SPMD execution mask through deferred closure calls. Deferred closures with varying parameters need the mask packed into the defer struct at creation time and extracted at call time.
+
+- [x] Add `spmdDeferMask()` helper — returns mask from `CallCommon.SPMDMask`, `spmdCallMask`, or all-ones fallback
+- [x] Pack mask into defer struct after `{callback, next}` for both `*ssa.Function` and `*ssa.MakeClosure` paths
+- [x] Unpack mask: prepend mask type to valueTypes, adjust extraction loop start index
+- [x] Fix `spmdBoxedVaryingGoType` to use platform-native mask element type (i64/i32/i16/i8) based on `128/laneCount`
+- [x] Fix MakeInterface lane count: derive from `val.Type().VectorSize()` instead of canonical `spmdEffectiveLaneCount`
+
+**Result**: defer-varying promoted from compile-only to run-pass. type-casting-varying regression fixed (wrong mask element size for non-4-lane types). Total: 23 run pass, 29 compile pass, 8 compile fail, 10 reject OK.
 
 ### 2.9g Gather Shift-Right Load Expansion
 
