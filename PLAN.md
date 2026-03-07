@@ -2,7 +2,7 @@
 
 **Version**: 2.8
 **Last Updated**: 2026-03-05
-**Status**: Phase 1 Complete, Phase 2.0-2.9c complete, SPMD function body predication COMPLETED, SSA-level loop peeling COMPLETED, mask stack removed (SSA-level masking complete), E2E: 21 run pass, 26 compile pass, 11 compile fail, 10 reject OK (47 total)
+**Status**: Phase 1 Complete, Phase 2.0-2.9c complete, SPMD function body predication COMPLETED, SSA-level loop peeling COMPLETED, mask stack removed (SSA-level masking complete), E2E: 24 run pass, 30 compile pass, 7 compile fail, 10 reject OK (47 total)
 
 ## Project Overview
 

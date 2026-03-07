@@ -476,7 +476,7 @@ INTEG="$SPMD_ROOT/test/integration/spmd"
 for dir in bit-counting array-counting \
            type-casting-varying varying-array-iteration \
            map-restrictions printf-verbs goroutine-varying \
-           panic-recover-varying select-with-varying-channels; do
+           select-with-varying-channels; do
     if [ -f "$INTEG/$dir/main.go" ]; then
         test_compile "integ_$dir" "$INTEG/$dir/main.go"
     fi
@@ -496,6 +496,7 @@ test_compile_and_run "integ_store-coalescing" "$INTEG/store-coalescing/main.go" 
 test_compile_and_run "integ_ipv4-parser"      "$INTEG/ipv4-parser/main.go"      "" "" "-scheduler=none"
 test_compile_and_run "integ_type-switch-varying" "$INTEG/type-switch-varying/main.go" "" "" "-scheduler=none"
 test_compile_and_run "integ_defer-varying"       "$INTEG/defer-varying/main.go"       "" "" "-scheduler=none"
+test_compile_and_run "integ_panic-recover-varying" "$INTEG/panic-recover-varying/main.go" "" "" "-scheduler=none"
 
 # ========== LEVEL 6: SPMD functions with mask ==========
 printf "\n${BLUE}--- Level 6: Complex patterns (compile only) ---${NC}\n"
