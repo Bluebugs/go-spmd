@@ -426,14 +426,9 @@ Fixed all 6 accumulated test failures from Phase 1.1-1.10:
 
 **⚠️ CRITICAL DEPENDENCY**: Phase 1.9 completion is required before PoC validation can begin. All integration tests, examples, and dual-mode compilation depend on `reduce` package availability.
 
-### 1.10 Printf Integration for Varying Types
+### 1.10 Printf Integration for Varying Types ✅ COMPLETED (via 2.9l)
 
-- [ ] Extend `src/fmt/print.go` to detect varying types with `%v` verb
-- [ ] Automatically call `reduce.From()` for varying type display
-- [ ] Implement reflection support for varying types as uniform arrays
-- [ ] Limit PoC to numerical types and bool only
-- [ ] Test Printf output matches expected array representation
-- [ ] Ensure graceful fallback when experiment disabled
+Superseded by 2.9l (Printf Mask-Aware Varying Formatting). Implementation uses `spmd:"varying"` struct tag + `printSPMDVarying` in `fmt/print.go` — better than original plan since it shows mask-aware output (`[5 _ 15 _]`) instead of just calling `reduce.From()`.
 
 ### 1.11 Frontend Integration Testing
 
