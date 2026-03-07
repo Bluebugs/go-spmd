@@ -737,8 +737,8 @@ Ported 10 `*_ext_spmd.go` files from types2 to go/types with full API translatio
 - 23 RUN PASS: L0_store, L0_cond, L0_func, L1_reduce_add, L2_lanes_index, L3_varying_var, L4_range_slice, L4b_varying_break, L5a_simple_sum, L5b_odd_even, L5f_varying_switch, L5g_compound_conditions, integ_simple-sum, integ_odd-even, integ_hex-encode, integ_debug-varying, integ_lanes-index-restrictions, integ_to-upper, integ_mandelbrot, integ_store-coalescing, integ_ipv4-parser, integ_type-switch-varying, integ_defer-varying
 - 6 COMPILE-ONLY PASS: integ_type-casting-varying, integ_printf-verbs, integ_goroutine-varying, integ_select-with-varying-channels, integ_bit-counting, integ_spmd-call-contexts
 - 10 REJECT OK: All illegal examples correctly rejected
-- 8 COMPILE FAIL (categorized by root cause):
-  - **Compiler backend bugs (4)**: array-counting (SIGSEGV), map-restrictions (varying→scalar call mismatch), panic-recover-varying (varying branch condition), non-spmd-varying-return (call param type mismatch)
+- 7 COMPILE FAIL (categorized by root cause):
+  - **Compiler backend bugs (3)**: array-counting (SIGSEGV), map-restrictions (varying→scalar call mismatch), non-spmd-varying-return (call param type mismatch)
   - **Missing features (2)**: pointer-varying (varying index), base64-decoder (type inference + varying index)
   - **External bugs (2)**: union-type-generics (x-tools SPMDType in typeparams.Free), varying-array-iteration (test uses nested go for)
 
@@ -919,6 +919,19 @@ Split `go for` loops into main phase (full vectors, ConstAllOnes mask, plain v12
 - [x] Fix MakeInterface lane count: derive from `val.Type().VectorSize()` instead of canonical `spmdEffectiveLaneCount`
 
 **Result**: defer-varying promoted from compile-only to run-pass. type-casting-varying regression fixed (wrong mask element size for non-4-lane types). Total: 23 run pass, 29 compile pass, 8 compile fail, 10 reject OK.
+
+### 2.9k InvalidSPMDPanic Type Checker Restriction ✅ COMPLETED
+
+**Goal**: Forbid `panic()` calls under varying conditions or after mask alteration in SPMD `go for` loops, matching existing restrictions on `return` and `break`. Panic with varying data under uniform conditions (e.g., `if reduce.Any(...) { panic(value) }`) remains allowed.
+
+- [x] Add `InvalidSPMDPanic` error code (161) in `internal/types/errors/codes.go`
+- [x] Update `code_string.go` string table
+- [x] Add `case *ast.ExprStmt` panic detection + `validateSPMDPanic` in `go/types/stmt_ext_spmd.go`
+- [x] Add `case *syntax.ExprStmt` panic detection + `validateSPMDPanic` in `types2/stmt_ext_spmd.go`
+- [x] Test cases in both `go/types` and `types2`: uniform OK, varying FORBIDDEN, mask-altered FORBIDDEN, bare panic OK
+- [x] Rewrite `panic-recover-varying` E2E test to use `reduce.Any` uniform guards
+
+**Result**: panic-recover-varying promoted from compile-fail to run-pass. Total: 24 run pass, 30 compile pass, 7 compile fail, 10 reject OK.
 
 ### 2.9g Gather Shift-Right Load Expansion
 
@@ -1273,14 +1286,13 @@ Split `go for` loops into main phase (full vectors, ConstAllOnes mask, plain v12
 
 ---
 
-**Last Completed**: Mask stack removal (2026-03-05) — `spmdMaskStack`/push/pop/current removed (~330 lines dead code). All memory op masking via explicit SSA-level masks on SPMDLoad/SPMDStore. Interleaved store analysis migrated to scan SPMDStore. to-upper and ipv4-parser promoted to run-pass. E2E: 21 run pass, 26 compile pass, 11 compile fail, 10 reject OK / 47 tests.
-**Next Action**: Fix remaining 11 compile failures:
-1. LLVM struct masked load/store (map-restrictions, defer-varying, panic-recover-varying, spmd-call-contexts)
+**Last Completed**: InvalidSPMDPanic type checker + E2E fixes (2026-03-07) — panic forbidden under varying conditions (error code 161), panic-recover-varying rewritten with reduce.Any guards, promoted to run-pass. Struct store/load fix, defer mask threading, interface boxing lane count fix also done. E2E: 24 run pass, 30 compile pass, 7 compile fail, 10 reject OK / 47 tests.
+**Next Action**: Fix remaining 7 compile failures:
+1. Call parameter type mismatch (map-restrictions, non-spmd-varying-return — varying→scalar call)
 2. SIGSEGV (array-counting — compiler crash)
-3. Call parameter type mismatch (non-spmd-varying-return — mask type issue)
-4. Type checker errors (pointer-varying, type-switch-varying, base64-decoder — missing features)
-5. x-tools panic (union-type-generics — SPMDType in typeparams.Free)
-6. Nested go for (varying-array-iteration — needs test fix)
+3. Type checker errors (pointer-varying, base64-decoder — missing varying index features)
+4. x-tools panic (union-type-generics — SPMDType in typeparams.Free)
+5. Nested go for (varying-array-iteration — needs test fix)
 
 ### Recent Major Achievements (Phase 1.5 Extensions)
 
