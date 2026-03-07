@@ -733,8 +733,8 @@ Ported 10 `*_ext_spmd.go` files from types2 to go/types with full API translatio
 - [x] Validate 6 core programs compile + run correctly (stores, conditionals, functions, reduce, lanes, varying vars)
 - [x] Validate all 11 illegal examples correctly rejected by type checker
 
-**E2E Test Results (47 tests)** — updated 2026-03-06 after struct store fix + defer mask + boxing lane count fix:
-- 23 RUN PASS: L0_store, L0_cond, L0_func, L1_reduce_add, L2_lanes_index, L3_varying_var, L4_range_slice, L4b_varying_break, L5a_simple_sum, L5b_odd_even, L5f_varying_switch, L5g_compound_conditions, integ_simple-sum, integ_odd-even, integ_hex-encode, integ_debug-varying, integ_lanes-index-restrictions, integ_to-upper, integ_mandelbrot, integ_store-coalescing, integ_ipv4-parser, integ_type-switch-varying, integ_defer-varying
+**E2E Test Results (47 tests)** — updated 2026-03-07 after InvalidSPMDPanic + Printf varying support:
+- 24 RUN PASS: L0_store, L0_cond, L0_func, L1_reduce_add, L2_lanes_index, L3_varying_var, L4_range_slice, L4b_varying_break, L5a_simple_sum, L5b_odd_even, L5f_varying_switch, L5g_compound_conditions, integ_simple-sum, integ_odd-even, integ_hex-encode, integ_debug-varying, integ_lanes-index-restrictions, integ_to-upper, integ_mandelbrot, integ_store-coalescing, integ_ipv4-parser, integ_type-switch-varying, integ_defer-varying, integ_panic-recover-varying
 - 6 COMPILE-ONLY PASS: integ_type-casting-varying, integ_printf-verbs, integ_goroutine-varying, integ_select-with-varying-channels, integ_bit-counting, integ_spmd-call-contexts
 - 10 REJECT OK: All illegal examples correctly rejected
 - 7 COMPILE FAIL (categorized by root cause):
@@ -932,6 +932,20 @@ Split `go for` loops into main phase (full vectors, ConstAllOnes mask, plain v12
 - [x] Rewrite `panic-recover-varying` E2E test to use `reduce.Any` uniform guards
 
 **Result**: panic-recover-varying promoted from compile-fail to run-pass. Total: 24 run pass, 30 compile pass, 7 compile fail, 10 reject OK.
+
+### 2.9l Printf Mask-Aware Varying Formatting ✅ COMPLETED
+
+**Goal**: Make `fmt.Printf` and all print functions display boxed varying values with mask awareness — active lanes show their value, inactive lanes show `_`. Example: `[5 _ 15 _]` instead of raw `{[5 10 15 25] [-1 -1 -1 -1]}`.
+
+- [x] Add `spmd:"varying"` struct tag to boxed Value field in `spmdBoxedVaryingGoType` (`tinygo/compiler/spmd.go`)
+- [x] Add `printSPMDVarying` method in `fmt/print.go` — detects tag via `reflect.StructField.Tag.Get("spmd")`, formats active lanes with requested verb, inactive lanes as `_`
+- [x] Hook into `printValue` `case reflect.Struct:` — call `printSPMDVarying` before generic struct printing
+- [x] Update `debug-varying` integration test to demonstrate partial masking (`if v > 25`)
+- [x] Verify all format verbs work (`%v`, `%d`, `%x`)
+- [x] Verify no false positives — regular structs with Value/Mask fields unaffected (no `spmd:"varying"` tag)
+- [x] E2E: 24 run pass, 30 compile pass, 7 compile fail, 10 reject OK (no regressions)
+
+**Result**: `Printf("%v", varyingValue)` outputs `[10 20 30 40]` (all active) or `[_ _ 30 40]` (partial mask). Works with all format verbs. Tag-based detection is collision-proof.
 
 ### 2.9g Gather Shift-Right Load Expansion
 
@@ -1286,7 +1300,7 @@ Split `go for` loops into main phase (full vectors, ConstAllOnes mask, plain v12
 
 ---
 
-**Last Completed**: InvalidSPMDPanic type checker + E2E fixes (2026-03-07) — panic forbidden under varying conditions (error code 161), panic-recover-varying rewritten with reduce.Any guards, promoted to run-pass. Struct store/load fix, defer mask threading, interface boxing lane count fix also done. E2E: 24 run pass, 30 compile pass, 7 compile fail, 10 reject OK / 47 tests.
+**Last Completed**: Printf mask-aware varying formatting (2026-03-07) — `spmd:"varying"` struct tag on boxed struct + `printSPMDVarying` in `fmt/print.go`. Active lanes print values, inactive lanes print `_`. Works with all format verbs (`%v`, `%d`, `%x`). Tag-based detection is collision-proof. debug-varying test updated with partial mask example. E2E: 24 run pass, 30 compile pass, 7 compile fail, 10 reject OK / 47 tests.
 **Next Action**: Fix remaining 7 compile failures:
 1. Call parameter type mismatch (map-restrictions, non-spmd-varying-return — varying→scalar call)
 2. SIGSEGV (array-counting — compiler crash)

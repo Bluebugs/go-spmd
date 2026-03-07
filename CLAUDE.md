@@ -16,7 +16,7 @@ This workspace implements Single Program Multiple Data (SPMD) support for Go, si
 - **lanes.Index()**: Current lane index (0 to Count-1) in SPMD context
 - **lanes**: Standard library module for cross-lane functions
 - **reduce**: Standard library module for reduction operations (varying to uniform)
-- **Printf Integration**: `fmt.Printf` with `%v` automatically converts varying types to arrays
+- **Printf Integration**: `fmt.Printf` with `%v` on varying values shows mask-aware output: active lanes print values, inactive lanes show `_` (e.g., `[5 _ 15 _]`)
 
 ## Go SPMD Syntax
 

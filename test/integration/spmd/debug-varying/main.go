@@ -1,7 +1,8 @@
 // run -goexperiment spmd
 
-// Debug example showing how to inspect varying values
-// Demonstrates reduce.From[T any](varying T) []T function
+// Debug example showing how to inspect varying values.
+// Printf with %v on varying values shows mask-aware output:
+// active lanes print their value, inactive lanes show "_".
 package main
 
 import (
@@ -18,18 +19,22 @@ func debugProcessing(data []int) {
 	fmt.Printf("Processing %d elements\n", len(data))
 
 	go for _, v := range data {
-		// v is already varying (each lane gets different data elements)
 		doubled := v * 2
 
-		// Printf automatically converts varying to array with %v
-		fmt.Printf("Lane values: %v\n", v)       // Automatic reduce.From conversion
-		fmt.Printf("Doubled: %v\n", doubled)     // Automatic reduce.From conversion
+		// Printf with varying values: boxed as struct{Value, Mask}
+		// All lanes active → shows all values
+		fmt.Printf("Lane values: %v\n", v)
+		fmt.Printf("Doubled: %v\n", doubled)
 
-		// Manual conversion still available if needed
+		// Inside varying if: partial mask → inactive lanes show "_"
+		if v > 25 {
+			fmt.Printf("Big values: %v\n", v)
+		}
+
+		// Manual conversion to uniform slice (strips mask)
 		currentValues := reduce.From(v)
 		fmt.Printf("Manual conversion: %v\n", currentValues)
 
-		// Normal SPMD processing continues...
 		total := reduce.Add(doubled)
 		fmt.Printf("Total for this iteration: %d\n", total)
 	}
