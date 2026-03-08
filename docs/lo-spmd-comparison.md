@@ -194,22 +194,18 @@ For WASM deployment this is a non-issue (SIMD128 is the only width). For native 
 
 ## Current Backend Status
 
-Of the 6 implemented operations, 2 compile and run correctly today:
+All 6 implemented operations compile and run correctly:
 
-| Operation | Status | Notes |
-|-----------|--------|-------|
-| Sum | Run pass | Simple accumulator (`+=`) works |
-| Mean | Run pass | Same as sum + scalar divide |
-| Min | Compile fail | Varying conditional accumulator (`if v < result { result = v }`) triggers "SSA value not previously found" |
-| Max | Compile fail | Same pattern as min |
-| Contains | Compile fail | Varying conditional with `Varying[bool]` triggers same SSA bug |
-| Clamp | Compile fail | Varying if/else chain with rangeint triggers "Branch condition is not 'i1' type" LLVM error |
+| Operation | Status | Speedup (Node.js) | Notes |
+|-----------|--------|-------------------|-------|
+| Sum | Run pass | 5.90x | Simple accumulator (`+=`) |
+| Mean | Run pass | 5.90x | Same as sum + scalar divide |
+| Min | Run pass | 5.90x | Varying conditional accumulator (`if v < result { result = v }`) |
+| Max | Run pass | 5.90x | Same pattern as min |
+| Contains | Run pass | 0.82x | `Varying[bool]` accumulator requires mask widening (16-lane bool in 4-lane int32 loop) |
+| Clamp | Run pass | 1.07x | Varying if/else-if/else chain with recursive predication |
 
-The failing operations expose two backend bugs:
-1. **Varying conditional accumulator**: The pattern `if v < result { result = v }` inside `go for` produces an SSA value reference that the TinyGo backend cannot resolve. This differs from the simple `result += v` pattern (which works) because the assignment is under a varying condition.
-2. **Varying if/else with rangeint**: The `if/else if/else` chain in clamp produces a mask value that isn't properly truncated to `i1` before use as an LLVM branch condition.
-
-Both are backend code generation bugs, not SPMD language limitations. The SPMD code is correct and will work once the backend is fixed.
+Contains and Clamp have lower speedups due to additional overhead: Contains needs shuffle-based mask widening for the `Varying[bool]` type mismatch, and Clamp's three-way branch produces more masked operations. Both are correctness-complete and can be optimized further.
 
 ## Future Work
 
