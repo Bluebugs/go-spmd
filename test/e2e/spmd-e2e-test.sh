@@ -548,8 +548,7 @@ test_compile_and_run "integ_lo-mean"     "$INTEG/lo-mean/main.go"     "contains:
 test_compile_and_run "integ_lo-min"      "$INTEG/lo-min/main.go"      "contains:Correctness: PASS" "" "-scheduler=none"
 test_compile_and_run "integ_lo-max"      "$INTEG/lo-max/main.go"      "contains:Correctness: PASS" "" "-scheduler=none"
 test_compile_and_run "integ_lo-contains" "$INTEG/lo-contains/main.go" "contains:Correctness: PASS" "" "-scheduler=none"
-# lo-clamp: varying if/else-if chain — needs recursive predication (Bug 2)
-test_compile "integ_lo-clamp"    "$INTEG/lo-clamp/main.go"
+test_compile_and_run "integ_lo-clamp"    "$INTEG/lo-clamp/main.go"    "contains:Correctness: PASS" "" "-scheduler=none"
 
 # ========== LEVEL 6: SPMD functions with mask ==========
 printf "\n${BLUE}--- Level 6: Complex patterns (compile only) ---${NC}\n"
