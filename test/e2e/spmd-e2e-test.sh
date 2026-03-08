@@ -543,6 +543,12 @@ test_compile_and_run "integ_panic-recover-varying" "$INTEG/panic-recover-varying
     "contains:Processed: [5 10 15 25] -> [10 20 30 50]|||OK: [1 2 3 4]|||Done" \
     "" "-scheduler=none"
 test_compile_and_run "integ_bit-counting" "$INTEG/bit-counting/main.go" "Bit counts: 28" "" "-scheduler=none"
+test_compile_and_run "integ_lo-sum"      "$INTEG/lo-sum/main.go"      "contains:Correctness: PASS" "" "-scheduler=none"
+test_compile_and_run "integ_lo-min"      "$INTEG/lo-min/main.go"      "contains:Correctness: PASS" "" "-scheduler=none"
+test_compile_and_run "integ_lo-max"      "$INTEG/lo-max/main.go"      "contains:Correctness: PASS" "" "-scheduler=none"
+test_compile_and_run "integ_lo-clamp"    "$INTEG/lo-clamp/main.go"    "contains:Correctness: PASS" "" "-scheduler=none"
+test_compile_and_run "integ_lo-contains" "$INTEG/lo-contains/main.go" "contains:Correctness: PASS" "" "-scheduler=none"
+test_compile_and_run "integ_lo-mean"     "$INTEG/lo-mean/main.go"     "contains:Correctness: PASS" "" "-scheduler=none"
 
 # ========== LEVEL 6: SPMD functions with mask ==========
 printf "\n${BLUE}--- Level 6: Complex patterns (compile only) ---${NC}\n"
