@@ -192,6 +192,25 @@ SPMD compiles to a fixed SIMD width determined by the target (128-bit for WASM S
 
 For WASM deployment this is a non-issue (SIMD128 is the only width). For native targets, this is a real gap compared to lo's approach.
 
+## Current Backend Status
+
+Of the 6 implemented operations, 2 compile and run correctly today:
+
+| Operation | Status | Notes |
+|-----------|--------|-------|
+| Sum | Run pass | Simple accumulator (`+=`) works |
+| Mean | Run pass | Same as sum + scalar divide |
+| Min | Compile fail | Varying conditional accumulator (`if v < result { result = v }`) triggers "SSA value not previously found" |
+| Max | Compile fail | Same pattern as min |
+| Contains | Compile fail | Varying conditional with `Varying[bool]` triggers same SSA bug |
+| Clamp | Compile fail | Varying if/else chain with rangeint triggers "Branch condition is not 'i1' type" LLVM error |
+
+The failing operations expose two backend bugs:
+1. **Varying conditional accumulator**: The pattern `if v < result { result = v }` inside `go for` produces an SSA value reference that the TinyGo backend cannot resolve. This differs from the simple `result += v` pattern (which works) because the assignment is under a varying condition.
+2. **Varying if/else with rangeint**: The `if/else if/else` chain in clamp produces a mask value that isn't properly truncated to `i1` before use as an LLVM branch condition.
+
+Both are backend code generation bugs, not SPMD language limitations. The SPMD code is correct and will work once the backend is fixed.
+
 ## Future Work
 
 Once the `union-type-generics` bug is fixed (x-tools SPMDType in `typeparams.Free`), the SPMD examples can be made fully generic:
