@@ -121,21 +121,23 @@ func parseIPv4(s string) ([4]byte, error) {
 		var value int
 		var hasLeadingZero bool
 
-		// Convert field using optimized digit processing
+		// Convert field using per-case digit processing.
+		// Each case computes the full value independently to avoid
+		// out-of-bounds accesses on inactive SPMD lanes with fallthrough.
 		switch fieldLen {
-		case 1:
-			value = int(s[start] - '0')
-		case 2:
-			d1 := int(s[start] - '0')
-			d0 := int(s[start+1] - '0')
-			value = d1*10 + d0
-			hasLeadingZero = (d1 == 0)
 		case 3:
 			d2 := int(s[start] - '0')
 			d1 := int(s[start+1] - '0')
 			d0 := int(s[start+2] - '0')
 			value = d2*100 + d1*10 + d0
 			hasLeadingZero = (d2 == 0)
+		case 2:
+			d1 := int(s[start] - '0')
+			d0 := int(s[start+1] - '0')
+			value = d1*10 + d0
+			hasLeadingZero = (d1 == 0)
+		case 1:
+			value = int(s[start] - '0')
 		}
 
 		// Validation: check each error condition across all lanes

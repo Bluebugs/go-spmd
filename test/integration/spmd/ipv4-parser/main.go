@@ -236,50 +236,38 @@ func parseIPv4(s string) ([4]byte, error) {
 	input := [16]byte{}
 	copy(input[:], s)
 
-	var dotMask [16]bool
-
-	// Process all 16 elements using SIMD lanes
-	var dotMaskTotal lanes.Varying[uint8]
-
+	// Process all 16 bytes in parallel: classify chars and build dot bitmask
+	var dotBitmask uint16
 	var loop int
-	go for i, c := range input {
-		dotMask[i] = c == '.'
-		if dotMask[i] {
-			dotMaskTotal++
-		}
+	go for _, c := range input {
+		isDot := c == '.'
 		digitMask := (c >= '0' && c <= '9')
 
 		// Valid if dot, digit, or null (padding)
-		validChars := dotMask[i] || digitMask || c == 0
+		validChars := isDot || digitMask || c == 0
 
 		// Check character validity with precise error location
 		if !reduce.All(validChars) {
 			return [4]byte{}, parseAddrError{in: s, at: reduce.FindFirstSet(!validChars) + loop, msg: "unexpected character"}
 		}
+
+		// Build dot position bitmask directly (mimics _mm_movemask_epi8)
+		dotBitmask |= uint16(reduce.Mask(isDot)) << loop
 		loop += lanes.Count(c)
 	}
 
-	// Count dots using reduction
-	dotCount := reduce.Add(dotMaskTotal)
+	// Count dots using popcount on the bitmask
+	dotCount := bits.OnesCount16(dotBitmask)
 	if dotCount != 3 {
-		return [4]byte{}, parseAddrError{in: s, msg: "invalid dot count"}
-	}
-
-	var mask uint16
-
-	// Create dot position bitmask (mimics _mm_movemask_epi8)
-	loop = 0
-	go for _, isDot := range dotMask {
-		mask |= uint16(reduce.Mask(isDot)) << loop
-		loop += lanes.Count(isDot)
+		return [4]byte{}, parseAddrError{in: s, msg: fmt.Sprintf("invalid dot count: %d", dotCount)}
 	}
 
 	// Extract dot positions using bit manipulation
 	var dotPositions [3]int
 	for i := 0; i < 3; i++ {
-		pos := bits.TrailingZeros16(mask)
+		pos := bits.TrailingZeros16(dotBitmask)
 		dotPositions[i] = pos
-		mask &= mask - 1 // Clear lowest set bit
+		dotBitmask &= dotBitmask - 1 // Clear lowest set bit
 	}
 
 	// Define field boundaries as separate arrays for efficient range processing
@@ -312,21 +300,23 @@ func parseIPv4(s string) ([4]byte, error) {
 		var value int
 		var hasLeadingZero bool
 
-		// Convert field using optimized digit processing
+		// Convert field using per-case digit processing.
+		// Each case computes the full value independently to avoid
+		// out-of-bounds accesses on inactive SPMD lanes with fallthrough.
 		switch fieldLen {
-		case 1:
-			value = int(s[start] - '0')
-		case 2:
-			d1 := int(s[start] - '0')
-			d0 := int(s[start+1] - '0')
-			value = d1*10 + d0
-			hasLeadingZero = (d1 == 0)
 		case 3:
 			d2 := int(s[start] - '0')
 			d1 := int(s[start+1] - '0')
 			d0 := int(s[start+2] - '0')
 			value = d2*100 + d1*10 + d0
 			hasLeadingZero = (d2 == 0)
+		case 2:
+			d1 := int(s[start] - '0')
+			d0 := int(s[start+1] - '0')
+			value = d1*10 + d0
+			hasLeadingZero = (d1 == 0)
+		case 1:
+			value = int(s[start] - '0')
 		}
 
 		// Validation: check each error condition across all lanes
