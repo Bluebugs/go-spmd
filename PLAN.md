@@ -1,8 +1,8 @@
 # SPMD Implementation Plan for Go + TinyGo
 
-**Version**: 2.8
-**Last Updated**: 2026-03-05
-**Status**: Phase 1 Complete, Phase 2.0-2.9c complete, SPMD function body predication COMPLETED, SSA-level loop peeling COMPLETED, mask stack removed (SSA-level masking complete), E2E: 24 run pass, 30 compile pass, 7 compile fail, 10 reject OK (47 total)
+**Version**: 2.9
+**Last Updated**: 2026-03-07
+**Status**: Phase 1 Complete, Phase 2.0-2.9c complete, SPMD function body predication COMPLETED, SSA-level loop peeling COMPLETED, mask stack removed (SSA-level masking complete), E2E: 25 run pass, 30 compile pass, 7 compile fail, 10 reject OK (47 total)
 
 ## Project Overview
 
@@ -728,9 +728,9 @@ Ported 10 `*_ext_spmd.go` files from types2 to go/types with full API translatio
 - [x] Validate 6 core programs compile + run correctly (stores, conditionals, functions, reduce, lanes, varying vars)
 - [x] Validate all 11 illegal examples correctly rejected by type checker
 
-**E2E Test Results (47 tests)** — updated 2026-03-07 after InvalidSPMDPanic + Printf varying support:
-- 24 RUN PASS: L0_store, L0_cond, L0_func, L1_reduce_add, L2_lanes_index, L3_varying_var, L4_range_slice, L4b_varying_break, L5a_simple_sum, L5b_odd_even, L5f_varying_switch, L5g_compound_conditions, integ_simple-sum, integ_odd-even, integ_hex-encode, integ_debug-varying, integ_lanes-index-restrictions, integ_to-upper, integ_mandelbrot, integ_store-coalescing, integ_ipv4-parser, integ_type-switch-varying, integ_defer-varying, integ_panic-recover-varying
-- 6 COMPILE-ONLY PASS: integ_type-casting-varying, integ_printf-verbs, integ_goroutine-varying, integ_select-with-varying-channels, integ_bit-counting, integ_spmd-call-contexts
+**E2E Test Results (47 tests)** — updated 2026-03-07 after mask/boolean sign-extension + phi edge snapshot fixes:
+- 25 RUN PASS: L0_store, L0_cond, L0_func, L1_reduce_add, L2_lanes_index, L3_varying_var, L4_range_slice, L4b_varying_break, L5a_simple_sum, L5b_odd_even, L5f_varying_switch, L5g_compound_conditions, integ_simple-sum, integ_odd-even, integ_hex-encode, integ_debug-varying, integ_lanes-index-restrictions, integ_to-upper, integ_mandelbrot, integ_store-coalescing, integ_ipv4-parser, integ_type-switch-varying, integ_defer-varying, integ_panic-recover-varying, integ_bit-counting
+- 5 COMPILE-ONLY PASS: integ_type-casting-varying, integ_printf-verbs, integ_goroutine-varying, integ_select-with-varying-channels, integ_spmd-call-contexts
 - 10 REJECT OK: All illegal examples correctly rejected
 - 7 COMPILE FAIL (categorized by root cause):
   - **Compiler backend bugs (3)**: array-counting (SIGSEGV), map-restrictions (varying→scalar call mismatch), non-spmd-varying-return (call param type mismatch)
@@ -1295,7 +1295,7 @@ Split `go for` loops into main phase (full vectors, ConstAllOnes mask, plain v12
 
 ---
 
-**Last Completed**: Printf mask-aware varying formatting (2026-03-07) — `spmd:"varying"` struct tag on boxed struct + `printSPMDVarying` in `fmt/print.go`. Active lanes print values, inactive lanes print `_`. Works with all format verbs (`%v`, `%d`, `%x`). Tag-based detection is collision-proof. debug-varying test updated with partial mask example. E2E: 24 run pass, 30 compile pass, 7 compile fail, 10 reject OK / 47 tests.
+**Last Completed**: IPv4 parser fix + bit-counting promotion (2026-03-07) — Fixed mask/boolean sign-extension in TinyGo backend (`spmdBroadcastMatch` SExt for masks, bool→mask lane count preservation, `Varying[bool]` ConstAllOnes). Fixed phi edge corruption in x-tools-spmd predication (snapshot before CFG rewiring, "then-as-merge" pattern for 3+ operand LOR/LAND chains). Simplified ipv4-parser dot counter to use `[16]uint8` array + `lanes.From` + `reduce.Add`. bit-counting promoted from compile-only to run-pass. E2E: 25 run pass, 30 compile pass, 7 compile fail, 10 reject OK / 47 tests.
 **Next Action**: Fix remaining 7 compile failures:
 1. Call parameter type mismatch (map-restrictions, non-spmd-varying-return — varying→scalar call)
 2. SIGSEGV (array-counting — compiler crash)

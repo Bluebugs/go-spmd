@@ -8,6 +8,10 @@ TINYGO="$SPMD_ROOT/tinygo/build/tinygo"
 GOROOT_SPMD="$SPMD_ROOT/go"
 RUNNER="$SPMD_ROOT/test/e2e/run-wasm.mjs"
 WASMOPT="${WASMOPT:-/tmp/wasm-opt}"
+# If wasm-opt binary doesn't exist, disable it so TinyGo doesn't fail
+if [ ! -x "$WASMOPT" ]; then
+    WASMOPT=""
+fi
 OUTDIR="/tmp/spmd-e2e"
 
 # Detect WASM runtime: prefer wasmtime over Node.js for better performance and stability.
@@ -89,9 +93,32 @@ test_compile_and_run() {
     output=$(echo "$output" | grep -v "ExperimentalWarning\|trace-warnings")
 
     if [ -n "$expected" ]; then
-        if [ "$output" = "$expected" ]; then
+        local match_mode="exact"
+        local match_pattern="$expected"
+        if [[ "$expected" == contains:* ]]; then
+            match_mode="contains"
+            match_pattern="${expected#contains:}"
+        fi
+
+        local passed=false
+        if [ "$match_mode" = "exact" ]; then
+            [ "$output" = "$match_pattern" ] && passed=true
+        else
+            # contains: check each required substring (separated by |||)
+            passed=true
+            local IFS_OLD="$IFS"
+            while IFS= read -r needle; do
+                if ! echo "$output" | grep -qF "$needle"; then
+                    passed=false
+                    break
+                fi
+            done <<< "${match_pattern//|||/$'\n'}"
+            IFS="$IFS_OLD"
+        fi
+
+        if $passed; then
             RUN_PASS=$((RUN_PASS + 1))
-            printf "${GREEN}PASS${NC}         %-40s output=%s\n" "$name" "$output"
+            printf "${GREEN}PASS${NC}         %-40s %s\n" "$name" "(output verified)"
         else
             RUN_FAIL=$((RUN_FAIL + 1))
             printf "${RED}WRONG OUTPUT${NC} %-40s expected='%s' got='%s'\n" "$name" "$expected" "$output"
@@ -99,7 +126,7 @@ test_compile_and_run() {
         fi
     else
         RUN_PASS=$((RUN_PASS + 1))
-        printf "${GREEN}PASS${NC}         %-40s %s\n" "$name" "${output:+(output: ${output:0:60})}"
+        printf "${GREEN}PASS (no output check)${NC} %-40s %s\n" "$name" "${output:+(output: ${output:0:60})}"
     fi
 }
 
@@ -473,7 +500,7 @@ test_compile_and_run "L5g_compound_conditions" "$OUTDIR/L5g_compound_conditions.
 printf "\n${BLUE}--- Level 5c: Integration examples (compile only) ---${NC}\n"
 
 INTEG="$SPMD_ROOT/test/integration/spmd"
-for dir in bit-counting array-counting \
+for dir in array-counting \
            type-casting-varying varying-array-iteration \
            map-restrictions printf-verbs goroutine-varying \
            select-with-varying-channels; do
@@ -487,16 +514,35 @@ printf "\n${BLUE}--- Level 5d: Integration examples (compile + run) ---${NC}\n"
 
 test_compile_and_run "integ_simple-sum"    "$INTEG/simple-sum/main.go"    "Sum: 136"            "" "-scheduler=none"
 test_compile_and_run "integ_odd-even"      "$INTEG/odd-even/main.go"      "Result: Odd=4, Even=4" "" "-scheduler=none"
-test_compile_and_run "integ_hex-encode"    "$INTEG/hex-encode/main.go"    ""                    "" "-scheduler=none"
-test_compile_and_run "integ_debug-varying" "$INTEG/debug-varying/main.go" ""                    "" "-scheduler=none"
-test_compile_and_run "integ_lanes-index-restrictions" "$INTEG/lanes-index-restrictions/main.go" "" "" "-scheduler=none"
-test_compile_and_run "integ_to-upper"      "$INTEG/to-upper/main.go"      ""                    "" "-scheduler=none"
-test_compile_and_run "integ_mandelbrot"    "$INTEG/mandelbrot/main.go"    ""                    "" "-scheduler=none"
-test_compile_and_run "integ_store-coalescing" "$INTEG/store-coalescing/main.go" "" "" "-scheduler=none"
-test_compile_and_run "integ_ipv4-parser"      "$INTEG/ipv4-parser/main.go"      "" "" "-scheduler=none"
-test_compile_and_run "integ_type-switch-varying" "$INTEG/type-switch-varying/main.go" "" "" "-scheduler=none"
-test_compile_and_run "integ_defer-varying"       "$INTEG/defer-varying/main.go"       "" "" "-scheduler=none"
-test_compile_and_run "integ_panic-recover-varying" "$INTEG/panic-recover-varying/main.go" "" "" "-scheduler=none"
+test_compile_and_run "integ_hex-encode"    "$INTEG/hex-encode/main.go"    "contains:Correctness: SPMD and Scalar results match." "" "-scheduler=none"
+test_compile_and_run "integ_debug-varying" "$INTEG/debug-varying/main.go" \
+    "contains:Doubled: [20 40 60 80]|||Big values: [_ _ 30 40]|||Total for this iteration: 200|||Total for this iteration: 520" \
+    "" "-scheduler=none"
+test_compile_and_run "integ_lanes-index-restrictions" "$INTEG/lanes-index-restrictions/main.go" \
+    "contains:Lane [0 1 2 3] result: [0 11 22 33]|||Result from SPMD function: [50 51 52 53]|||All lanes.Index() restrictions demonstrated successfully" \
+    "" "-scheduler=none"
+test_compile_and_run "integ_to-upper"      "$INTEG/to-upper/main.go" \
+    "contains:'hello world' -> 'HELLO WORLD'|||'Hello World' -> 'HELLO WORLD'|||'hello123WORLD' -> 'HELLO123WORLD'" \
+    "" "-scheduler=none"
+test_compile_and_run "integ_mandelbrot"    "$INTEG/mandelbrot/main.go" \
+    "contains:Verification: 0 differences out of 65536 pixels|||Results match between serial and SPMD versions" \
+    "" "-scheduler=none"
+test_compile_and_run "integ_store-coalescing" "$INTEG/store-coalescing/main.go" \
+    "contains:Result: [170 187 170 187 170 187 170 187 170 187 170 187 170 187 170 187 170 187 170 187 170 187 170 187 170 187 170 187 170 187 170 187]|||PASS" \
+    "" "-scheduler=none"
+test_compile_and_run "integ_ipv4-parser"      "$INTEG/ipv4-parser/main.go" \
+    "contains:'192.168.1.1' -> 192.168.1.1|||'127.0.0.1' -> 127.0.0.1|||'192.168.1.a' -> ERROR: parse 192.168.1.a at position 10: unexpected character|||'256.1.1.1' -> ERROR: parse 256.1.1.1 at position 0: IPv4 field has value >255|||'192.168.01.1' -> ERROR: parse 192.168.01.1 at position 0: IPv4 field has octet with leading zero" \
+    "" "-scheduler=none"
+test_compile_and_run "integ_type-switch-varying" "$INTEG/type-switch-varying/main.go" \
+    "contains:Varying int: sum=336|||Assert ok: sum=208|||All type switch varying tests completed" \
+    "" "-scheduler=none"
+test_compile_and_run "integ_defer-varying"       "$INTEG/defer-varying/main.go" \
+    "contains:Processed value: [6 14 4 18]|||Allocated for values > 5: [_ 700 _ 900]|||Third defer (first execution): [300 700 200 900]|||All defer varying tests completed successfully" \
+    "" "-scheduler=none"
+test_compile_and_run "integ_panic-recover-varying" "$INTEG/panic-recover-varying/main.go" \
+    "contains:Processed: [5 10 15 25] -> [10 20 30 50]|||OK: [1 2 3 4]|||Done" \
+    "" "-scheduler=none"
+test_compile_and_run "integ_bit-counting" "$INTEG/bit-counting/main.go" "Bit counts: 28" "" "-scheduler=none"
 
 # ========== LEVEL 6: SPMD functions with mask ==========
 printf "\n${BLUE}--- Level 6: Complex patterns (compile only) ---${NC}\n"
