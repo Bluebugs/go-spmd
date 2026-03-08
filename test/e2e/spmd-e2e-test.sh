@@ -545,13 +545,11 @@ test_compile_and_run "integ_panic-recover-varying" "$INTEG/panic-recover-varying
 test_compile_and_run "integ_bit-counting" "$INTEG/bit-counting/main.go" "Bit counts: 28" "" "-scheduler=none"
 test_compile_and_run "integ_lo-sum"      "$INTEG/lo-sum/main.go"      "contains:Correctness: PASS" "" "-scheduler=none"
 test_compile_and_run "integ_lo-mean"     "$INTEG/lo-mean/main.go"     "contains:Correctness: PASS" "" "-scheduler=none"
-# lo-min, lo-max, lo-contains: varying conditional accumulator triggers "SSA value not previously found" backend bug
-# lo-clamp: varying if/else chain with rangeint triggers "Branch condition is not 'i1'" LLVM error
-# TODO: promote to test_compile_and_run once backend bugs are fixed
-test_compile "integ_lo-min"      "$INTEG/lo-min/main.go"
-test_compile "integ_lo-max"      "$INTEG/lo-max/main.go"
+test_compile_and_run "integ_lo-min"      "$INTEG/lo-min/main.go"      "contains:Correctness: PASS" "" "-scheduler=none"
+test_compile_and_run "integ_lo-max"      "$INTEG/lo-max/main.go"      "contains:Correctness: PASS" "" "-scheduler=none"
+test_compile_and_run "integ_lo-contains" "$INTEG/lo-contains/main.go" "contains:Correctness: PASS" "" "-scheduler=none"
+# lo-clamp: varying if/else-if chain — needs recursive predication (Bug 2)
 test_compile "integ_lo-clamp"    "$INTEG/lo-clamp/main.go"
-test_compile "integ_lo-contains" "$INTEG/lo-contains/main.go"
 
 # ========== LEVEL 6: SPMD functions with mask ==========
 printf "\n${BLUE}--- Level 6: Complex patterns (compile only) ---${NC}\n"
