@@ -60,18 +60,19 @@ func parseIPv4(s string) ([4]byte, error) {
 	var dotMask [16]bool
 
 	// Process all 16 elements using SIMD lanes
-	var dotMaskTotal lanes.Varying[uint32]
+	var dotMaskTotal [16]uint8
 
 	var loop int
 	go for i, c := range input {
-		dotMask[i] = c == '.'
-		if dotMask[i] {
-			dotMaskTotal++
+		mask := c == '.'
+		dotMask[i] = mask
+		if mask {
+			dotMaskTotal[i] = 1
 		}
 		digitMask := (c >= '0' && c <= '9')
 
 		// Valid if dot, digit, or null (padding)
-		validChars := dotMask[i] || digitMask || c == 0
+		validChars := mask || digitMask || c == 0
 
 		// Check character validity with precise error location
 		if !reduce.All(validChars) {
@@ -81,9 +82,9 @@ func parseIPv4(s string) ([4]byte, error) {
 	}
 
 	// Count dots using reduction
-	dotCount := reduce.Add(dotMaskTotal)
+	dotCount := reduce.Add[uint8](lanes.From[uint8](dotMaskTotal[:]))
 	if dotCount != 3 {
-		return [4]byte{}, parseAddrError{in: s, msg: "invalid dot count"}
+		return [4]byte{}, parseAddrError{in: s, msg: fmt.Sprintf("invalid dot count: %d", dotCount)}
 	}
 
 	var mask uint16
