@@ -1,8 +1,8 @@
 # SPMD Implementation Plan for Go + TinyGo
 
 **Version**: 2.9
-**Last Updated**: 2026-03-07
-**Status**: Phase 1 Complete, Phase 2.0-2.9c complete, SPMD function body predication COMPLETED, SSA-level loop peeling COMPLETED, mask stack removed (SSA-level masking complete), E2E: 25 run pass, 30 compile pass, 7 compile fail, 10 reject OK (47 total)
+**Last Updated**: 2026-03-08
+**Status**: Phase 1 Complete, Phase 2.0-2.9c complete, SPMD function body predication COMPLETED, SSA-level loop peeling COMPLETED, mask stack removed (SSA-level masking complete), switch fallthrough predication COMPLETED, E2E: 31 run pass, 36 compile pass, 7 compile fail, 10 reject OK (53 total)
 
 ## Project Overview
 
@@ -941,6 +941,22 @@ Split `go for` loops into main phase (full vectors, ConstAllOnes mask, plain v12
 - [x] E2E: 24 run pass, 30 compile pass, 7 compile fail, 10 reject OK (no regressions)
 
 **Result**: `Printf("%v", varyingValue)` outputs `[10 20 30 40]` (all active) or `[_ _ 30 40]` (partial mask). Works with all format verbs. Tag-based detection is collision-proof.
+
+### 2.9m Switch Fallthrough Predication ✅ COMPLETED
+
+**Goal**: Fix `predicateVaryingSwitch` to handle `fallthrough` in switch cases inside `go for` loops.
+
+- [x] Add failing tests for fallthrough (basic, memops, sanity, after-if, complex body)
+- [x] Fix Phase 1 rewiring: use `bodyBlock.Succs[0]` instead of hardcoded `doneBlock` for non-fallthrough detection
+- [x] Fix else-if false detection: add `len(elseBlock.Preds) == 1` guard to prevent merge blocks from being treated as else-if
+- [x] Fix complex case bodies: add `spmdFindBodyExitBlock` BFS to find actual exit block with inner control flow
+- [x] Fix fallthrough phi loss: add `spmdConvertFallthroughPhis` to convert phis at fallthrough targets to SPMDSelect before rewiring
+- [x] Fix cumulative mask: use `activeMask &^ newRemaining` for fallthrough phis (covers all prior cases)
+- [x] Fix LLVM type mismatch: add `spmdConvertScalarToElem` in TinyGo for i1→i32 conversion before splatting
+- [x] Update ipv4-parser to non-fallthrough per-case approach (fallthrough causes OOB for inactive lanes with varying indices)
+- [x] E2E: 31 run pass, 36 compile pass, 7 compile fail, 10 reject OK (+6 run pass, +6 compile pass)
+
+**Result**: Switch fallthrough predication works for cases without varying memory indices. ipv4-parser promoted from compile-fail to run-pass. 6 additional examples promoted. Limitation: fallthrough executes all case bodies for all lanes, so memory accesses must be safe for inactive lanes.
 
 ### 2.9g Gather Shift-Right Load Expansion
 
