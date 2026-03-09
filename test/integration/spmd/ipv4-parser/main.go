@@ -305,18 +305,18 @@ func parseIPv4(s string) ([4]byte, error) {
 		// out-of-bounds accesses on inactive SPMD lanes with fallthrough.
 		switch fieldLen {
 		case 3:
-			d2 := int(s[start] - '0')
-			d1 := int(s[start+1] - '0')
-			d0 := int(s[start+2] - '0')
+			d2 := int(input[start] - '0')
+			d1 := int(input[start+1] - '0')
+			d0 := int(input[start+2] - '0')
 			value = d2*100 + d1*10 + d0
 			hasLeadingZero = (d2 == 0)
 		case 2:
-			d1 := int(s[start] - '0')
-			d0 := int(s[start+1] - '0')
+			d1 := int(input[start] - '0')
+			d0 := int(input[start+1] - '0')
 			value = d1*10 + d0
 			hasLeadingZero = (d1 == 0)
 		case 1:
-			value = int(s[start] - '0')
+			value = int(input[start] - '0')
 		}
 
 		// Validation: check each error condition across all lanes
