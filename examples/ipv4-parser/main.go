@@ -84,16 +84,17 @@ func parseIPv4(s string) ([4]byte, error) {
 	}
 
 	// Extract dot positions using bit manipulation
-	var dotPositions [3]int
+	var dotPositions [3]uint8
 	for i := 0; i < 3; i++ {
-		pos := bits.TrailingZeros16(dotBitmask)
-		dotPositions[i] = pos
+		dotPositions[i] = uint8(bits.TrailingZeros16(dotBitmask))
 		dotBitmask &= dotBitmask - 1 // Clear lowest set bit
 	}
 
-	// Define field boundaries as separate arrays for efficient range processing
-	starts := [4]int{0, dotPositions[0], dotPositions[1], dotPositions[2]}
-	ends := [4]int{dotPositions[0], dotPositions[1], dotPositions[2], len(s)}
+	// Define field boundaries as uint8 arrays — all values fit (max 15).
+	// Using uint8 gives 16 SIMD lanes on WASM128, matching the swizzle width.
+	slen := uint8(len(s))
+	starts := [4]uint8{0, dotPositions[0], dotPositions[1], dotPositions[2]}
+	ends := [4]uint8{dotPositions[0], dotPositions[1], dotPositions[2], slen}
 
 	// Validate field lengths in parallel
 	go for i, start := range starts {
@@ -118,36 +119,40 @@ func parseIPv4(s string) ([4]byte, error) {
 		}
 
 		fieldLen := end - start
-		var value int
-		var hasLeadingZero bool
 
-		// Convert field using per-case digit processing.
-		// Each case computes the full value independently to avoid
-		// out-of-bounds accesses on inactive SPMD lanes with fallthrough.
-		switch fieldLen {
-		case 3:
-			d2 := int(input[start] - '0')
-			d1 := int(input[start+1] - '0')
-			d0 := int(input[start+2] - '0')
-			value = d2*100 + d1*10 + d0
-			hasLeadingZero = (d2 == 0)
-		case 2:
-			d1 := int(input[start] - '0')
-			d0 := int(input[start+1] - '0')
-			value = d1*10 + d0
-			hasLeadingZero = (d1 == 0)
-		case 1:
-			value = int(input[start] - '0')
-		}
+		// Load all 3 possible digit bytes once. Swizzle returns 0 for
+		// OOB indices (start+1 or start+2 beyond the field), which
+		// produces garbage after subtracting '0' — but the if/else
+		// below only uses the valid digits per fieldLen.
+		b0 := input[start] - '0'
+		b1 := input[start+1] - '0'
+		b2 := input[start+2] - '0'
+
+		// Leading zero: first digit is 0 with more than 1 digit.
+		hasLeadingZero := b0 == 0 && fieldLen > 1
+
+		// Digit-level overflow check: value > 255 iff
+		// d0 > 2, or d0 == 2 && d1 > 5, or d0 == 2 && d1 == 5 && d2 > 5
+		hasOverflow := fieldLen == 3 && (b0 > 2 || (b0 == 2 && (b1 > 5 || (b1 == 5 && b2 > 5))))
 
 		// Validation: check each error condition across all lanes
 		if reduce.Any(hasLeadingZero) {
 			return [4]byte{}, parseAddrError{in: s, msg: "IPv4 field has octet with leading zero"}
 		}
-		if reduce.Any(value > 255) {
+		if reduce.Any(hasOverflow) {
 			return [4]byte{}, parseAddrError{in: s, msg: "IPv4 field has value >255"}
 		}
-		ip[field] = uint8(value)
+
+		// Compute value based on field length.
+		// After overflow check, all 3-digit values are <= 255 so uint8 is safe.
+		value := b0 // default for fieldLen == 1
+		if fieldLen == 3 {
+			value = b0*100 + b1*10 + b2
+		} else if fieldLen == 2 {
+			value = b0*10 + b1
+		}
+
+		ip[field] = value
 	}
 
 	return ip, nil
