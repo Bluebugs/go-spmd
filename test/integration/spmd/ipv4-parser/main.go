@@ -12,6 +12,46 @@ import (
 	"reduce"
 )
 
+// shuffleTable maps a field-length code to a 16-byte swizzle mask.
+// code = (l0-1)*27 + (l1-1)*9 + (l2-1)*3 + (l3-1), where l0..l3 are
+// per-field digit counts (1-3).  Each 16-byte entry has the layout
+//   [h0, t0, o0, PAD, h1, t1, o1, PAD, h2, t2, o2, PAD, h3, t3, o3, PAD]
+// An index of 0xFF causes i8x16.swizzle to return 0, which is the correct
+// "unused" contribution for h/t positions of short fields.
+var shuffleTable [81][16]byte
+
+func init() {
+	for l0 := 1; l0 <= 3; l0++ {
+		for l1 := 1; l1 <= 3; l1++ {
+			for l2 := 1; l2 <= 3; l2++ {
+				for l3 := 1; l3 <= 3; l3++ {
+					code := (l0-1)*27 + (l1-1)*9 + (l2-1)*3 + (l3-1)
+					starts := [4]int{0, l0 + 1, l0 + l1 + 2, l0 + l1 + l2 + 3}
+					lens := [4]int{l0, l1, l2, l3}
+					for f := 0; f < 4; f++ {
+						sf, lf := starts[f], lens[f]
+						switch lf {
+						case 3:
+							shuffleTable[code][f*4+0] = byte(sf)
+							shuffleTable[code][f*4+1] = byte(sf + 1)
+							shuffleTable[code][f*4+2] = byte(sf + 2)
+						case 2:
+							shuffleTable[code][f*4+0] = 0xFF
+							shuffleTable[code][f*4+1] = byte(sf)
+							shuffleTable[code][f*4+2] = byte(sf + 1)
+						case 1:
+							shuffleTable[code][f*4+0] = 0xFF
+							shuffleTable[code][f*4+1] = 0xFF
+							shuffleTable[code][f*4+2] = byte(sf)
+						}
+						shuffleTable[code][f*4+3] = 0xFF
+					}
+				}
+			}
+		}
+	}
+}
+
 type parseAddrError struct {
 	in  string
 	at  int
@@ -232,94 +272,87 @@ func parseIPv4(s string) ([4]byte, error) {
 		return [4]byte{}, parseAddrError{in: s, msg: "IPv4 address string too short or too long"}
 	}
 
-	// Pad string to 16 bytes with null terminators (like SSE register)
+	// Pad string to 16 bytes with null terminators (like SSE register).
 	input := [16]byte{}
 	copy(input[:], s)
 
-	// Process all 16 bytes in parallel: classify chars and build dot bitmask
+	// Loop 1: classify every byte in parallel, build dot bitmask.
 	var dotBitmask uint16
 	var loop int
 	go for _, c := range input {
 		isDot := c == '.'
 		digitMask := (c >= '0' && c <= '9')
 
-		// Valid if dot, digit, or null (padding)
+		// Valid if dot, digit, or null (padding).
 		validChars := isDot || digitMask || c == 0
 
-		// Check character validity with precise error location
+		// Check character validity with precise error location.
 		if !reduce.All(validChars) {
 			return [4]byte{}, parseAddrError{in: s, at: reduce.FindFirstSet(!validChars) + loop, msg: "unexpected character"}
 		}
 
-		// Build dot position bitmask directly (mimics _mm_movemask_epi8)
+		// Build dot position bitmask (mimics _mm_movemask_epi8).
 		dotBitmask |= uint16(reduce.Mask(isDot)) << loop
 		loop += lanes.Count(c)
 	}
 
-	// Count dots using popcount on the bitmask
+	// Count dots using popcount on the bitmask.
 	dotCount := bits.OnesCount16(dotBitmask)
 	if dotCount != 3 {
 		return [4]byte{}, parseAddrError{in: s, msg: fmt.Sprintf("invalid dot count: %d", dotCount)}
 	}
 
-	// Extract dot positions using bit manipulation
+	// Extract dot positions using CTZ.
 	var dotPositions [3]int
 	for i := 0; i < 3; i++ {
 		pos := bits.TrailingZeros16(dotBitmask)
 		dotPositions[i] = pos
-		dotBitmask &= dotBitmask - 1 // Clear lowest set bit
+		dotBitmask &= dotBitmask - 1 // clear lowest set bit
 	}
 
-	// Define field boundaries as separate arrays for efficient range processing
-	starts := [4]int{0, dotPositions[0], dotPositions[1], dotPositions[2]}
-	ends := [4]int{dotPositions[0], dotPositions[1], dotPositions[2], len(s)}
-
-	// Validate field lengths in parallel
-	go for i, start := range starts {
-		end := ends[i]
-		if i > 0 {
-			start++ // Skip the dot
-		}
-		fieldLen := end - start
-		if reduce.Any(fieldLen < 1 || fieldLen > 3) {
-			return [4]byte{}, parseAddrError{in: s, msg: "invalid field length"}
-		}
+	// Compute per-field digit counts (scalar).
+	l0 := dotPositions[0]
+	l1 := dotPositions[1] - dotPositions[0] - 1
+	l2 := dotPositions[2] - dotPositions[1] - 1
+	l3 := len(s) - dotPositions[2] - 1
+	if l0 < 1 || l0 > 3 || l1 < 1 || l1 > 3 || l2 < 1 || l2 > 3 || l3 < 1 || l3 > 3 {
+		return [4]byte{}, parseAddrError{in: s, msg: "invalid field length"}
 	}
 
-	// Process all four fields in parallel
+	// Pre-subtract '0' from every byte so digit positions hold values 0-9.
+	// i8x16.swizzle returns 0 for OOB indices (>=16), which is the correct
+	// "unused" contribution for h/t positions in short fields.
+	var digits [16]byte
+	go for i, c := range input {
+		digits[i] = c - '0'
+	}
+
+	// Shuffle table lookup: select the right swizzle mask for this layout.
+	code := (l0-1)*27 + (l1-1)*9 + (l2-1)*3 + (l3-1)
+	shuffleMask := shuffleTable[code]
+
+	// Apply the swizzle: gather [h0,t0,o0,0, h1,t1,o1,0, h2,t2,o2,0, h3,t3,o3,0].
+	var shuffled [16]byte
+	go for i, m := range shuffleMask {
+		shuffled[i] = digits[m]
+	}
+
+	// Extract columns and validate all four fields in parallel.
+	flens := [4]int{l0, l1, l2, l3}
 	var ip [4]byte
+	go for field := range 4 {
+		h := int(shuffled[field*4+0])
+		t := int(shuffled[field*4+1])
+		o := int(shuffled[field*4+2])
+		flen := flens[field]
 
-	go for field, start := range starts {
-		end := ends[field]
+		// h*100 + t*10 + o gives the correct decimal value because unused
+		// h/t positions were mapped to index 0xFF by the shuffle mask, which
+		// causes swizzle to return 0.
+		value := h*100 + t*10 + o
 
-		if field > 0 {
-			start++ // Skip the dot
-		}
-
-		fieldLen := end - start
-		var value int
-		var hasLeadingZero bool
-
-		// Convert field using per-case digit processing.
-		// Each case computes the full value independently to avoid
-		// out-of-bounds accesses on inactive SPMD lanes with fallthrough.
-		switch fieldLen {
-		case 3:
-			d2 := int(input[start] - '0')
-			d1 := int(input[start+1] - '0')
-			d0 := int(input[start+2] - '0')
-			value = d2*100 + d1*10 + d0
-			hasLeadingZero = (d2 == 0)
-		case 2:
-			d1 := int(input[start] - '0')
-			d0 := int(input[start+1] - '0')
-			value = d1*10 + d0
-			hasLeadingZero = (d1 == 0)
-		case 1:
-			value = int(input[start] - '0')
-		}
-
-		// Validation: check each error condition across all lanes
+		// Leading zero: the first significant digit is zero in a multi-digit field.
+		hasLeadingZero := (flen == 2 && t == 0) || (flen == 3 && h == 0)
 		if reduce.Any(hasLeadingZero) {
 			return [4]byte{}, parseAddrError{in: s, msg: "IPv4 field has octet with leading zero"}
 		}
