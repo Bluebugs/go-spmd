@@ -20,12 +20,29 @@ import (
 // "unused" contribution for h/t positions of short fields.
 var shuffleTable [81][16]byte
 
+// fieldLenTable maps a packed (l0,l1,l2,l3) key to a shuffle-table code.
+// The key packs (li-1) in 2 bits per field:
+//
+//	key = (l0-1)&3 | ((l1-1)&3)<<2 | ((l2-1)&3)<<4 | ((l3-1)&3)<<6
+//
+// Valid lengths are 1..3, giving nibbles 0..2 (81 valid combinations).  All
+// other keys are pre-filled with 0xFF.  NOTE: callers must validate li ∈ [1,3]
+// before the table lookup — the 2-bit encoding wraps modulo 4 (li=5 aliases
+// li=1), so oversized fields would silently hit valid entries without the guard.
+var fieldLenTable [256]byte
+
 func init() {
+	for i := range fieldLenTable {
+		fieldLenTable[i] = 0xFF
+	}
 	for l0 := 1; l0 <= 3; l0++ {
 		for l1 := 1; l1 <= 3; l1++ {
 			for l2 := 1; l2 <= 3; l2++ {
 				for l3 := 1; l3 <= 3; l3++ {
 					code := (l0-1)*27 + (l1-1)*9 + (l2-1)*3 + (l3-1)
+					key := ((l0-1)&3) | (((l1-1)&3)<<2) | (((l2-1)&3)<<4) | (((l3-1)&3)<<6)
+					fieldLenTable[key] = byte(code)
+
 					starts := [4]int{0, l0 + 1, l0 + l1 + 2, l0 + l1 + l2 + 3}
 					lens := [4]int{l0, l1, l2, l3}
 					for f := 0; f < 4; f++ {
@@ -276,10 +293,12 @@ func parseIPv4(s string) ([4]byte, error) {
 	input := [16]byte{}
 	copy(input[:], s)
 
-	// Loop 1: classify every byte in parallel, build dot bitmask.
+	// Loop 1: classify every byte in parallel, build dot bitmask and prepare digits computation.
 	var dotBitmask uint16
 	var loop int
-	go for _, c := range input {
+	var digits [16]byte
+
+	go for i, c := range input {
 		isDot := c == '.'
 		digitMask := (c >= '0' && c <= '9')
 
@@ -290,6 +309,8 @@ func parseIPv4(s string) ([4]byte, error) {
 		if !reduce.All(validChars) {
 			return [4]byte{}, parseAddrError{in: s, at: reduce.FindFirstSet(!validChars) + loop, msg: "unexpected character"}
 		}
+
+		digits[i] = c - '0'
 
 		// Build dot position bitmask (mimics _mm_movemask_epi8).
 		dotBitmask |= uint16(reduce.Mask(isDot)) << loop
@@ -302,33 +323,28 @@ func parseIPv4(s string) ([4]byte, error) {
 		return [4]byte{}, parseAddrError{in: s, msg: fmt.Sprintf("invalid dot count: %d", dotCount)}
 	}
 
-	// Extract dot positions using CTZ.
-	var dotPositions [3]int
-	for i := 0; i < 3; i++ {
-		pos := bits.TrailingZeros16(dotBitmask)
-		dotPositions[i] = pos
-		dotBitmask &= dotBitmask - 1 // clear lowest set bit
-	}
+	// Unrolled CTZ: extract the 3 dot positions directly, no array or loop.
+	p1 := bits.TrailingZeros16(dotBitmask); dotBitmask &= dotBitmask - 1
+	p2 := bits.TrailingZeros16(dotBitmask); dotBitmask &= dotBitmask - 1
+	p3 := bits.TrailingZeros16(dotBitmask)
+	l0 := p1
+	l1 := p2 - p1 - 1
+	l2 := p3 - p2 - 1
+	l3 := len(s) - p3 - 1
 
-	// Compute per-field digit counts (scalar).
-	l0 := dotPositions[0]
-	l1 := dotPositions[1] - dotPositions[0] - 1
-	l2 := dotPositions[2] - dotPositions[1] - 1
-	l3 := len(s) - dotPositions[2] - 1
+	// Validate field lengths before table lookup.  The 2-bit-per-field key
+	// encoding wraps modulo 4, so lengths > 3 would alias valid keys and
+	// pass the 0xFF sentinel check incorrectly.
 	if l0 < 1 || l0 > 3 || l1 < 1 || l1 > 3 || l2 < 1 || l2 > 3 || l3 < 1 || l3 > 3 {
 		return [4]byte{}, parseAddrError{in: s, msg: "invalid field length"}
 	}
-
-	// Pre-subtract '0' from every byte so digit positions hold values 0-9.
-	// i8x16.swizzle returns 0 for OOB indices (>=16), which is the correct
-	// "unused" contribution for h/t positions in short fields.
-	var digits [16]byte
-	go for i, c := range input {
-		digits[i] = c - '0'
-	}
+	// Combined code computation: 256-byte table lookup replaces the 4-field
+	// arithmetic.  Key packs (li-1) in 2 bits per field; valid lengths 1..3
+	// give nibbles 0..2, which index populated table entries.
+	key := ((l0-1)&3) | (((l1-1)&3)<<2) | (((l2-1)&3)<<4) | (((l3-1)&3)<<6)
+	code := int(fieldLenTable[key])
 
 	// Shuffle table lookup: select the right swizzle mask for this layout.
-	code := (l0-1)*27 + (l1-1)*9 + (l2-1)*3 + (l3-1)
 	shuffleMask := shuffleTable[code]
 
 	// Apply the swizzle: gather [h0,t0,o0,0, h1,t1,o1,0, h2,t2,o2,0, h3,t3,o3,0].
