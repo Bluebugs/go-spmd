@@ -1294,6 +1294,22 @@ Split `go for` loops into main phase (full vectors, ConstAllOnes mask, plain v12
   - Implementation: Track doneBlockIdx, build peeledDoneBlocks map, skip in standard phi resolution, wire done-block phis with [tailCheckBlock, tailBodyExitBlock] or trampoline
   - Related: `type-casting-varying` E2E now COMPILE OK (was COMPILE FAIL)
 
+- [x] **Scalar degeneration for go for over slice-of-slices (laneCount=1)**
+  - Task: Allow `go for i, v := range sliceOfSlices` where element type is `[]T`
+  - Location: go/types, TinyGo compiler
+  - Status: DONE — laneCount=1 serial execution via [N x sliceStruct] array representation. No SIMD benefit but correct behavior. Static analyzer can warn about non-vectorizable element types in the future.
+  - Implementation: (1) getLLVMType(Varying[[]T]) → [N x sliceStruct] ArrayType; (2) createUnOp MUL: per-lane loads for <N x ptr> + aggregate elem; (3) createBuiltin len/cap: extract lane 0 slice header; (4) createIndexAddr: extract lane 0 data ptr + scalar GEP; (5) createSPMDLoad N=1: return scalar directly to avoid phi type mismatch
+  - Related: array-counting test (moved to test_compile_and_run, output: [3 3 4 18]); divergent N>1 inner loops deferred below
+
+- [ ] **Divergent inner loop support for N>1 in go for over slice-of-slices**
+  - Task: Allow efficient SIMD when `go for i, v := range sliceOfSlices` has N>1 lanes (element type fits in <16/sizeof elem> lanes > 1)
+  - Location: x-tools-spmd predication, TinyGo compiler
+  - Status: NOT DONE — N=1 scalar degeneration works; N>1 requires per-lane termination conditions for the inner loop
+  - Depends On: predicateSPMDScope handling for divergent inner loops (If.IsVarying=true for per-lane termination)
+  - Implementation: If.IsVarying=true for inner loop; predicateSPMDScope handles divergent inner loop; len(Varying[[]T]) → Varying[int]
+  - Priority: Low (N>1 only for elem types < 12 bytes; most real slice types degenerate to N=1)
+  - Related: Scalar degeneration (above) handles common case
+
 - [ ] **Fix unconditional SExt in IndexAddr vector bounds check**
   - Task: `*ssa.IndexAddr` vector path (compiler.go:2998) uses `CreateSExt` unconditionally for unsigned indices
   - Location: Phase 2.9c (compiler/compiler.go:2997-2998)

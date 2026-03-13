@@ -500,14 +500,18 @@ test_compile_and_run "L5g_compound_conditions" "$OUTDIR/L5g_compound_conditions.
 printf "\n${BLUE}--- Level 5c: Integration examples (compile only) ---${NC}\n"
 
 INTEG="$SPMD_ROOT/test/integration/spmd"
-for dir in array-counting \
-           type-casting-varying varying-array-iteration \
+for dir in type-casting-varying varying-array-iteration \
            map-restrictions printf-verbs goroutine-varying \
            select-with-varying-channels; do
     if [ -f "$INTEG/$dir/main.go" ]; then
         test_compile "integ_$dir" "$INTEG/$dir/main.go"
     fi
 done
+
+# array-counting uses go for over [][]int (Varying[[]int], laneCount=1 serial).
+# The inner for loop runs serially (N=1), summing each lane's slice independently.
+test_compile_and_run "integ_array-counting" "$INTEG/array-counting/main.go" \
+    "Array sums: [3 3 4 18]" "" "-scheduler=none"
 
 # ========== LEVEL 5d: Integration examples (compile + run) ==========
 printf "\n${BLUE}--- Level 5d: Integration examples (compile + run) ---${NC}\n"
