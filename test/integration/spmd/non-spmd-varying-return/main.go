@@ -143,7 +143,7 @@ func main() {
 		_ = i // suppress unused variable
 		// All these calls work because functions have no varying parameters
 		local1 := createConstantVarying()
-		local2 := uniformToVarying(int(lanes.Index()))  // uniform parameter OK
+		local2 := uniformToVarying(reduce.Add(lanes.Index()))  // reduce lane indices to uniform sum
 
 		result := local1 + local2 + const1 + const2 + const3
 		fmt.Printf("SPMD result lane %v: %v\n", lanes.Index(), result)
