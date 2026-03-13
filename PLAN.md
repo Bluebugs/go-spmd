@@ -1310,6 +1310,15 @@ Split `go for` loops into main phase (full vectors, ConstAllOnes mask, plain v12
   - Priority: Low (N>1 only for elem types < 12 bytes; most real slice types degenerate to N=1)
   - Related: Scalar degeneration (above) handles common case
 
+- [ ] **Fix lanes.Broadcast for aggregate Varying types**
+  - Task: `lanes.Broadcast` handler (spmd.go ~line 2324) calls `CreateExtractElement` unconditionally; for `Varying[aggregateType]` (`[N x T]` ArrayTypeKind) this produces an LLVM verification error
+  - Location: `tinygo/compiler/spmd.go`, `lanes.Broadcast` builtin case
+  - Status: Deferred — unblocked only after `union-type-generics` fix (currently failing due to missing `lanes.Rotate`)
+  - Depends On: `union-type-generics` fix, or any future test that exercises `lanes.Broadcast[string]`
+  - Implementation: Add `ArrayTypeKind` branch: `CreateExtractValue(vec, constLaneIdx, "")` to extract one lane, then build `[N x T]` array via `CreateInsertValue` loop
+  - Priority: Low (union-type-generics blocked by other root causes; no currently-passing test exercises this path)
+  - Related: `reduce.From` aggregate fix (same pattern), `union-type-generics` compile-fail
+
 - [ ] **Fix unconditional SExt in IndexAddr vector bounds check**
   - Task: `*ssa.IndexAddr` vector path (compiler.go:2998) uses `CreateSExt` unconditionally for unsigned indices
   - Location: Phase 2.9c (compiler/compiler.go:2997-2998)
