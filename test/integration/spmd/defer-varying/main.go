@@ -125,7 +125,7 @@ func main() {
 	conditionalDeferExample(testData[:4])
 
 	// Test multiple defer statements
-	multipleDeferExample(testData[:2])
+	multipleDeferExample(testData[:4])
 
 	// Test direct defer calls
 	directDeferCall(testData[:4])
