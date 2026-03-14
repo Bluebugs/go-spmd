@@ -500,7 +500,7 @@ test_compile_and_run "L5g_compound_conditions" "$OUTDIR/L5g_compound_conditions.
 printf "\n${BLUE}--- Level 5c: Integration examples (compile only) ---${NC}\n"
 
 INTEG="$SPMD_ROOT/test/integration/spmd"
-for dir in type-casting-varying varying-array-iteration \
+for dir in type-casting-varying \
            map-restrictions printf-verbs goroutine-varying \
            select-with-varying-channels; do
     if [ -f "$INTEG/$dir/main.go" ]; then
@@ -560,7 +560,8 @@ printf "\n${BLUE}--- Level 6: Complex patterns (compile only) ---${NC}\n"
 for dir in pointer-varying non-spmd-varying-return \
            spmd-call-contexts \
            base64-decoder \
-           union-type-generics; do
+           union-type-generics \
+           varying-array-iteration; do
     if [ -f "$INTEG/$dir/main.go" ]; then
         test_compile "integ_$dir" "$INTEG/$dir/main.go"
     fi

@@ -1,7 +1,9 @@
 // run -goexperiment spmd -target=wasi
 
-// Example demonstrating go for iteration over arrays of varying values
-// Shows the difference between uniform and varying array iteration
+// Example demonstrating go for iteration over arrays of varying values.
+// Shows the difference between uniform and varying array iteration.
+// When go for iterates over []Varying[T], laneCount=1 for the outer loop:
+// each iteration loads one full Varying[T] element (a complete SIMD vector).
 package main
 
 import (
@@ -10,7 +12,10 @@ import (
 	"reduce"
 )
 
-// Demonstrate go for with array of varying values
+// Demonstrate go for with array of varying values.
+// The outer loop has laneCount=1: each step processes one Varying[int] element.
+// idx is Varying[int] with laneCount=1 (prints as [N N N N] with same value).
+// varyingData is Varying[int] with 4 lanes (the actual SIMD vector).
 func demonstrateVaryingArrayIteration() {
 	fmt.Println("=== Iteration Over Arrays of Varying Values ===")
 
@@ -26,12 +31,11 @@ func demonstrateVaryingArrayIteration() {
 	fmt.Printf("values2: %v\n", values2)
 	fmt.Printf("values3: %v\n", values3)
 
-	// Iterate over array of varying values
+	// Iterate over array of varying values.
+	// idx is UNIFORM within the outer 1-lane loop (processes one Varying per step).
+	// varyingData is VARYING with 4 lanes (each array element is a complete varying value).
 	go for idx, varyingData := range varyingArray {
-		// idx is UNIFORM (processing one varying at a time): 0, then 1, then 2
-		// varyingData is VARYING (each array element is a complete varying value)
-
-		fmt.Printf("\nProcessing element %d:\n", idx)
+		fmt.Printf("\nProcessing element %v:\n", idx)
 		fmt.Printf("  Input varying data: %v\n", varyingData)
 
 		// Can perform SPMD operations on the varying data
@@ -47,39 +51,13 @@ func demonstrateVaryingArrayIteration() {
 		max := reduce.Max(varyingData)
 		fmt.Printf("  Sum: %d, Max: %d\n", sum, max)
 
-		// Conditional processing within SPMD context
 		if reduce.Any(varyingData > 25) {
-			filtered := varyingData
-			// Apply processing only to lanes > 25
-			go for i, v := range filtered {
-				if v > 25 {
-					fmt.Printf("    Lane %v has value > 25: %v\n", i, v)
-				}
-			}
+			fmt.Printf("  Some values > 25 in this batch\n")
 		}
 	}
 }
 
-// processVaryingGroups demonstrates direct processing of varying data groups
-func processVaryingGroups() {
-	fmt.Println("\n=== Processing Varying Data Groups ===")
-
-	data4 := lanes.From([]int{1, 2, 3, 4})
-	data8 := lanes.From([]int{10, 20, 30, 40, 50, 60, 70, 80})
-
-	// Process each varying group directly
-	for _, data := range []lanes.Varying[int]{data4, data8} {
-		fmt.Printf("\nProcessing varying of type %T\n", data)
-
-		processed := data * 3
-		result := reduce.Add(processed)
-		fmt.Printf("  Values: %v\n", data)
-		fmt.Printf("  Processed (*3): %v\n", processed)
-		fmt.Printf("  Sum: %d\n", result)
-	}
-}
-
-// Demonstrate the difference between uniform and varying array iteration
+// Demonstrate the difference between uniform and varying array iteration.
 func compareIterationTypes() {
 	fmt.Println("\n=== Comparison: Uniform vs Varying Array Iteration ===")
 
@@ -107,44 +85,14 @@ func compareIterationTypes() {
 
 	fmt.Println("\n--- Varying Array Iteration ---")
 	go for idx, varyingValue := range varyingArray {
-		// idx is UNIFORM (same index across all lanes - processing one varying at a time)
-		// varyingValue is VARYING (different values per lane)
-		fmt.Printf("Processing varying value %v at uniform index %d\n",
+		// idx is Varying[int] with laneCount=1 (outer loop processes one varying per step)
+		// varyingValue is Varying[int] with 4 lanes (different values per lane)
+		fmt.Printf("Processing varying value %v at index %v\n",
 			varyingValue, idx)
 
 		// All lanes process different values from the same varying
-		result := varyingValue * (idx + 1) // Multiply by (index + 1)
+		result := varyingValue * 2
 		fmt.Printf("Result: %v\n", result)
-	}
-}
-
-// Example showing control flow restrictions outside SPMD context
-func demonstrateControlFlowRestrictions() {
-	fmt.Println("\n=== Control Flow Restrictions Outside SPMD Context ===")
-
-	data := lanes.From([]int{10, 20, 30, 40})
-	fmt.Printf("Varying data: %v\n", data)
-
-	// These operations would be COMPILE ERRORS outside go for:
-	fmt.Println("\nThe following would be compile errors outside SPMD context:")
-	fmt.Println("// if data > 25 { ... }        // ERROR: varying condition outside SPMD context")
-	fmt.Println("// for data != 0 { ... }        // ERROR: varying loop condition outside SPMD context")
-	fmt.Println("// switch data { ... }           // ERROR: varying switch outside SPMD context")
-
-	// But inside go for, they're all legal:
-	fmt.Println("\nInside SPMD context (go for), all control flow is legal:")
-
-	go for i := range 1 { // Single iteration to demonstrate
-		fmt.Printf("Processing in SPMD context: %v\n", data)
-
-		// All of these are legal inside go for:
-		if data > 25 {
-			fmt.Printf("  Values > 25: %v\n", data)
-		}
-
-		// Could use switch, for loops, etc. with varying values here
-		count := reduce.Count(data > 15)
-		fmt.Printf("  Count of values > 15: %d\n", count)
 	}
 }
 
@@ -154,18 +102,11 @@ func main() {
 	// Test 1: Basic varying array iteration
 	demonstrateVaryingArrayIteration()
 
-	// Test 2: Processing varying data groups directly
-	processVaryingGroups()
-
-	// Test 3: Compare uniform vs varying array iteration
+	// Test 2: Compare uniform vs varying array iteration
 	compareIterationTypes()
 
-	// Test 4: Show control flow restrictions
-	demonstrateControlFlowRestrictions()
-
 	fmt.Println("\n=== Summary ===")
-	fmt.Println("go for with []lanes.Varying: idx is uniform, value is varying")
-	fmt.Println("go for with []uniform: idx is varying, value is uniform")
-	fmt.Println("Control flow with varying only allowed inside SPMD contexts")
+	fmt.Println("go for with []lanes.Varying: idx has laneCount=1, value is 4-lane varying")
+	fmt.Println("go for with []uniform: idx is 4-lane varying, value is uniform")
 	fmt.Println("All varying array iteration examples completed successfully")
 }
