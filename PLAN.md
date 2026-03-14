@@ -1,8 +1,8 @@
 # SPMD Implementation Plan for Go + TinyGo
 
-**Version**: 2.10
-**Last Updated**: 2026-03-13
-**Status**: Phase 1 Complete, Phase 2.0-2.9n complete, SPMD function body predication COMPLETED, SSA-level loop peeling COMPLETED, mask stack removed (SSA-level masking complete), switch fallthrough predication COMPLETED, reduce.From aggregate fix DONE, array-counting promoted to run-pass, varying-array-iteration laneCount=1 fix DONE, E2E: 32 run pass, 39 compile pass, 4 compile fail, 0 run fail, 11 reject OK (54 total)
+**Version**: 2.11
+**Last Updated**: 2026-03-14
+**Status**: Phase 1 Complete, Phase 2.0-2.9q complete, SPMD function body predication COMPLETED, SSA-level loop peeling COMPLETED, mask stack removed, map-restrictions fix DONE (inner scalar loop scope exclusion), E2E: 32 run pass, 40 compile pass, 3 compile fail, 0 run fail, 11 reject OK (54 total)
 
 ## Project Overview
 
@@ -728,13 +728,13 @@ Ported 10 `*_ext_spmd.go` files from types2 to go/types with full API translatio
 - [x] Validate 6 core programs compile + run correctly (stores, conditionals, functions, reduce, lanes, varying vars)
 - [x] Validate all 11 illegal examples correctly rejected by type checker
 
-**E2E Test Results (54 tests)** — updated 2026-03-13 after reduce.From aggregate fix, array-counting run-pass promotion, varying-array-iteration laneCount=1 fix:
+**E2E Test Results (54 tests)** — updated 2026-03-14 after map-restrictions fix (inner scalar loop scope exclusion):
 - 32 RUN PASS: L0_store, L0_cond, L0_func, L1_reduce_add, L2_lanes_index, L3_varying_var, L4_range_slice, L4b_varying_break, L5a_simple_sum, L5b_odd_even, L5f_varying_switch, L5g_compound_conditions, integ_simple-sum, integ_odd-even, integ_hex-encode, integ_debug-varying, integ_lanes-index-restrictions, integ_to-upper, integ_mandelbrot, integ_store-coalescing, integ_ipv4-parser, integ_type-switch-varying, integ_defer-varying, integ_panic-recover-varying, integ_bit-counting, integ_array-counting, integ_non-spmd-varying-return, integ_spmd-call-contexts, integ_map-restrictions (compile-only in this count), integ_goroutine-varying (compile-only), integ_select-with-varying-channels (compile-only), integ_varying-array-iteration (compile-only)
 - 6 COMPILE-ONLY PASS: integ_type-casting-varying, integ_printf-verbs, integ_goroutine-varying, integ_select-with-varying-channels, integ_spmd-call-contexts, integ_varying-array-iteration
 - 11 REJECT OK: All illegal examples correctly rejected
-- 4 COMPILE FAIL (categorized by root cause):
+- 3 COMPILE FAIL (categorized by root cause):
   - **Missing features (2)**: pointer-varying (varying index), base64-decoder (type inference + varying index)
-  - **External bugs (2)**: union-type-generics (x-tools SPMDType in typeparams.Free / missing lanes.Rotate), map-restrictions (varying→scalar call mismatch remains)
+  - **External bugs (1)**: union-type-generics (x-tools SPMDType in typeparams.Free / missing lanes.Rotate)
 
 ### 2.8c Constrained Varying Type Support -- REMOVED
 
@@ -1008,6 +1008,27 @@ Split `go for` loops into main phase (full vectors, ConstAllOnes mask, plain v12
 
 **Remaining Limitation**: Inner `if varyingData > condition` inside `go for over []Varying[T]` (combining 1-lane outer mask with 4-lane condition) is not yet supported.
 
+### 2.9q map-restrictions Fix: Inner Scalar Loop Scope Exclusion ✅ COMPLETED (2026-03-14)
+
+**Root Cause**: `spmdLoopScopeBlocks` BFS included inner scalar loop blocks in the outer SPMD loop's scope. For `map-restrictions`, `demonstrateWorkarounds()` has a `go for i, keys := range data` outer SPMD loop with an inner `for j, key := range reduce.From(keys)` scalar loop. The inner loop's blocks were included in scope, converting their scalar `reduce.From(keys)[j]` loads to `SPMDLoad<2>` — producing `<2 x i32>` where `groupByKey` expected `i32`.
+
+**Fix in `x-tools-spmd/go/ssa/spmd_predicate.go`** (`spmdLoopScopeBlocks`):
+- Added pre-pass to detect inner loop headers: blocks with back-edge predecessors (`pred.Index >= b.Index`) that can cycle back without crossing the outer SPMD loop boundaries
+- `pred.Index >= b.Index` catches both **normal back-edges** (rangeindex inner loops, `>`) and **self-loops** (merged rangeint inner loops, `==`)
+- Guard `!spmdBlockHasSPMDPhi(b)`: inner loop headers with `Varying[T]` phis (e.g., bit-counting's `count Varying[uint8]`) are doing SPMD work and must stay in scope
+- BFS stops at detected `innerLoopHeaders` — their entire sub-CFG is excluded from the SPMD scope
+- New helper `spmdBlockHasSPMDPhi`: checks if a block's leading phis have `*types.SPMDType` result type
+
+**Two unit tests added to `x-tools-spmd/go/ssa/spmd_predicate_test.go`**:
+- `TestPredicateSPMD_InnerScalarLoopExcluded`: fails without `>=` fix — verifies `arr[j]` in inner for-range remains as `UnOp{MUL}`, not SPMDLoad
+- `TestPredicateSPMD_InnerLoopWithVaryingPhiInScope`: fails without `!spmdBlockHasSPMDPhi` guard — verifies `if count > 0` in inner loop with Varying phi produces SPMDSelect
+
+- [x] Fix `spmdLoopScopeBlocks` pre-pass: `pred.Index >= b.Index` (catches self-loop merged rangeint inner loops)
+- [x] Add `spmdBlockHasSPMDPhi` helper to exempt inner loops with Varying phis from exclusion
+- [x] Add two unit tests validating both the exclusion and the SPMD-phi exception
+- [x] Promote `map-restrictions` from compile-fail to compile-only (40 compile pass, was 39)
+- [x] Commits: `e04b6a03 fix: exclude inner scalar loops from SPMD scope in predication` (x-tools-spmd), `d032f08 chore: update x-tools-spmd for inner loop scope exclusion fix` (main repo)
+
 ### 2.10 Backend Integration Testing
 
 - [ ] Verify simple-sum example compiles and produces correct WASM
@@ -1183,7 +1204,7 @@ Split `go for` loops into main phase (full vectors, ConstAllOnes mask, plain v12
     - 1.10j: ✅ lanes/reduce builtin call interception (16 functions -> SPMD opcodes, 7 deferred)
     - 1.10k: REMOVED — Constrained varying SSA integration (design simplification)
     - 1.10L: ✅ Fix pre-existing all.bash failures (6 test suites)
-- **Phase 2**: 🚧 In Progress (stdlib porting complete, TinyGo compiler through Phase 2.9p, predicated SSA + SSA-level loop peeling done, 90+ SPMD commits)
+- **Phase 2**: 🚧 In Progress (stdlib porting complete, TinyGo compiler through Phase 2.9q, predicated SSA + SSA-level loop peeling done, 90+ SPMD commits)
   - TinyGo architecture explored and documented
   - Critical finding: TinyGo uses `golang.org/x/tools/go/ssa` (not `cmd/compile` SSA)
   - Critical finding: `go/parser`, `go/ast`, `go/types` lack SPMD support (must be ported first)
@@ -1373,12 +1394,11 @@ Split `go for` loops into main phase (full vectors, ConstAllOnes mask, plain v12
 
 ---
 
-**Last Completed**: varying-array-iteration laneCount=1 fix + array-counting run-pass promotion (2026-03-13) — Fixed `go for over []Varying[T]` illegal nested vector bug (`<4 x <4 x i32>>`): go/types now uses `simd128CapacityBytes` for Varying[T] elem sizes → laneCount=1, TinyGo `makeLLVMType` returns inner vector directly for VectorTypeKind, `createSPMDLoad/Store` guards against wrapping vectors in vectors. Fixed `reduce.From` aggregate crash (ArrayTypeKind uses `CreateExtractValue`). array-counting promoted from SIGSEGV to run-pass. E2E: 32 run pass, 39 compile pass, 4 compile fail, 0 run fail, 11 reject OK / 54 tests.
-**Next Action**: Fix remaining 4 compile failures:
-1. map-restrictions (varying→scalar call mismatch — need to trace exact call site)
-2. pointer-varying (varying index not supported in pointer arithmetic)
-3. base64-decoder (type inference + varying indexing)
-4. union-type-generics (SPMDType in typeparams.Free + missing lanes.Rotate)
+**Last Completed**: map-restrictions fix (2026-03-14) — Inner scalar loop scope exclusion: `spmdLoopScopeBlocks` pre-pass detects inner loop headers via `pred.Index >= b.Index` (catches self-loop merged rangeint + normal back-edges), stops BFS at them. Guard `!spmdBlockHasSPMDPhi` keeps inner loops with Varying phis in scope. map-restrictions promoted from compile-fail to compile-only. E2E: 32 run pass, 40 compile pass, 3 compile fail, 0 run fail, 11 reject OK / 54 tests.
+**Next Action**: Fix remaining 3 compile failures:
+1. pointer-varying (varying index not supported in pointer arithmetic)
+2. base64-decoder (type inference + varying indexing)
+3. union-type-generics (SPMDType in typeparams.Free + missing lanes.Rotate)
 
 ### Recent Major Achievements (Phase 1.5 Extensions)
 
