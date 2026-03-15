@@ -553,11 +553,12 @@ test_compile_and_run "integ_lo-min"      "$INTEG/lo-min/main.go"      "contains:
 test_compile_and_run "integ_lo-max"      "$INTEG/lo-max/main.go"      "contains:Correctness: PASS" "" "-scheduler=none"
 test_compile_and_run "integ_lo-contains" "$INTEG/lo-contains/main.go" "contains:Correctness: PASS" "" "-scheduler=none"
 test_compile_and_run "integ_lo-clamp"    "$INTEG/lo-clamp/main.go"    "contains:Correctness: PASS" "" "-scheduler=none"
+test_compile_and_run "integ_pointer-varying" "$INTEG/pointer-varying/main.go" "contains:Correctness: PASS" "" "-scheduler=none"
 
 # ========== LEVEL 6: SPMD functions with mask ==========
 printf "\n${BLUE}--- Level 6: Complex patterns (compile only) ---${NC}\n"
 
-for dir in pointer-varying non-spmd-varying-return \
+for dir in non-spmd-varying-return \
            spmd-call-contexts \
            base64-decoder \
            union-type-generics \

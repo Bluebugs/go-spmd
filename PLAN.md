@@ -1,8 +1,8 @@
 # SPMD Implementation Plan for Go + TinyGo
 
-**Version**: 2.11
+**Version**: 2.12
 **Last Updated**: 2026-03-14
-**Status**: Phase 1 Complete, Phase 2.0-2.9q complete, SPMD function body predication COMPLETED, SSA-level loop peeling COMPLETED, mask stack removed, map-restrictions fix DONE (inner scalar loop scope exclusion), E2E: 32 run pass, 40 compile pass, 3 compile fail, 0 run fail, 11 reject OK (54 total)
+**Status**: Phase 1 Complete, Phase 2.0-2.9r complete, pointer-varying promoted to run-pass (ChangeType contiguous propagation + per-lane field GEP + spmdVectorTypeSuffix pointer fix), E2E: 33 run pass, 41 compile pass, 2 compile fail, 0 run fail, 11 reject OK (54 total)
 
 ## Project Overview
 
@@ -728,12 +728,12 @@ Ported 10 `*_ext_spmd.go` files from types2 to go/types with full API translatio
 - [x] Validate 6 core programs compile + run correctly (stores, conditionals, functions, reduce, lanes, varying vars)
 - [x] Validate all 11 illegal examples correctly rejected by type checker
 
-**E2E Test Results (54 tests)** — updated 2026-03-14 after map-restrictions fix (inner scalar loop scope exclusion):
-- 32 RUN PASS: L0_store, L0_cond, L0_func, L1_reduce_add, L2_lanes_index, L3_varying_var, L4_range_slice, L4b_varying_break, L5a_simple_sum, L5b_odd_even, L5f_varying_switch, L5g_compound_conditions, integ_simple-sum, integ_odd-even, integ_hex-encode, integ_debug-varying, integ_lanes-index-restrictions, integ_to-upper, integ_mandelbrot, integ_store-coalescing, integ_ipv4-parser, integ_type-switch-varying, integ_defer-varying, integ_panic-recover-varying, integ_bit-counting, integ_array-counting, integ_non-spmd-varying-return, integ_spmd-call-contexts, integ_map-restrictions (compile-only in this count), integ_goroutine-varying (compile-only), integ_select-with-varying-channels (compile-only), integ_varying-array-iteration (compile-only)
-- 6 COMPILE-ONLY PASS: integ_type-casting-varying, integ_printf-verbs, integ_goroutine-varying, integ_select-with-varying-channels, integ_spmd-call-contexts, integ_varying-array-iteration
+**E2E Test Results (54 tests)** — updated 2026-03-14 after pointer-varying run-pass promotion:
+- 33 RUN PASS: L0_store, L0_cond, L0_func, L1_reduce_add, L2_lanes_index, L3_varying_var, L4_range_slice, L4b_varying_break, L5a_simple_sum, L5b_odd_even, L5f_varying_switch, L5g_compound_conditions, integ_simple-sum, integ_odd-even, integ_hex-encode, integ_debug-varying, integ_lanes-index-restrictions, integ_to-upper, integ_mandelbrot, integ_store-coalescing, integ_ipv4-parser, integ_type-switch-varying, integ_defer-varying, integ_panic-recover-varying, integ_bit-counting, integ_array-counting, integ_non-spmd-varying-return, integ_spmd-call-contexts, integ_map-restrictions, integ_lo-sum, integ_lo-mean, integ_lo-min, integ_lo-max, integ_lo-contains, integ_lo-clamp (corrected prior count), integ_pointer-varying
+- 8 COMPILE-ONLY PASS: integ_type-casting-varying, integ_printf-verbs, integ_goroutine-varying, integ_select-with-varying-channels, integ_varying-array-iteration, integ_spmd-call-contexts (run-pass per script), integ_map-restrictions (run-pass per script)
 - 11 REJECT OK: All illegal examples correctly rejected
-- 3 COMPILE FAIL (categorized by root cause):
-  - **Missing features (2)**: pointer-varying (varying index), base64-decoder (type inference + varying index)
+- 2 COMPILE FAIL (categorized by root cause):
+  - **Missing features (1)**: base64-decoder (type inference + varying index)
   - **External bugs (1)**: union-type-generics (x-tools SPMDType in typeparams.Free / missing lanes.Rotate)
 
 ### 2.8c Constrained Varying Type Support -- REMOVED
@@ -1386,6 +1386,24 @@ Split `go for` loops into main phase (full vectors, ConstAllOnes mask, plain v12
   - Priority: Medium (unsigned indices > 2^31 would be sign-extended incorrectly on 64-bit targets)
   - Related: New `spmdVectorIndex` code already uses `spmdExtendIndex` correctly
 
+- [ ] **Varying[array] indexing: (*Varying[array])[varyingIndex] → Varying[elem]**
+  - Task: Allow indexing a Varying array value with a varying index, producing a Varying element
+  - Location: go/types/index.go:74-82 (rejects SPMD indexing of non-pointer array), x-tools-spmd SSA emit, TinyGo compiler
+  - Status: NOT DONE — go/types currently rejects `(*Varying[[8]int])[i]` with "varying types are not indexable". Requires: (1) special-case in go/types index.go to allow Varying[array] element access, (2) x-tools-spmd SSA to emit `Index` or `IndexAddr` with Varying[elem] type, (3) TinyGo to scatter-gather per lane.
+  - Depends On: pointer-varying selector fix (now done — Varying[*T] deref path exists)
+  - Implementation: go/types: add `*SPMDType` case in index.go that unwraps Varying[T] when T is array, validates index type. x-tools-spmd: emit per-lane gather. TinyGo: vector IndexAddr with outer-struct stride.
+  - Priority: Low (no currently-passing test exercises this; base64-decoder and pointer-varying integration test deferred this pattern)
+  - Related: examples/pointer-varying/main.go, test/integration/spmd/pointer-varying/ (deferred features comment), test/integration/spmd/base64-decoder/main.go:54,88
+
+- [ ] **&varyingVar address-of: Varying[*T] from taking address of varying variable**
+  - Task: Allow `&varyingVar` to produce `Varying[*T]` when `varyingVar` is `Varying[T]`
+  - Location: go/types/pointer_ext_spmd.go:validateSPMDAddressOperation (currently rejects)
+  - Status: NOT DONE — requires semantic design (varying variables live in vector registers, not addressable memory; alloca-backed varyings are addressable but register-held ones are not)
+  - Depends On: semantic design (per-lane addresses of register-held values)
+  - Implementation: Allow &varyingVar only for alloca-backed varying (e.g., `var v Varying[int]`), produce `Varying[*T]`. Register-held temporaries remain non-addressable.
+  - Priority: Low (rare pattern; workaround: use explicit array and index by lane)
+  - Related: examples/pointer-varying/main.go demonstrateAddressOperations (removed as deferred)
+
 ### Phase 3 Deferred Subtask (NOT STARTED)
 
 **Purpose**: Track all Phase 3 (Validation) implementation work deferred for future phases.
@@ -1394,11 +1412,10 @@ Split `go for` loops into main phase (full vectors, ConstAllOnes mask, plain v12
 
 ---
 
-**Last Completed**: map-restrictions fix (2026-03-14) — Inner scalar loop scope exclusion: `spmdLoopScopeBlocks` pre-pass detects inner loop headers via `pred.Index >= b.Index` (catches self-loop merged rangeint + normal back-edges), stops BFS at them. Guard `!spmdBlockHasSPMDPhi` keeps inner loops with Varying phis in scope. map-restrictions promoted from compile-fail to compile-only. E2E: 32 run pass, 40 compile pass, 3 compile fail, 0 run fail, 11 reject OK / 54 tests.
-**Next Action**: Fix remaining 3 compile failures:
-1. pointer-varying (varying index not supported in pointer arithmetic)
-2. base64-decoder (type inference + varying indexing)
-3. union-type-generics (SPMDType in typeparams.Free + missing lanes.Rotate)
+**Last Completed**: pointer-varying run-pass promotion (2026-03-14) — Four fixes: (1) `spmdVectorTypeSuffix` PointerTypeKind → `p0` suffix for `<4 x ptr>` masked.gather intrinsic; (2) `createSPMDLoad` VectorTypeKind guard skips `spmdPerLaneGather` when result is already a vector; (3) ChangeType handler propagates `spmdContiguousPtr` metadata; (4) FieldAddr Case A scalar branch expands to per-lane struct field GEPs for contiguous struct arrays. Integration test simplified to `Correctness: PASS` check, promoted from compile-fail to run-pass. E2E: 33 run pass, 41 compile pass, 2 compile fail, 0 run fail, 11 reject OK / 54 tests.
+**Next Action**: Fix remaining 2 compile failures:
+1. base64-decoder (type inference + varying indexing)
+2. union-type-generics (SPMDType in typeparams.Free + missing lanes.Rotate)
 
 ### Recent Major Achievements (Phase 1.5 Extensions)
 

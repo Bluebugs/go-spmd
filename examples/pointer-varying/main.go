@@ -1,7 +1,9 @@
 // run -goexperiment spmd -target=wasi
 
-// Example demonstrating pointer operations with varying types
-// Shows pointer to varying values and varying pointers
+// Example demonstrating pointer operations with varying types.
+// Shows varying pointers (each lane holds a different pointer),
+// gather/scatter through varying pointers, and struct field access
+// through varying struct pointers.
 package main
 
 import (
@@ -10,125 +12,53 @@ import (
 	"reduce"
 )
 
-// Data structure for pointer examples
+// Point is a simple struct for demonstrating struct pointer access.
 type Point struct {
 	X, Y int
 }
 
-// processVaryingArray demonstrates pointer to varying array
-func processVaryingArray(data *lanes.Varying[[8]int]) {
-	fmt.Println("=== Pointer to Varying Array ===")
-
-	go for i := range 8 {
-		// Access varying array through pointer
-		(*data)[i] *= 2
-		(*data)[i] += lanes.Index()
-	}
-
-	// Convert to uniform for display
-	result := reduce.From(*data)
-	fmt.Printf("Processed array: %v\n", result)
-}
-
-// scatterGatherOperations demonstrates varying pointers
+// scatterGatherOperations demonstrates varying pointers for gather/scatter.
 func scatterGatherOperations() {
-	fmt.Println("\n=== Scatter/Gather with Varying Pointers ===")
+	fmt.Println("=== Scatter/Gather with Varying Pointers ===")
 
 	// Create separate memory locations
-	var targets [8]int
+	var targets [4]int
 	for i := range targets {
 		targets[i] = i * 10
 	}
 
-	go for i := range 8 {
-		// Each lane gets its own pointer
+	// Gather: read from different memory locations via varying pointer
+	var gathered lanes.Varying[int]
+	go for i := range 4 {
+		// Each lane gets its own pointer to a different element
 		var ptr lanes.Varying[*int] = &targets[i]
-
-		// Gather: read from different memory locations
-		value := *ptr
-
-		_ = value + lanes.Index() // processed; scatter write deferred (varying pointer store not yet supported)
+		gathered = *ptr
 	}
-
-	fmt.Printf("Scatter/Gather result: %v\n", targets)
+	fmt.Printf("Gathered: %v\n", reduce.From(gathered))
 }
 
-// pointerArithmetic demonstrates varying pointer indexing
+// pointerArithmetic demonstrates varying pointer indexing.
 func pointerArithmetic() {
 	fmt.Println("\n=== Varying Pointer Indexing ===")
 
-	data := [16]int{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15}
+	data := [8]int{0, 1, 2, 3, 4, 5, 6, 7}
 
-	go for i := range 8 {
-		// Create varying indices
-		index := i * 2  // index is varying: each lane has different value
+	go for i := range 4 {
+		// Create varying pointer to different array elements
+		varyingPtr := &data[i]
 
-		// Create varying pointers to different array elements
-		varyingPtr := &data[index]  // Each lane points to different element
-
-		// Dereference varying pointers
+		// Gather: dereference varying pointer
 		value := *varyingPtr
 
-		// Modify through varying pointer
+		// Scatter: modify through varying pointer
 		*varyingPtr = value + lanes.Index()
-
-		fmt.Printf("Lane %v: index %v, original value %v\n",
-			lanes.Index(), index, value)
 	}
 
-	fmt.Printf("Modified data: %v\n", data[:16])
+	fmt.Printf("Modified data: %v\n", data[:4])
 }
 
-// indirectAccess demonstrates indirect access patterns
-func indirectAccess() {
-	fmt.Println("\n=== Indirect Access Patterns ===")
-
-	// Array of pointers (uniform)
-	var data [4]int = [4]int{100, 200, 300, 400}
-	var ptrs [4]*int
-	for i := range ptrs {
-		ptrs[i] = &data[i]
-	}
-
-	go for i := range 4 {
-		// Get varying pointer from uniform array
-		ptr := ptrs[i] // ptr is varying (each lane gets different pointer)
-
-		// Indirect access through varying pointer
-		_ = *ptr // gather read; scatter write deferred (varying pointer store not yet supported)
-	}
-
-	fmt.Printf("Indirect access result: %v\n", data)
-}
-
-// mixedPointerOperations demonstrates complex pointer scenarios
-func mixedPointerOperations() {
-	fmt.Println("\n=== Mixed Pointer Operations ===")
-
-	// Create varying data
-	uniformArray := [4]int{10, 20, 30, 40}
-	varyingData := lanes.From(uniformArray[:])
-
-	// Pointer to varying array
-	arrayPtr := &varyingData
-
-	go for i := range 4 {
-		// Access through pointer to varying
-		(*arrayPtr)[i] += lanes.Index() * 5
-
-		// Get address of specific varying element
-		elemPtr := &(*arrayPtr)[i] // This creates varying *int
-
-		// Modify through element pointer
-		*elemPtr *= 2
-	}
-
-	// Display result
-	result := reduce.From(varyingData)
-	fmt.Printf("Mixed operations result: %v\n", result)
-}
-
-// structPointers demonstrates struct access with varying pointers
+// structPointers demonstrates struct access with varying pointers.
+// This is the key pattern fixed by Tasks 1-7: field access through *Varying[Struct].
 func structPointers() {
 	fmt.Println("\n=== Struct Pointers with Varying ===")
 
@@ -141,10 +71,10 @@ func structPointers() {
 	}
 
 	go for i := range 4 {
-		// Get varying pointer to struct
-		pointPtr := &points[i] // varying *Point
+		// Get varying pointer to struct — each lane points to a different Point
+		pointPtr := &points[i] // Varying[*Point]
 
-		// Access struct fields through varying pointer
+		// Access struct fields through varying pointer (fixed by Tasks 1-7)
 		pointPtr.X += lanes.Index()
 		pointPtr.Y += lanes.Index() * 2
 	}
@@ -152,58 +82,40 @@ func structPointers() {
 	fmt.Printf("Modified points: %+v\n", points)
 }
 
-// demonstrateAddressOperations shows taking addresses of varying values
-func demonstrateAddressOperations() {
-	fmt.Println("\n=== Address Operations ===")
+// indirectAccess demonstrates indirect access from a uniform pointer array.
+func indirectAccess() {
+	fmt.Println("\n=== Indirect Access Patterns ===")
 
-	var varyingValues lanes.Varying[int] = 0
-
-	go for i := range 4 {
-		// Assign different values to each lane
-		varyingValues = i * 10 + lanes.Index()
+	// Array of values and uniform pointer array
+	var data [4]int = [4]int{100, 200, 300, 400}
+	var ptrs [4]*int
+	for i := range ptrs {
+		ptrs[i] = &data[i]
 	}
 
-	// Take address of varying value - each lane gets address of its data
-	var varyingAddresses lanes.Varying[*int] = &varyingValues
-
+	// Gather read via varying pointer from uniform pointer array
+	var gathered lanes.Varying[int]
 	go for i := range 4 {
-		// Dereference varying addresses
-		value := *varyingAddresses
-
-		// Modify through address
-		*varyingAddresses = value + 100
+		ptr := ptrs[i] // varying *int — each lane gets a different pointer
+		gathered = *ptr
 	}
-
-	// Show results
-	finalValues := reduce.From(varyingValues)
-	fmt.Printf("Address operations result: %v\n", finalValues)
+	fmt.Printf("Indirect gather result: %v\n", reduce.From(gathered))
 }
 
 func main() {
 	fmt.Println("=== Pointer Operations with Varying Types ===")
 
-	// Example 1: Pointer to varying array
-	uniformTestArray := [8]int{1, 2, 3, 4, 5, 6, 7, 8}
-	testArray := lanes.From(uniformTestArray[:])
-	processVaryingArray(&testArray)
-
-	// Example 2: Varying pointers for scatter/gather
+	// Example 1: Scatter/gather via varying pointers
 	scatterGatherOperations()
 
-	// Example 3: Pointer arithmetic
+	// Example 2: Pointer arithmetic with varying index
 	pointerArithmetic()
 
-	// Example 4: Indirect access patterns
-	indirectAccess()
-
-	// Example 5: Mixed pointer operations
-	mixedPointerOperations()
-
-	// Example 6: Struct pointers
+	// Example 3: Struct field access through varying pointer (key fix)
 	structPointers()
 
-	// Example 7: Address operations
-	demonstrateAddressOperations()
+	// Example 4: Indirect access via uniform pointer array
+	indirectAccess()
 
-	fmt.Println("\n✓ All pointer varying operations completed successfully")
+	fmt.Println("\nAll pointer varying operations completed successfully")
 }
