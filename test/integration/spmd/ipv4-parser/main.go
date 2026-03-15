@@ -286,9 +286,10 @@ func parseIPv4Scalar(s string) ([4]byte, error) {
 	return ip, nil
 }
 
-func parseIPv4(s string) ([4]byte, error) {
+//go:noinline
+func parseIPv4Inner(s string) (ip [4]byte, errCode uint8, errAt int) {
 	if len(s) < 7 || len(s) > 15 {
-		return [4]byte{}, parseAddrError{in: s, msg: "IPv4 address string too short or too long"}
+		return [4]byte{}, 1, 0
 	}
 
 	// Pad string to 16 bytes with null terminators (like SSE register).
@@ -309,7 +310,7 @@ func parseIPv4(s string) ([4]byte, error) {
 
 		// Check character validity with precise error location.
 		if !reduce.All(validChars) {
-			return [4]byte{}, parseAddrError{in: s, at: reduce.FindFirstSet(!validChars) + loop, msg: "unexpected character"}
+			return [4]byte{}, 2, reduce.FindFirstSet(!validChars) + loop
 		}
 
 		digits[i] = c - '0'
@@ -322,7 +323,8 @@ func parseIPv4(s string) ([4]byte, error) {
 	// Count dots using popcount on the bitmask.
 	dotCount := bits.OnesCount16(dotBitmask)
 	if dotCount != 3 {
-		return [4]byte{}, parseAddrError{in: s, msg: fmt.Sprintf("invalid dot count: %d", dotCount)}
+		// errAt carries the actual count so the wrapper can format the message.
+		return [4]byte{}, 3, dotCount
 	}
 
 	// Unrolled CTZ: extract the 3 dot positions directly, no array or loop.
@@ -339,12 +341,12 @@ func parseIPv4(s string) ([4]byte, error) {
 	key := uint(p1) | (uint(p2)<<4) | (uint(p3)<<8)
 	code3 := int(dotCodeTable[key])
 	if code3 == 0xFF {
-		return [4]byte{}, parseAddrError{in: s, msg: "invalid field length"}
+		return [4]byte{}, 4, 0
 	}
 	// l3 validated with a single unsigned range check (l3=0 wraps to MaxUint>2,
 	// l3=4 gives 3>2; valid l3∈[1,3] gives 0..2).
 	if uint(l3-1) > 2 {
-		return [4]byte{}, parseAddrError{in: s, msg: "invalid field length"}
+		return [4]byte{}, 4, 0
 	}
 	code := code3*3 + (l3 - 1)
 
@@ -359,7 +361,6 @@ func parseIPv4(s string) ([4]byte, error) {
 
 	// Extract columns and validate all four fields in parallel.
 	flens := [4]int{l0, l1, l2, l3}
-	var ip [4]byte
 	go for field := range 4 {
 		h := int(shuffled[field*4+0])
 		t := int(shuffled[field*4+1])
@@ -374,13 +375,40 @@ func parseIPv4(s string) ([4]byte, error) {
 		// Leading zero: the first significant digit is zero in a multi-digit field.
 		hasLeadingZero := (flen == 2 && t == 0) || (flen == 3 && h == 0)
 		if reduce.Any(hasLeadingZero) {
-			return [4]byte{}, parseAddrError{in: s, msg: "IPv4 field has octet with leading zero"}
+			return [4]byte{}, 5, 0
 		}
 		if reduce.Any(value > 255) {
-			return [4]byte{}, parseAddrError{in: s, msg: "IPv4 field has value >255"}
+			return [4]byte{}, 6, 0
 		}
 		ip[field] = uint8(value)
 	}
 
-	return ip, nil
+	return ip, 0, 0
+}
+
+func parseIPv4(s string) ([4]byte, error) {
+	ip, code, at := parseIPv4Inner(s)
+	if code == 0 {
+		return ip, nil
+	}
+	return [4]byte{}, buildParseError(s, code, at)
+}
+
+//go:noinline
+func buildParseError(s string, code uint8, at int) error {
+	switch code {
+	case 1:
+		return parseAddrError{in: s, msg: "IPv4 address string too short or too long"}
+	case 2:
+		return parseAddrError{in: s, at: at, msg: "unexpected character"}
+	case 3:
+		return parseAddrError{in: s, msg: fmt.Sprintf("invalid dot count: %d", at)}
+	case 4:
+		return parseAddrError{in: s, msg: "invalid field length"}
+	case 5:
+		return parseAddrError{in: s, msg: "IPv4 field has octet with leading zero"}
+	case 6:
+		return parseAddrError{in: s, msg: "IPv4 field has value >255"}
+	}
+	return nil
 }
