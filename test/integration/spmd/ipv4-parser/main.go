@@ -20,28 +20,30 @@ import (
 // "unused" contribution for h/t positions of short fields.
 var shuffleTable [81][16]byte
 
-// fieldLenTable maps a packed (l0,l1,l2,l3) key to a shuffle-table code.
-// The key packs (li-1) in 2 bits per field:
-//
-//	key = (l0-1)&3 | ((l1-1)&3)<<2 | ((l2-1)&3)<<4 | ((l3-1)&3)<<6
-//
-// Valid lengths are 1..3, giving nibbles 0..2 (81 valid combinations).  All
-// other keys are pre-filled with 0xFF.  NOTE: callers must validate li ∈ [1,3]
-// before the table lookup — the 2-bit encoding wraps modulo 4 (li=5 aliases
-// li=1), so oversized fields would silently hit valid entries without the guard.
-var fieldLenTable [256]byte
+// dotCodeTable maps dot positions (p1, p2, p3) to a partial shuffle code
+// for fields 0..2 (27 valid combinations).  Key = p1 | (p2<<4) | (p3<<8).
+// Positions are 4 bits each (0-15), so the key is 12 bits (4096 entries).
+// Value = (l0-1)*9 + (l1-1)*3 + (l2-1), where l0=p1, l1=p2-p1-1, l2=p3-p2-1.
+// Returns 0xFF for any invalid dot spacing (l0..l2 outside [1,3]).
+// l3 = len(s)-p3-1 is validated separately with a single unsigned range check.
+var dotCodeTable [4096]byte
 
 func init() {
-	for i := range fieldLenTable {
-		fieldLenTable[i] = 0xFF
+	for i := range dotCodeTable {
+		dotCodeTable[i] = 0xFF
 	}
 	for l0 := 1; l0 <= 3; l0++ {
 		for l1 := 1; l1 <= 3; l1++ {
 			for l2 := 1; l2 <= 3; l2++ {
+				p1 := l0
+				p2 := l0 + l1 + 1
+				p3 := l0 + l1 + l2 + 2
+				key := uint(p1) | (uint(p2)<<4) | (uint(p3)<<8)
+				code3 := (l0-1)*9 + (l1-1)*3 + (l2-1)
+				dotCodeTable[key] = byte(code3)
+
 				for l3 := 1; l3 <= 3; l3++ {
 					code := (l0-1)*27 + (l1-1)*9 + (l2-1)*3 + (l3-1)
-					key := ((l0-1)&3) | (((l1-1)&3)<<2) | (((l2-1)&3)<<4) | (((l3-1)&3)<<6)
-					fieldLenTable[key] = byte(code)
 
 					starts := [4]int{0, l0 + 1, l0 + l1 + 2, l0 + l1 + l2 + 3}
 					lens := [4]int{l0, l1, l2, l3}
@@ -332,17 +334,19 @@ func parseIPv4(s string) ([4]byte, error) {
 	l2 := p3 - p2 - 1
 	l3 := len(s) - p3 - 1
 
-	// Validate field lengths before table lookup.  The 2-bit-per-field key
-	// encoding wraps modulo 4, so lengths > 3 would alias valid keys and
-	// pass the 0xFF sentinel check incorrectly.
-	if l0 < 1 || l0 > 3 || l1 < 1 || l1 > 3 || l2 < 1 || l2 > 3 || l3 < 1 || l3 > 3 {
+	// Single 12-bit key on actual dot positions — no aliasing, no range guards
+	// needed for l0..l2.  The 4-bit-per-position encoding covers 0-15 exactly.
+	key := uint(p1) | (uint(p2)<<4) | (uint(p3)<<8)
+	code3 := int(dotCodeTable[key])
+	if code3 == 0xFF {
 		return [4]byte{}, parseAddrError{in: s, msg: "invalid field length"}
 	}
-	// Combined code computation: 256-byte table lookup replaces the 4-field
-	// arithmetic.  Key packs (li-1) in 2 bits per field; valid lengths 1..3
-	// give nibbles 0..2, which index populated table entries.
-	key := ((l0-1)&3) | (((l1-1)&3)<<2) | (((l2-1)&3)<<4) | (((l3-1)&3)<<6)
-	code := int(fieldLenTable[key])
+	// l3 validated with a single unsigned range check (l3=0 wraps to MaxUint>2,
+	// l3=4 gives 3>2; valid l3∈[1,3] gives 0..2).
+	if uint(l3-1) > 2 {
+		return [4]byte{}, parseAddrError{in: s, msg: "invalid field length"}
+	}
+	code := code3*3 + (l3 - 1)
 
 	// Shuffle table lookup: select the right swizzle mask for this layout.
 	shuffleMask := shuffleTable[code]
