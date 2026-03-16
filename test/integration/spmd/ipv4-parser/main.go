@@ -18,10 +18,10 @@ import (
 // indicates an unused table slot; no valid dotBitmask can be zero since it
 // always has exactly 3 bits set.
 type lemireEntry struct {
+	shuffleMask  [16]byte
 	expectedMask uint16
 	l0, l1, l2   uint8
 	startF3      uint8 // start position of field 3 = p3+1
-	shuffleMask  [16]byte
 }
 
 // lemireTable is indexed by the Lemire compact hash of the 16-bit dotBitmask:
