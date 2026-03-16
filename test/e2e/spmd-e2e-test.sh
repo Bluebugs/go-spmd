@@ -500,11 +500,8 @@ test_compile_and_run "L5g_compound_conditions" "$OUTDIR/L5g_compound_conditions.
 printf "\n${BLUE}--- Level 5c: Integration examples (compile only) ---${NC}\n"
 
 INTEG="$SPMD_ROOT/test/integration/spmd"
-for dir in map-restrictions; do
-    if [ -f "$INTEG/$dir/main.go" ]; then
-        test_compile "integ_$dir" "$INTEG/$dir/main.go"
-    fi
-done
+test_compile_and_run "integ_map-restrictions" "$INTEG/map-restrictions/main.go" \
+    "contains:Map restrictions demonstration completed" "" "-scheduler=none"
 
 # Goroutine/channel tests require -scheduler=asyncify (cooperative scheduling via Binaryen).
 # Named SPMD functions can't be goroutines (asyncify doesn't handle $gowrapper),

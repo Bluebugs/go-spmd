@@ -2,7 +2,7 @@
 
 **Version**: 2.12
 **Last Updated**: 2026-03-14
-**Status**: Phase 1 Complete, Phase 2.0-2.9r complete, pointer-varying promoted to run-pass (ChangeType contiguous propagation + per-lane field GEP + spmdVectorTypeSuffix pointer fix), E2E: 40 run pass, 41 compile pass, 2 compile fail, 0 run fail, 11 reject OK (54 total)
+**Status**: Phase 1 Complete, Phase 2.0-2.9r complete, pointer-varying promoted to run-pass (ChangeType contiguous propagation + per-lane field GEP + spmdVectorTypeSuffix pointer fix), E2E: 41 run pass, 41 compile pass, 2 compile fail, 0 run fail, 11 reject OK (54 total)
 
 ## Project Overview
 
