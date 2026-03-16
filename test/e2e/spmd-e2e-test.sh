@@ -500,12 +500,21 @@ test_compile_and_run "L5g_compound_conditions" "$OUTDIR/L5g_compound_conditions.
 printf "\n${BLUE}--- Level 5c: Integration examples (compile only) ---${NC}\n"
 
 INTEG="$SPMD_ROOT/test/integration/spmd"
-for dir in map-restrictions goroutine-varying \
-           select-with-varying-channels; do
+for dir in map-restrictions; do
     if [ -f "$INTEG/$dir/main.go" ]; then
         test_compile "integ_$dir" "$INTEG/$dir/main.go"
     fi
 done
+
+# Goroutine/channel tests require -scheduler=asyncify (cooperative scheduling via Binaryen).
+# Named SPMD functions can't be goroutines (asyncify doesn't handle $gowrapper),
+# but anonymous closures capturing varying values work fine.
+test_compile_and_run "integ_goroutine-varying" "$INTEG/goroutine-varying/main.go" \
+    "contains:Total: 204|||Sum from SPMD goroutine: 100|||All goroutine varying tests completed successfully" "" "-scheduler=asyncify"
+test_compile_and_run "integ_select-with-varying-channels" "$INTEG/select-with-varying-channels/main.go" \
+    "contains:Pipeline processing completed|||Done signal received|||All select with varying channels tests completed successfully" "" "-scheduler=asyncify"
+test_compile_and_run "integ_spmd-call-contexts" "$INTEG/spmd-call-contexts/main.go" \
+    "contains:All SPMD call context operations completed successfully" "" "-scheduler=asyncify"
 
 # array-counting uses go for over [][]int (Varying[[]int], laneCount=1 serial).
 # The inner for loop runs serially (N=1), summing each lane's slice independently.
@@ -565,8 +574,7 @@ test_compile_and_run "integ_pointer-varying" "$INTEG/pointer-varying/main.go" "c
 # ========== LEVEL 6: SPMD functions with mask ==========
 printf "\n${BLUE}--- Level 6: Complex patterns (compile only) ---${NC}\n"
 
-for dir in spmd-call-contexts \
-           base64-decoder \
+for dir in base64-decoder \
            union-type-generics; do
     if [ -f "$INTEG/$dir/main.go" ]; then
         test_compile "integ_$dir" "$INTEG/$dir/main.go"

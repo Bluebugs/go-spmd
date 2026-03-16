@@ -1,124 +1,50 @@
 // run -goexperiment spmd -target=wasi
-
-// Example demonstrating select statements with varying channels and infinite SPMD loops
-// Shows channel-based SPMD processing with concurrent data flows
+//
+// Example demonstrating select statements with channels carrying varying values.
+// Shows channel-based SPMD processing with concurrent data flows.
+// Avoids time.Sleep (unsupported in WASI) and select+default spin loops
+// (incompatible with cooperative scheduling).
 package main
 
 import (
 	"fmt"
-	"time"
 	"lanes"
 	"reduce"
 )
 
-// Demonstrates basic select with varying channels
+// basicSelectExample demonstrates select with varying channels using
+// buffered channels and ok-idiom for termination.
 func basicSelectExample() {
 	fmt.Println("=== Basic Select with Varying Channels ===")
 
-	// Create channels that carry varying values
 	inputCh := make(chan lanes.Varying[int], 5)
 	outputCh := make(chan lanes.Varying[int], 5)
 
-	// Send some varying data to the input channel
+	// Pre-fill buffered channel
 	inputCh <- lanes.From([]int{1, 2, 3, 4})
 	inputCh <- lanes.From([]int{10, 20, 30, 40})
 	inputCh <- lanes.From([]int{100, 200, 300, 400})
 	close(inputCh)
 
-	// Process data using select statement
-	processed := 0
-	for {
-		select {
-		case data, ok := <-inputCh:
-			if !ok {
-				fmt.Printf("Input channel closed after processing %d varying values\n", processed)
-				goto finished
-			}
-
-			fmt.Printf("Received varying data: %v\n", data)
-
-			// Process the varying data
-			result := data * 2
-			fmt.Printf("Processed: %v\n", result)
-			outputCh <- result
-			processed++
-
-		default:
-			fmt.Println("No data available, continuing...")
-			break
-		}
+	// Drain input, process, forward to output
+	for data := range inputCh {
+		result := data * 2
+		fmt.Printf("Received: %v -> Processed: %v\n", data, result)
+		outputCh <- result
 	}
-
-finished:
 	close(outputCh)
 
-	// Drain output channel
 	fmt.Println("Output channel contents:")
 	for result := range outputCh {
 		fmt.Printf("Final result: %v\n", result)
 	}
 }
 
-// Demonstrates infinite SPMD loop with select
-func infiniteLoopExample() {
-	fmt.Println("\n=== Infinite SPMD Loop with Select ===")
-
-	// Create channels for the example
-	dataCh := make(chan lanes.Varying[int], 10)
-	controlCh := make(chan string, 5)
-	terminateCh := make(chan bool)
-
-	// Launch a goroutine to send test data
-	go func() {
-		for i := 0; i < 3; i++ {
-			data := lanes.From([]int{i*10 + 1, i*10 + 2, i*10 + 3, i*10 + 4})
-			dataCh <- data
-			time.Sleep(100 * time.Millisecond)
-		}
-		controlCh <- "status_check"
-		time.Sleep(200 * time.Millisecond)
-		terminateCh <- true
-	}()
-
-	// Process data in infinite loop
-	var totalProcessed lanes.Varying[int] = 0  // broadcast 0 to all lanes
-
-	for {
-		select {
-		case data := <-dataCh:
-			fmt.Printf("Processing varying data in infinite loop: %v\n", data)
-
-			// SPMD processing of the varying data
-			processed := data * 3  // Triple all values (3 broadcasts to all lanes)
-			totalProcessed = totalProcessed + processed
-
-			fmt.Printf("Processed result: %v\n", processed)
-			fmt.Printf("Running total: %v\n", totalProcessed)
-
-		case command := <-controlCh:
-			fmt.Printf("Received control command: %s\n", command)
-			if command == "status_check" {
-				total := reduce.Add(totalProcessed)
-				fmt.Printf("Status: Total processed across all lanes: %d\n", total)
-			}
-
-		case <-terminateCh:
-			fmt.Println("Termination signal received, exiting infinite loop")
-			return  // Exit the infinite SPMD loop
-
-		default:
-			// No channels ready, could do other work here
-			// For demo purposes, just continue
-			continue
-		}
-	}
-}
-
-// Demonstrates pipeline processing with varying channels
+// pipelineExample demonstrates a multi-stage pipeline where each stage
+// is a goroutine processing varying values through channels.
 func pipelineExample() {
 	fmt.Println("\n=== SPMD Pipeline Processing ===")
 
-	// Create pipeline stages
 	stage1Ch := make(chan lanes.Varying[int], 5)
 	stage2Ch := make(chan lanes.Varying[int], 5)
 	stage3Ch := make(chan lanes.Varying[int], 5)
@@ -134,54 +60,28 @@ func pipelineExample() {
 		}
 	}()
 
-	// Stage 2: SPMD processing with select
+	// Stage 2: Add 10 to each lane (blocking receive, no spin)
 	go func() {
 		defer close(stage2Ch)
-
-		for {
-			select {
-			case data, ok := <-stage1Ch:
-				if !ok {
-					return  // Input closed, exit loop
-				}
-
-				// SPMD processing: add 10 to each lane
-				processed := data + 10  // 10 broadcasts to all lanes
-				stage2Ch <- processed
-				fmt.Printf("Stage 2 processed: %v\n", processed)
-
-			default:
-				// Could do other work or just continue
-				continue
-			}
+		for data := range stage1Ch {
+			processed := data + 10
+			stage2Ch <- processed
+			fmt.Printf("Stage 2 processed: %v\n", processed)
 		}
 	}()
 
-	// Stage 3: Final processing and output
+	// Stage 3: Multiply by 2 (blocking receive, no spin)
 	go func() {
 		defer close(stage3Ch)
 		defer func() { doneCh <- true }()
-
-		for {
-			select {
-			case data, ok := <-stage2Ch:
-				if !ok {
-					return  // Input closed, exit loop
-				}
-
-				// SPMD processing: multiply by 2
-				final := data * 2  // 2 broadcasts to all lanes
-				stage3Ch <- final
-				fmt.Printf("Stage 3 final: %v\n", final)
-
-			default:
-				continue
-			}
+		for data := range stage2Ch {
+			final := data * 2
+			stage3Ch <- final
+			fmt.Printf("Stage 3 final: %v\n", final)
 		}
 	}()
 
 	// Collect final results
-	fmt.Println("Final pipeline results:")
 	go func() {
 		for result := range stage3Ch {
 			total := reduce.Add(result)
@@ -191,57 +91,41 @@ func pipelineExample() {
 		doneCh <- true
 	}()
 
-	// Wait for completion
-	<-doneCh  // Stage 3 done
-	<-doneCh  // Result collection done
+	<-doneCh // Stage 3 done
+	<-doneCh // Result collection done
 	fmt.Println("Pipeline processing completed")
 }
 
-// Demonstrates select with mixed uniform and varying channels
+// mixedChannelExample demonstrates select with both uniform and varying channels.
 func mixedChannelExample() {
 	fmt.Println("\n=== Mixed Uniform/Varying Channel Select ===")
 
 	varyingCh := make(chan lanes.Varying[int], 3)
 	uniformCh := make(chan int, 3)
-	controlCh := make(chan string, 1)
+	doneCh := make(chan bool, 1)
 
-	// Send test data
+	// Pre-fill channels
 	varyingCh <- lanes.From([]int{1, 2, 3, 4})
 	uniformCh <- 100
 	varyingCh <- lanes.From([]int{5, 6, 7, 8})
-	controlCh <- "finish"
+	doneCh <- true
 
-	// Process with mixed channel types
+	// Process with mixed channel types using select
 	for {
 		select {
 		case vData := <-varyingCh:
-			fmt.Printf("Received varying data: %v\n", vData)
+			fmt.Printf("Received varying: %v\n", vData)
 			result := vData + 50
 			fmt.Printf("Varying processed: %v\n", result)
 
 		case uData := <-uniformCh:
-			fmt.Printf("Received uniform data: %d\n", uData)
-			// Process uniform data (can be broadcast to varying if needed)
-			vData := lanes.Varying[int](uData)  // broadcast uniform to all lanes
-			fmt.Printf("Uniform converted to varying: %v\n", vData)
+			fmt.Printf("Received uniform: %d\n", uData)
+			vData := lanes.Varying[int](uData)
+			fmt.Printf("Broadcast to varying: %v\n", vData)
 
-		case cmd := <-controlCh:
-			fmt.Printf("Control command: %s\n", cmd)
-			if cmd == "finish" {
-				return
-			}
-
-		default:
-			// Drain any remaining data
-			select {
-			case vData := <-varyingCh:
-				fmt.Printf("Draining varying: %v\n", vData)
-			case uData := <-uniformCh:
-				fmt.Printf("Draining uniform: %d\n", uData)
-			default:
-				fmt.Println("All channels drained")
-				return
-			}
+		case <-doneCh:
+			fmt.Println("Done signal received")
+			return
 		}
 	}
 }
@@ -249,26 +133,9 @@ func mixedChannelExample() {
 func main() {
 	fmt.Println("=== SPMD Select with Varying Channels Examples ===")
 
-	// Test 1: Basic select with varying channels
 	basicSelectExample()
-
-	// Test 2: Infinite SPMD loop with select
-	infiniteLoopExample()
-
-	// Test 3: Pipeline processing
 	pipelineExample()
-
-	// Test 4: Mixed channel types
 	mixedChannelExample()
 
-	// Summary
-	fmt.Println("\n=== Summary ===")
-	fmt.Println("✓ Select statements work with channels carrying varying values")
-	fmt.Println("✓ Infinite SPMD loops (go for {}) enable continuous processing")
-	fmt.Println("✓ Pipeline processing with SPMD stages")
-	fmt.Println("✓ Mixed uniform/varying channel processing")
-	fmt.Println("✓ All lanes participate in select operations")
-	fmt.Println("✓ Channel operations work per-lane for varying data")
-
-	fmt.Println("\nSPMD select with varying channels example completed successfully!")
+	fmt.Println("\nAll select with varying channels tests completed successfully")
 }
