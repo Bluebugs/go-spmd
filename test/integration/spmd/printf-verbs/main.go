@@ -41,5 +41,5 @@ func findFirstVerb(s string) int {
 		i += lanes.Count(c)
   	}
 
-	return len(s)
+	return -1
 }

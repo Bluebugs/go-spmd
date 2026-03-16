@@ -500,7 +500,7 @@ test_compile_and_run "L5g_compound_conditions" "$OUTDIR/L5g_compound_conditions.
 printf "\n${BLUE}--- Level 5c: Integration examples (compile only) ---${NC}\n"
 
 INTEG="$SPMD_ROOT/test/integration/spmd"
-for dir in map-restrictions printf-verbs goroutine-varying \
+for dir in map-restrictions goroutine-varying \
            select-with-varying-channels; do
     if [ -f "$INTEG/$dir/main.go" ]; then
         test_compile "integ_$dir" "$INTEG/$dir/main.go"
@@ -515,6 +515,10 @@ test_compile_and_run "integ_type-casting-varying" "$INTEG/type-casting-varying/m
     "contains:All type casting tests completed successfully!" "" "-scheduler=none"
 test_compile_and_run "integ_varying-array-iteration" "$INTEG/varying-array-iteration/main.go" \
     "contains:All varying array iteration examples completed successfully" "" "-scheduler=none"
+test_compile_and_run "integ_printf-verbs" "$INTEG/printf-verbs/main.go" \
+    "contains:Found first '%' at position 6|||No '%' found in: No verbs here|||Found first '%' at position 9" "" "-scheduler=none"
+test_compile_and_run "integ_non-spmd-varying-return" "$INTEG/non-spmd-varying-return/main.go" \
+    "contains:Constant varying: [42 42 42 42]|||Array varying: [10 20 30 40]|||All non-SPMD varying return operations completed successfully" "" "-scheduler=none"
 
 # ========== LEVEL 5d: Integration examples (compile + run) ==========
 printf "\n${BLUE}--- Level 5d: Integration examples (compile + run) ---${NC}\n"
@@ -561,8 +565,7 @@ test_compile_and_run "integ_pointer-varying" "$INTEG/pointer-varying/main.go" "c
 # ========== LEVEL 6: SPMD functions with mask ==========
 printf "\n${BLUE}--- Level 6: Complex patterns (compile only) ---${NC}\n"
 
-for dir in non-spmd-varying-return \
-           spmd-call-contexts \
+for dir in spmd-call-contexts \
            base64-decoder \
            union-type-generics; do
     if [ -f "$INTEG/$dir/main.go" ]; then
