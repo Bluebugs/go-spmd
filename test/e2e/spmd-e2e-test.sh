@@ -500,8 +500,7 @@ test_compile_and_run "L5g_compound_conditions" "$OUTDIR/L5g_compound_conditions.
 printf "\n${BLUE}--- Level 5c: Integration examples (compile only) ---${NC}\n"
 
 INTEG="$SPMD_ROOT/test/integration/spmd"
-for dir in type-casting-varying \
-           map-restrictions printf-verbs goroutine-varying \
+for dir in map-restrictions printf-verbs goroutine-varying \
            select-with-varying-channels; do
     if [ -f "$INTEG/$dir/main.go" ]; then
         test_compile "integ_$dir" "$INTEG/$dir/main.go"
@@ -512,6 +511,10 @@ done
 # The inner for loop runs serially (N=1), summing each lane's slice independently.
 test_compile_and_run "integ_array-counting" "$INTEG/array-counting/main.go" \
     "Array sums: [3 3 4 18]" "" "-scheduler=none"
+test_compile_and_run "integ_type-casting-varying" "$INTEG/type-casting-varying/main.go" \
+    "contains:All type casting tests completed successfully!" "" "-scheduler=none"
+test_compile_and_run "integ_varying-array-iteration" "$INTEG/varying-array-iteration/main.go" \
+    "contains:All varying array iteration examples completed successfully" "" "-scheduler=none"
 
 # ========== LEVEL 5d: Integration examples (compile + run) ==========
 printf "\n${BLUE}--- Level 5d: Integration examples (compile + run) ---${NC}\n"
@@ -561,8 +564,7 @@ printf "\n${BLUE}--- Level 6: Complex patterns (compile only) ---${NC}\n"
 for dir in non-spmd-varying-return \
            spmd-call-contexts \
            base64-decoder \
-           union-type-generics \
-           varying-array-iteration; do
+           union-type-generics; do
     if [ -f "$INTEG/$dir/main.go" ]; then
         test_compile "integ_$dir" "$INTEG/$dir/main.go"
     fi
