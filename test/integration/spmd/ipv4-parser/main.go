@@ -12,59 +12,72 @@ import (
 	"reduce"
 )
 
-// shuffleTable maps a field-length code to a 16-byte swizzle mask.
-// code = (l0-1)*27 + (l1-1)*9 + (l2-1)*3 + (l3-1), where l0..l3 are
-// per-field digit counts (1-3).  Each 16-byte entry has the layout
-//   [h0, t0, o0, PAD, h1, t1, o1, PAD, h2, t2, o2, PAD, h3, t3, o3, PAD]
-// An index of 0xFF causes i8x16.swizzle to return 0, which is the correct
-// "unused" contribution for h/t positions of short fields.
-var shuffleTable [81][16]byte
+// lemireEntry combines the expected dot bitmask, precomputed field lengths for
+// fields 0-2, the start position of field 3, and the 16-byte swizzle mask for
+// a single valid IPv4 field-length layout.  A zero entry (expectedMask==0)
+// indicates an unused table slot; no valid dotBitmask can be zero since it
+// always has exactly 3 bits set.
+type lemireEntry struct {
+	expectedMask uint16
+	l0, l1, l2   uint8
+	startF3      uint8 // start position of field 3 = p3+1
+	shuffleMask  [16]byte
+}
 
-// dotCodeTable maps dot positions (p1, p2, p3) to a partial shuffle code
-// for fields 0..2 (27 valid combinations).  Key = p1 | (p2<<4) | (p3<<8).
-// Positions are 4 bits each (0-15), so the key is 12 bits (4096 entries).
-// Value = (l0-1)*9 + (l1-1)*3 + (l2-1), where l0=p1, l1=p2-p1-1, l2=p3-p2-1.
-// Returns 0xFF for any invalid dot spacing (l0..l2 outside [1,3]).
-// l3 = len(s)-p3-1 is validated separately with a single unsigned range check.
-var dotCodeTable [4096]byte
+// lemireTable is indexed by the Lemire compact hash of the 16-bit dotBitmask:
+//
+//	hash = (dotBitmask >> 5) ^ (dotBitmask & 0x03ff)
+//
+// The hash maps into [0, 2047], replacing the separate dotCodeTable (4096 B)
+// and shuffleTable (81×16 = 1296 B) with a single 2048-entry table.
+// Collision validation is done by comparing entry.expectedMask == dotBitmask.
+var lemireTable [2048]lemireEntry
 
 func init() {
-	for i := range dotCodeTable {
-		dotCodeTable[i] = 0xFF
-	}
+	// The Lemire hash encodes only the three dot positions (p1, p2, p3), which
+	// determine l0, l1, l2 but NOT l3.  l3 is validated separately at lookup
+	// time and used to patch the 4th field (bytes 12-14) of the shuffle mask.
+	// We therefore iterate only over (l0, l1, l2), producing 27 table entries.
+	// Bytes 12-14 of shuffleMask are left zero here; they are filled at runtime.
 	for l0 := 1; l0 <= 3; l0++ {
 		for l1 := 1; l1 <= 3; l1++ {
 			for l2 := 1; l2 <= 3; l2++ {
 				p1 := l0
 				p2 := l0 + l1 + 1
 				p3 := l0 + l1 + l2 + 2
-				key := uint(p1) | (uint(p2)<<4) | (uint(p3)<<8)
-				code3 := (l0-1)*9 + (l1-1)*3 + (l2-1)
-				dotCodeTable[key] = byte(code3)
+				dotBitmask := uint16(1<<p1) | uint16(1<<p2) | uint16(1<<p3)
+				h := (dotBitmask >> 5) ^ (dotBitmask & 0x03ff)
 
-				for l3 := 1; l3 <= 3; l3++ {
-					code := (l0-1)*27 + (l1-1)*9 + (l2-1)*3 + (l3-1)
-
-					starts := [4]int{0, l0 + 1, l0 + l1 + 2, l0 + l1 + l2 + 3}
-					lens := [4]int{l0, l1, l2, l3}
-					for f := 0; f < 4; f++ {
-						sf, lf := starts[f], lens[f]
-						switch lf {
-						case 3:
-							shuffleTable[code][f*4+0] = byte(sf)
-							shuffleTable[code][f*4+1] = byte(sf + 1)
-							shuffleTable[code][f*4+2] = byte(sf + 2)
-						case 2:
-							shuffleTable[code][f*4+0] = 0xFF
-							shuffleTable[code][f*4+1] = byte(sf)
-							shuffleTable[code][f*4+2] = byte(sf + 1)
-						case 1:
-							shuffleTable[code][f*4+0] = 0xFF
-							shuffleTable[code][f*4+1] = 0xFF
-							shuffleTable[code][f*4+2] = byte(sf)
-						}
-						shuffleTable[code][f*4+3] = 0xFF
+				var sm [16]byte
+				starts := [4]int{0, l0 + 1, l0 + l1 + 2, l0 + l1 + l2 + 3}
+				lens := [4]int{l0, l1, l2, 0} // l3 patched at runtime
+				for f := 0; f < 3; f++ {       // only fields 0-2 here
+					sf, lf := starts[f], lens[f]
+					switch lf {
+					case 3:
+						sm[f*4+0] = byte(sf)
+						sm[f*4+1] = byte(sf + 1)
+						sm[f*4+2] = byte(sf + 2)
+					case 2:
+						sm[f*4+0] = 0xFF
+						sm[f*4+1] = byte(sf)
+						sm[f*4+2] = byte(sf + 1)
+					case 1:
+						sm[f*4+0] = 0xFF
+						sm[f*4+1] = 0xFF
+						sm[f*4+2] = byte(sf)
 					}
+					sm[f*4+3] = 0xFF
+				}
+				// sm[12..15] (field 3) intentionally zeroed; patched at runtime.
+				sm[15] = 0xFF // PAD byte is always 0xFF regardless of l3
+				lemireTable[h] = lemireEntry{
+					expectedMask: dotBitmask,
+					l0:           uint8(l0),
+					l1:           uint8(l1),
+					l2:           uint8(l2),
+					startF3:      uint8(p3 + 1),
+					shuffleMask:  sm,
 				}
 			}
 		}
@@ -327,31 +340,41 @@ func parseIPv4Inner(s string) (ip [4]byte, errCode uint8, errAt int) {
 		return [4]byte{}, 3, dotCount
 	}
 
-	// Unrolled CTZ: extract the 3 dot positions directly, no array or loop.
-	p1 := bits.TrailingZeros16(dotBitmask); dotBitmask &= dotBitmask - 1
-	p2 := bits.TrailingZeros16(dotBitmask); dotBitmask &= dotBitmask - 1
-	p3 := bits.TrailingZeros16(dotBitmask)
-	l0 := p1
-	l1 := p2 - p1 - 1
-	l2 := p3 - p2 - 1
-	l3 := len(s) - p3 - 1
-
-	// Single 12-bit key on actual dot positions — no aliasing, no range guards
-	// needed for l0..l2.  The 4-bit-per-position encoding covers 0-15 exactly.
-	key := uint(p1) | (uint(p2)<<4) | (uint(p3)<<8)
-	code3 := int(dotCodeTable[key])
-	if code3 == 0xFF {
+	// Lemire compact hash: maps 16-bit dotBitmask → 11-bit index in [0,2047].
+	// Replaces 3× CTZ + dotCodeTable lookup with 2 bitops + 1 table lookup.
+	hash := (dotBitmask >> 5) ^ (dotBitmask & 0x03ff)
+	entry := lemireTable[hash]
+	// Validate: if no valid layout hashes here, expectedMask is zero.
+	if entry.expectedMask != dotBitmask {
 		return [4]byte{}, 4, 0
 	}
-	// l3 validated with a single unsigned range check (l3=0 wraps to MaxUint>2,
-	// l3=4 gives 3>2; valid l3∈[1,3] gives 0..2).
+	// Field lengths l0/l1/l2 and field-3 start are precomputed in the table,
+	// eliminating the 2 CTZ + 1 Len16 operations previously used to re-derive them.
+	l0 := int(entry.l0)
+	l1 := int(entry.l1)
+	l2 := int(entry.l2)
+	sf3 := int(entry.startF3)
+	l3 := len(s) - sf3
 	if uint(l3-1) > 2 {
 		return [4]byte{}, 4, 0
 	}
-	code := code3*3 + (l3 - 1)
 
-	// Shuffle table lookup: select the right swizzle mask for this layout.
-	shuffleMask := shuffleTable[code]
+	// Patch field 3 (bytes 12-14) of the shuffle mask with the actual l3 layout.
+	shuffleMask := entry.shuffleMask
+	switch l3 {
+	case 3:
+		shuffleMask[12] = byte(sf3)
+		shuffleMask[13] = byte(sf3 + 1)
+		shuffleMask[14] = byte(sf3 + 2)
+	case 2:
+		shuffleMask[12] = 0xFF
+		shuffleMask[13] = byte(sf3)
+		shuffleMask[14] = byte(sf3 + 1)
+	case 1:
+		shuffleMask[12] = 0xFF
+		shuffleMask[13] = 0xFF
+		shuffleMask[14] = byte(sf3)
+	}
 
 	// Apply the swizzle: gather [h0,t0,o0,0, h1,t1,o1,0, h2,t2,o2,0, h3,t3,o3,0].
 	var shuffled [16]byte
