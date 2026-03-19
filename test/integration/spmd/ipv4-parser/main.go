@@ -12,15 +12,14 @@ import (
 	"reduce"
 )
 
-// lemireEntry combines the expected dot bitmask, precomputed field lengths for
-// fields 0-2, the start position of field 3, and the 16-byte swizzle mask for
-// a single valid IPv4 field-length layout.  A zero entry (expectedMask==0)
-// indicates an unused table slot; no valid dotBitmask can be zero since it
-// always has exactly 3 bits set.
+// lemireEntry encodes the expected dot bitmask, a compact index into the
+// precomputed shuffleTable/flensTable (code3 = (l0-1)*9+(l1-1)*3+(l2-1)),
+// and the start position of field 3.  The struct is 4 bytes.
+// A zero entry (expectedMask==0) indicates an unused table slot; no valid
+// dotBitmask can be zero since it always has exactly 3 bits set.
 type lemireEntry struct {
-	shuffleMask  [16]byte
 	expectedMask uint16
-	l0, l1, l2   uint8
+	code3        uint8 // (l0-1)*9 + (l1-1)*3 + (l2-1), indexes into shuffleTable/flensTable
 	startF3      uint8 // start position of field 3 = p3+1
 }
 
@@ -33,12 +32,18 @@ type lemireEntry struct {
 // Collision validation is done by comparing entry.expectedMask == dotBitmask.
 var lemireTable [2048]lemireEntry
 
+// shuffleTable holds all 81 complete 16-byte swizzle masks (27 l0/l1/l2
+// combinations × 3 l3 variants).  Index = code3*3 + (l3-1).
+var shuffleTable [81][16]byte
+
+// flensTable holds all 81 precomputed [l0, l1, l2, l3] field-length arrays.
+// Index = code3*3 + (l3-1), same as shuffleTable.
+// Use int so varying indexing matches the original [4]int{l0,l1,l2,l3} pattern.
+var flensTable [81][4]int
+
 func init() {
-	// The Lemire hash encodes only the three dot positions (p1, p2, p3), which
-	// determine l0, l1, l2 but NOT l3.  l3 is validated separately at lookup
-	// time and used to patch the 4th field (bytes 12-14) of the shuffle mask.
-	// We therefore iterate only over (l0, l1, l2), producing 27 table entries.
-	// Bytes 12-14 of shuffleMask are left zero here; they are filled at runtime.
+	// Iterate all 81 combinations of (l0, l1, l2, l3) to precompute complete
+	// shuffle masks and field-length arrays, eliminating runtime patching.
 	for l0 := 1; l0 <= 3; l0++ {
 		for l1 := 1; l1 <= 3; l1++ {
 			for l2 := 1; l2 <= 3; l2++ {
@@ -47,37 +52,41 @@ func init() {
 				p3 := l0 + l1 + l2 + 2
 				dotBitmask := uint16(1<<p1) | uint16(1<<p2) | uint16(1<<p3)
 				h := (dotBitmask >> 5) ^ (dotBitmask & 0x03ff)
+				code3 := uint8((l0-1)*9 + (l1-1)*3 + (l2-1))
 
-				var sm [16]byte
 				starts := [4]int{0, l0 + 1, l0 + l1 + 2, l0 + l1 + l2 + 3}
-				lens := [4]int{l0, l1, l2, 0} // l3 patched at runtime
-				for f := 0; f < 3; f++ {       // only fields 0-2 here
-					sf, lf := starts[f], lens[f]
-					switch lf {
-					case 3:
-						sm[f*4+0] = byte(sf)
-						sm[f*4+1] = byte(sf + 1)
-						sm[f*4+2] = byte(sf + 2)
-					case 2:
-						sm[f*4+0] = 0xFF
-						sm[f*4+1] = byte(sf)
-						sm[f*4+2] = byte(sf + 1)
-					case 1:
-						sm[f*4+0] = 0xFF
-						sm[f*4+1] = 0xFF
-						sm[f*4+2] = byte(sf)
+
+				for l3 := 1; l3 <= 3; l3++ {
+					idx := int(code3)*3 + (l3 - 1)
+					lens := [4]int{l0, l1, l2, l3}
+
+					var sm [16]byte
+					for f := 0; f < 4; f++ {
+						sf, lf := starts[f], lens[f]
+						switch lf {
+						case 3:
+							sm[f*4+0] = byte(sf)
+							sm[f*4+1] = byte(sf + 1)
+							sm[f*4+2] = byte(sf + 2)
+						case 2:
+							sm[f*4+0] = 0xFF
+							sm[f*4+1] = byte(sf)
+							sm[f*4+2] = byte(sf + 1)
+						case 1:
+							sm[f*4+0] = 0xFF
+							sm[f*4+1] = 0xFF
+							sm[f*4+2] = byte(sf)
+						}
+						sm[f*4+3] = 0xFF
 					}
-					sm[f*4+3] = 0xFF
+					shuffleTable[idx] = sm
+					flensTable[idx] = [4]int{l0, l1, l2, l3}
 				}
-				// sm[12..15] (field 3) intentionally zeroed; patched at runtime.
-				sm[15] = 0xFF // PAD byte is always 0xFF regardless of l3
+
 				lemireTable[h] = lemireEntry{
 					expectedMask: dotBitmask,
-					l0:           uint8(l0),
-					l1:           uint8(l1),
-					l2:           uint8(l2),
+					code3:        code3,
 					startF3:      uint8(p3 + 1),
-					shuffleMask:  sm,
 				}
 			}
 		}
@@ -348,33 +357,18 @@ func parseIPv4Inner(s string) (ip [4]byte, errCode uint8, errAt int) {
 	if entry.expectedMask != dotBitmask {
 		return [4]byte{}, 4, 0
 	}
-	// Field lengths l0/l1/l2 and field-3 start are precomputed in the table,
-	// eliminating the 2 CTZ + 1 Len16 operations previously used to re-derive them.
-	l0 := int(entry.l0)
-	l1 := int(entry.l1)
-	l2 := int(entry.l2)
+	// Field-3 start is precomputed in the table; l3 is derived from string length.
 	sf3 := int(entry.startF3)
 	l3 := len(s) - sf3
 	if uint(l3-1) > 2 {
 		return [4]byte{}, 4, 0
 	}
 
-	// Patch field 3 (bytes 12-14) of the shuffle mask with the actual l3 layout.
-	shuffleMask := entry.shuffleMask
-	switch l3 {
-	case 3:
-		shuffleMask[12] = byte(sf3)
-		shuffleMask[13] = byte(sf3 + 1)
-		shuffleMask[14] = byte(sf3 + 2)
-	case 2:
-		shuffleMask[12] = 0xFF
-		shuffleMask[13] = byte(sf3)
-		shuffleMask[14] = byte(sf3 + 1)
-	case 1:
-		shuffleMask[12] = 0xFF
-		shuffleMask[13] = 0xFF
-		shuffleMask[14] = byte(sf3)
-	}
+	// Look up the complete precomputed shuffle mask and field lengths for this
+	// (l0, l1, l2, l3) combination — no runtime patching needed.
+	code := int(entry.code3)*3 + (l3 - 1)
+	shuffleMask := shuffleTable[code]
+	flens := flensTable[code]
 
 	// Apply the swizzle: gather [h0,t0,o0,0, h1,t1,o1,0, h2,t2,o2,0, h3,t3,o3,0].
 	var shuffled [16]byte
@@ -383,7 +377,6 @@ func parseIPv4Inner(s string) (ip [4]byte, errCode uint8, errAt int) {
 	}
 
 	// Extract columns and validate all four fields in parallel.
-	flens := [4]int{l0, l1, l2, l3}
 	go for field := range 4 {
 		h := int(shuffled[field*4+0])
 		t := int(shuffled[field*4+1])
