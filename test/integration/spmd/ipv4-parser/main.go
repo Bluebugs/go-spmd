@@ -332,11 +332,11 @@ func parseIPv4Inner(s string) (ip [4]byte, errCode uint8, errAt int) {
 		isDot := c == '.'
 		digitMask := (c >= '0' && c <= '9')
 
-		// Use a lane-index bound check instead of a null-byte check.
-		// Both approaches mark padding positions as valid; the index form is
-		// explicit about intent and does not depend on the zero-fill value.
-		pastEnd := i >= len(s)
-		validChars := isDot || digitMask || pastEnd
+		// The contiguous load of input [16]byte already zeros positions i >= len(s)
+		// (via bitselect masking in createSPMDVectorFromMemory). So c == 0 is true
+		// exactly for the zero-padded positions, avoiding a separate lane-index
+		// comparison against len(s).
+		validChars := isDot || digitMask || c == 0
 
 		// Check character validity with precise error location.
 		if !reduce.All(validChars) {
