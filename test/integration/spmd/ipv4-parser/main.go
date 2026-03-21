@@ -12,16 +12,23 @@ import (
 	"reduce"
 )
 
-// lemireEntry encodes the expected dot bitmask, a compact index into the
-// precomputed shuffleTable/flensTable (code3 = (l0-1)*9+(l1-1)*3+(l2-1)),
-// and the start position of field 3.  The struct is 4 bytes.
+// lemireEntry packs four fields into a single uint32 for a single i32.load:
+//
+//	bits  0-15: expectedMask — the 16-bit dot bitmask this entry was built for
+//	bits 16-23: code3x3     — (l0-1)*9+(l1-1)*3+(l2-1)) * 3, precomputed to
+//	                          avoid a runtime multiply when indexing shuffleTable
+//	bits 24-31: startF3     — start position of field 3 = p3+1
+//
 // A zero entry (expectedMask==0) indicates an unused table slot; no valid
 // dotBitmask can be zero since it always has exactly 3 bits set.
-type lemireEntry struct {
-	expectedMask uint16
-	code3        uint8 // (l0-1)*9 + (l1-1)*3 + (l2-1), indexes into shuffleTable/flensTable
-	startF3      uint8 // start position of field 3 = p3+1
-}
+type lemireEntry uint32
+
+func (e lemireEntry) expectedMask() uint16 { return uint16(e & 0xFFFF) }
+
+// code3x3 returns (l0-1)*9+(l1-1)*3+(l2-1) already multiplied by 3,
+// ready to add (l3-1) to get the final shuffleTable/flensTable index.
+func (e lemireEntry) code3x3() int { return int((e >> 16) & 0xFF) }
+func (e lemireEntry) startF3() int { return int(e >> 24) }
 
 // lemireTable is indexed by the Lemire compact hash of the 16-bit dotBitmask:
 //
@@ -83,11 +90,9 @@ func init() {
 					flensTable[idx] = [4]int{l0, l1, l2, l3}
 				}
 
-				lemireTable[h] = lemireEntry{
-					expectedMask: dotBitmask,
-					code3:        code3,
-					startF3:      uint8(p3 + 1),
-				}
+				// Pack into uint32: expectedMask | (code3*3)<<16 | startF3<<24.
+				// Precomputing code3*3 eliminates the multiply in the hot path.
+				lemireTable[h] = lemireEntry(uint32(dotBitmask) | uint32(code3)*3<<16 | uint32(p3+1)<<24)
 			}
 		}
 	}
@@ -327,8 +332,11 @@ func parseIPv4Inner(s string) (ip [4]byte, errCode uint8, errAt int) {
 		isDot := c == '.'
 		digitMask := (c >= '0' && c <= '9')
 
-		// Valid if dot, digit, or null (padding).
-		validChars := isDot || digitMask || c == 0
+		// Use a lane-index bound check instead of a null-byte check.
+		// Both approaches mark padding positions as valid; the index form is
+		// explicit about intent and does not depend on the zero-fill value.
+		pastEnd := i >= len(s)
+		validChars := isDot || digitMask || pastEnd
 
 		// Check character validity with precise error location.
 		if !reduce.All(validChars) {
@@ -354,11 +362,11 @@ func parseIPv4Inner(s string) (ip [4]byte, errCode uint8, errAt int) {
 	hash := (dotBitmask >> 5) ^ (dotBitmask & 0x03ff)
 	entry := lemireTable[hash]
 	// Validate: if no valid layout hashes here, expectedMask is zero.
-	if entry.expectedMask != dotBitmask {
+	if entry.expectedMask() != dotBitmask {
 		return [4]byte{}, 4, 0
 	}
 	// Field-3 start is precomputed in the table; l3 is derived from string length.
-	sf3 := int(entry.startF3)
+	sf3 := entry.startF3()
 	l3 := len(s) - sf3
 	if uint(l3-1) > 2 {
 		return [4]byte{}, 4, 0
@@ -366,7 +374,8 @@ func parseIPv4Inner(s string) (ip [4]byte, errCode uint8, errAt int) {
 
 	// Look up the complete precomputed shuffle mask and field lengths for this
 	// (l0, l1, l2, l3) combination — no runtime patching needed.
-	code := int(entry.code3)*3 + (l3 - 1)
+	// code3x3() already holds code3*3; add (l3-1) to get the final index.
+	code := entry.code3x3() + (l3 - 1)
 	shuffleMask := shuffleTable[code]
 	flens := flensTable[code]
 
