@@ -571,12 +571,14 @@ test_compile_and_run "integ_pointer-varying" "$INTEG/pointer-varying/main.go" "c
 # ========== LEVEL 6: SPMD functions with mask ==========
 printf "\n${BLUE}--- Level 6: Complex patterns (compile only) ---${NC}\n"
 
-for dir in base64-decoder \
-           union-type-generics; do
+for dir in base64-decoder; do
     if [ -f "$INTEG/$dir/main.go" ]; then
         test_compile "integ_$dir" "$INTEG/$dir/main.go"
     fi
 done
+
+test_compile_and_run "integ_union-type-generics" "$INTEG/union-type-generics/main.go" \
+    "contains:All union type generic operations completed successfully" "" "-scheduler=none"
 
 # ========== LEVEL 7: Illegal examples (should fail) ==========
 printf "\n${BLUE}--- Level 7: Illegal examples (should be rejected) ---${NC}\n"
