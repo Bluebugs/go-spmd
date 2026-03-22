@@ -203,13 +203,11 @@ Lexer, parser, type system with `lanes.Varying[T]`, full SPMD type checking (ISP
 
 Syntax migration completed (5 commits, ~55 files). Dual-mode testing and benchmarking remain. See `docs/poc-testing-workflow.md`.
 
-**E2E Compile Failures** (7 by root cause):
+**E2E Compile Failures** (1 remaining):
 
-- **Backend bugs (3)**: array-counting (SIGSEGV), map-restrictions (varying→scalar call mismatch), non-spmd-varying-return (call param type mismatch)
-- **Missing features (2)**: pointer-varying (varying index), base64-decoder (type inference + varying index)
-- **External bugs (2)**: union-type-generics (x-tools SPMDType in typeparams.Free), varying-array-iteration (test uses nested go for)
+- **Missing features (1)**: base64-decoder (varying indexing `r[varyingIndex]` + type inference for ShiftLeft)
 
-**Next Priority**: (1) Fix union-type-generics (x-tools SPMDType hashing), (2) Fix array-counting SIGSEGV, (3) Implement scalar fallback mode
+**Next Priority**: (1) Implement scalar fallback mode, (2) Fix base64-decoder varying indexing, (3) Phase 3 validation
 
 ## Debugging Tips
 
