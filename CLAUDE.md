@@ -195,19 +195,21 @@ Lexer, parser, type system with `lanes.Varying[T]`, full SPMD type checking (ISP
 - **Predicated SSA** (DONE): go/ssa linearizes varying control flow (if/else, switch, boolean chains) into SPMDSelect/SPMDLoad/SPMDStore/SPMDIndex
 - **SSA-level loop peeling** (DONE): go/ssa splits loops into main (all-ones mask) + tail (masked). TinyGo consumes mechanically.
 - **Mask stack removed** (DONE): All memory op masking migrated to SSA level (explicit masks on SPMDLoad/SPMDStore). spmdMaskStack/push/pop/current removed. Interleaved store analysis migrated to scan SPMDStore.
-- **2.9-2.10** (REMAINING): Varying for-loop masking, lanes.Rotate/Swizzle (full-width), scalar fallback mode
+- **2.9-2.10** (REMAINING): Varying for-loop masking
+- **Scalar fallback mode** (DONE): `-simd=false` flag, `SIMDRegisterSize` in `types.Config`, `spmdUsesSIMD()` helper
+- **Dual-mode E2E** (DONE): Level 8 compiles 8 tests in both SIMD and scalar, verifying identical output
 - **Key Metrics**: Mandelbrot ~3.19x SPMD speedup (0 diffs vs serial); hex-encode Dst ~4.5x, Src ~14.1x (wasmtime)
-- **E2E Results**: 42 run pass, 42 compile pass, 1 compile fail, 0 run fail, 11 reject OK (54 total)
+- **E2E Results**: 42 run pass, 42 compile pass, 1 compile fail, 0 run fail, 11 reject OK, 8 dual-mode pass (62 total)
 
-### Phase 3: Validation (NOT STARTED)
+### Phase 3: Validation (IN PROGRESS)
 
-Syntax migration completed (5 commits, ~55 files). Dual-mode testing and benchmarking remain. See `docs/poc-testing-workflow.md`.
+Scalar fallback mode and dual-mode E2E testing are operational. Remaining: expand dual-mode coverage, performance benchmarking, browser integration. See `docs/poc-testing-workflow.md`.
 
 **E2E Compile Failures** (1 remaining):
 
 - **Missing features (1)**: base64-decoder (varying indexing `r[varyingIndex]` + type inference for ShiftLeft)
 
-**Next Priority**: (1) Implement scalar fallback mode, (2) Fix base64-decoder varying indexing, (3) Phase 3 validation
+**Next Priority**: (1) Expand dual-mode test coverage, (2) Fix base64-decoder varying indexing, (3) Performance benchmarking
 
 ## Debugging Tips
 
