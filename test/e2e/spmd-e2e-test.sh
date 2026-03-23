@@ -646,6 +646,49 @@ test_dual_mode "dual_lo-max"           "$INTEG/lo-max/main.go"
 test_dual_mode "dual_lo-contains"      "$INTEG/lo-contains/main.go"
 test_dual_mode "dual_lo-clamp"         "$INTEG/lo-clamp/main.go"
 
+# ========== LEVEL 9: Lane-count-dependent scalar validation ==========
+printf "\n${BLUE}--- Level 9: Scalar validation (lane-count-dependent tests) ---${NC}\n"
+
+# These tests print varying values with %v or use lanes.Index() in computation,
+# so output naturally differs between SIMD (laneCount=4) and scalar (laneCount=1).
+# We validate they compile and run correctly in scalar mode by checking their
+# completion markers. This ensures the compiler handles scalar types throughout.
+test_compile_and_run "scalar_debug-varying"             "$INTEG/debug-varying/main.go" \
+    "contains:Total for this iteration: 160" "" "-scheduler=none -simd=false"
+test_compile_and_run "scalar_lanes-index-restrictions"  "$INTEG/lanes-index-restrictions/main.go" \
+    "contains:All lanes.Index() restrictions demonstrated successfully" "" "-scheduler=none -simd=false"
+test_compile_and_run "scalar_type-switch-varying"       "$INTEG/type-switch-varying/main.go" \
+    "contains:All type switch varying tests completed" "" "-scheduler=none -simd=false"
+test_compile_and_run "scalar_defer-varying"             "$INTEG/defer-varying/main.go" \
+    "contains:All defer varying tests completed successfully" "" "-scheduler=none -simd=false"
+test_compile_and_run "scalar_panic-recover-varying"     "$INTEG/panic-recover-varying/main.go" \
+    "contains:Done" "" "-scheduler=none -simd=false"
+test_compile_and_run "scalar_bit-counting"              "$INTEG/bit-counting/main.go" \
+    "Bit counts: 32" "" "-scheduler=none -simd=false"
+test_compile_and_run "scalar_type-casting-varying"      "$INTEG/type-casting-varying/main.go" \
+    "contains:All type casting tests completed successfully!" "" "-scheduler=none -simd=false"
+test_compile_and_run "scalar_varying-array-iteration"   "$INTEG/varying-array-iteration/main.go" \
+    "contains:All varying array iteration examples completed successfully" "" "-scheduler=none -simd=false"
+test_compile_and_run "scalar_non-spmd-varying-return"   "$INTEG/non-spmd-varying-return/main.go" \
+    "contains:All non-SPMD varying return operations completed successfully" "" "-scheduler=none -simd=false"
+test_compile_and_run "scalar_map-restrictions"          "$INTEG/map-restrictions/main.go" \
+    "contains:Map restrictions demonstration completed" "" "-scheduler=none -simd=false"
+test_compile_and_run "scalar_union-type-generics"       "$INTEG/union-type-generics/main.go" \
+    "contains:All union type generic operations completed successfully" "" "-scheduler=none -simd=false"
+test_compile_and_run "scalar_mandelbrot"                "$INTEG/mandelbrot/main.go" \
+    "contains:Mandelbrot SPMD example completed successfully" "" "-scheduler=none -simd=false"
+test_compile_and_run "scalar_to-upper"                  "$INTEG/to-upper/main.go" \
+    "contains:'hello world' -> 'HELLO WORLD'" "" "-scheduler=none -simd=false"
+test_compile_and_run "scalar_store-coalescing"          "$INTEG/store-coalescing/main.go" \
+    "contains:PASS" "" "-scheduler=none -simd=false"
+test_compile_and_run "scalar_printf-verbs"              "$INTEG/printf-verbs/main.go" \
+    "contains:No '%' found in: No verbs here" "" "-scheduler=none -simd=false"
+test_compile_and_run "scalar_array-counting"            "$INTEG/array-counting/main.go" \
+    "contains:Array sums:" "" "-scheduler=none -simd=false"
+# pointer-varying: lane-count-dependent logic (lanes.Index per-lane), fails its
+# own correctness check in scalar mode. Compile-only validation.
+test_compile "scalar_pointer-varying" "$INTEG/pointer-varying/main.go" "-simd=false"
+
 # ========== SUMMARY ==========
 echo ""
 printf "${BLUE}=== Summary ===${NC}\n"
