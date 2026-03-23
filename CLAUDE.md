@@ -179,6 +179,7 @@ All deferred work MUST be documented in the "Deferred Items Collection" section 
 3. Ensure varying operations generate vector LLVM IR
 4. Prevent LLVM from scalarizing vector operations
 5. Handle edge cases like varying array indices
+6. **Lane-count-dependent anti-pattern**: Code that uses `lanes.Index()` for per-lane computation or inspects individual lane values via `reduce.From` produces results that depend on the SIMD width. Such code is NOT portable across different lane counts (e.g., SIMD vs scalar mode, or 128-bit vs 256-bit SIMD). Correct SPMD code should use reductions (`reduce.Add`, `reduce.Max`, etc.) to produce lane-independent scalar results. Future: detect with golangci-lint rule.
 
 ## Current Implementation Status
 
