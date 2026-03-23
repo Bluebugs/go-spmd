@@ -590,6 +590,62 @@ for f in "$ILLEGAL"/*.go; do
     test_compile_fail "illegal_$name" "$f"
 done
 
+# ========== LEVEL 8: Dual-mode testing (SIMD vs scalar) ==========
+printf "\n${BLUE}--- Level 8: Dual-mode (SIMD vs scalar) ---${NC}\n"
+
+test_dual_mode() {
+    local name="$1" src="$2" extra="${3:--scheduler=none}"
+    local simd_out="$OUTDIR/${name}-simd.wasm"
+    local scalar_out="$OUTDIR/${name}-scalar.wasm"
+    TOTAL=$((TOTAL + 1))
+
+    # Compile SIMD version
+    if ! compile "$src" "$simd_out" "$extra" >/dev/null 2>&1; then
+        COMPILE_FAIL=$((COMPILE_FAIL + 1))
+        printf "${RED}DUAL FAIL${NC}    %-40s %s\n" "$name" "SIMD compile failed"
+        return 1
+    fi
+    # Compile scalar version
+    if ! compile "$src" "$scalar_out" "$extra -simd=false" >/dev/null 2>&1; then
+        COMPILE_FAIL=$((COMPILE_FAIL + 1))
+        printf "${RED}DUAL FAIL${NC}    %-40s %s\n" "$name" "Scalar compile failed"
+        return 1
+    fi
+    COMPILE_PASS=$((COMPILE_PASS + 1))
+
+    # Run both and compare output.
+    # Filter node warnings and benchmark timing lines (Scalar:/SPMD:/Speedup:) which
+    # are non-deterministic and differ between SIMD and scalar modes by design.
+    local simd_output scalar_output
+    simd_output=$(run_wasm "$simd_out" "" 2>&1 | grep -v "ExperimentalWarning\|trace-warnings\|^Scalar:\|^SPMD:\|^Speedup:")
+    scalar_output=$(run_wasm "$scalar_out" "" 2>&1 | grep -v "ExperimentalWarning\|trace-warnings\|^Scalar:\|^SPMD:\|^Speedup:")
+
+    if [ "$simd_output" = "$scalar_output" ]; then
+        RUN_PASS=$((RUN_PASS + 1))
+        printf "${GREEN}DUAL PASS${NC}    %-40s\n" "$name"
+    else
+        RUN_FAIL=$((RUN_FAIL + 1))
+        printf "${RED}DUAL FAIL${NC}    %-40s %s\n" "$name" "outputs differ"
+        diff <(echo "$simd_output") <(echo "$scalar_output") | head -5
+    fi
+}
+
+# Tests that produce scalar-only output (reduce results, not varying %v format).
+# Excluded from dual-mode testing:
+#   hex-encode, mandelbrot: print benchmark timing lines (Scalar/SPMD dst/Speedup) which
+#     differ between modes by design; mandelbrot also prints lane-count-dependent varying display.
+#   bit-counting: scalar fallback crashes (SIGSEGV in splatScalar, pre-existing bug).
+# Timing lines (^Scalar:/^SPMD:/^Speedup:) are already stripped, but hex-encode uses
+# different timing prefixes (e.g. "SPMD dst:", "Speedup dst") so it is excluded entirely.
+test_dual_mode "dual_simple-sum"       "$INTEG/simple-sum/main.go"
+test_dual_mode "dual_odd-even"         "$INTEG/odd-even/main.go"
+test_dual_mode "dual_lo-sum"           "$INTEG/lo-sum/main.go"
+test_dual_mode "dual_lo-mean"          "$INTEG/lo-mean/main.go"
+test_dual_mode "dual_lo-min"           "$INTEG/lo-min/main.go"
+test_dual_mode "dual_lo-max"           "$INTEG/lo-max/main.go"
+test_dual_mode "dual_lo-contains"      "$INTEG/lo-contains/main.go"
+test_dual_mode "dual_lo-clamp"         "$INTEG/lo-clamp/main.go"
+
 # ========== SUMMARY ==========
 echo ""
 printf "${BLUE}=== Summary ===${NC}\n"
