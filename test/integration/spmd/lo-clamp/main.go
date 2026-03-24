@@ -1,6 +1,7 @@
 // run -goexperiment spmd
-
-// Lo Clamp SPMD equivalent — E2E test with scalar vs SPMD benchmark
+//
+// Lo Clamp SPMD equivalent — E2E test with scalar vs SPMD benchmark.
+// Pre-allocates output buffer to measure pure compute, not allocation.
 package main
 
 import (
@@ -10,7 +11,7 @@ import (
 )
 
 const (
-	dataSize   = 1024
+	dataSize   = 8192
 	iterations = 10000
 	warmup     = 3
 	benchRuns  = 7
@@ -19,18 +20,21 @@ const (
 func main() {
 	data := make([]int32, dataSize)
 	for i := range data {
-		data[i] = int32(i - dataSize/2) // -512 to 511
+		data[i] = int32(i - dataSize/2)
 	}
 	lo := int32(-100)
 	hi := int32(100)
 
-	scalar := clampScalar(data, lo, hi)
-	spmd := clampSPMD(data, lo, hi)
+	// Correctness check (allocating versions for simplicity).
+	scalarResult := make([]int32, len(data))
+	spmdResult := make([]int32, len(data))
+	clampScalar(data, scalarResult, lo, hi)
+	clampSPMD(data, spmdResult, lo, hi)
 
 	pass := true
 	for i := range data {
-		if scalar[i] != spmd[i] {
-			fmt.Printf("FAIL at index %d: scalar=%d spmd=%d\n", i, scalar[i], spmd[i])
+		if scalarResult[i] != spmdResult[i] {
+			fmt.Printf("FAIL at index %d: scalar=%d spmd=%d\n", i, scalarResult[i], spmdResult[i])
 			pass = false
 			break
 		}
@@ -40,15 +44,19 @@ func main() {
 	}
 	fmt.Println("Correctness: PASS")
 
+	// Benchmark: pre-allocated buffers, measuring pure compute.
+	scalarBuf := make([]int32, len(data))
+	spmdBuf := make([]int32, len(data))
+
 	for i := 0; i < warmup; i++ {
 		for n := 0; n < iterations; n++ {
-			clampScalar(data, lo, hi)
-			clampSPMD(data, lo, hi)
+			clampScalar(data, scalarBuf, lo, hi)
+			clampSPMD(data, spmdBuf, lo, hi)
 		}
 	}
 
-	scalarNs := bench(func() { clampScalar(data, lo, hi) })
-	spmdNs := bench(func() { clampSPMD(data, lo, hi) })
+	scalarNs := bench(func() { clampScalar(data, scalarBuf, lo, hi) })
+	spmdNs := bench(func() { clampSPMD(data, spmdBuf, lo, hi) })
 
 	fmt.Printf("Scalar: %dns/iter\n", scalarNs)
 	fmt.Printf("SPMD:   %dns/iter\n", spmdNs)
@@ -57,8 +65,7 @@ func main() {
 	}
 }
 
-func clampScalar(data []int32, lo, hi int32) []int32 {
-	result := make([]int32, len(data))
+func clampScalar(data, result []int32, lo, hi int32) {
 	for i, v := range data {
 		if v < lo {
 			result[i] = lo
@@ -68,11 +75,9 @@ func clampScalar(data []int32, lo, hi int32) []int32 {
 			result[i] = v
 		}
 	}
-	return result
 }
 
-func clampSPMD(data []int32, lo, hi int32) []int32 {
-	result := make([]int32, len(data))
+func clampSPMD(data, result []int32, lo, hi int32) {
 	go for i := range len(data) {
 		v := data[i]
 		if v < lo {
@@ -83,7 +88,6 @@ func clampSPMD(data []int32, lo, hi int32) []int32 {
 			result[i] = v
 		}
 	}
-	return result
 }
 
 func bench(fn func()) int64 {
