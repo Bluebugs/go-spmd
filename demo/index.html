@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Go SPMD — Browser SIMD Demo</title>
+<style>
+  :root { --bg: #0d1117; --card: #161b22; --border: #30363d; --text: #e6edf3;
+          --muted: #8b949e; --green: #3fb950; --red: #f85149; --blue: #58a6ff;
+          --yellow: #d29922; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+         background: var(--bg); color: var(--text); line-height: 1.5; padding: 2rem; max-width: 900px; margin: 0 auto; }
+  h1 { font-size: 1.8rem; margin-bottom: 0.5rem; }
+  .subtitle { color: var(--muted); margin-bottom: 2rem; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 1.5rem; margin-bottom: 1.5rem; }
+  .card h2 { font-size: 1.2rem; margin-bottom: 1rem; }
+  .status { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.4rem 1rem; border-radius: 20px;
+            font-size: 0.9rem; font-weight: 600; }
+  .status.yes { background: rgba(63, 185, 80, 0.15); color: var(--green); }
+  .status.no { background: rgba(248, 81, 73, 0.15); color: var(--red); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; }
+  .status.yes .dot { background: var(--green); }
+  .status.no .dot { background: var(--red); }
+  .buttons { display: flex; gap: 0.75rem; flex-wrap: wrap; margin: 1rem 0; }
+  button { background: var(--blue); color: #fff; border: none; border-radius: 6px;
+           padding: 0.6rem 1.2rem; font-size: 0.9rem; cursor: pointer; font-weight: 500; }
+  button:hover { opacity: 0.9; }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+  button.secondary { background: var(--border); color: var(--text); }
+  .output { background: #0d1117; border: 1px solid var(--border); border-radius: 6px;
+            padding: 1rem; font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.85rem;
+            white-space: pre-wrap; max-height: 400px; overflow-y: auto; color: var(--muted);
+            min-height: 60px; }
+  .output .highlight { color: var(--green); font-weight: 700; }
+  .output .timing { color: var(--yellow); }
+  .output .label { color: var(--blue); }
+  .comparison { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+  .comparison .col h3 { font-size: 1rem; margin-bottom: 0.5rem; color: var(--muted); }
+  .speedup-box { background: rgba(63, 185, 80, 0.1); border: 1px solid rgba(63, 185, 80, 0.3);
+                 border-radius: 6px; padding: 1rem; text-align: center; margin-top: 1rem; }
+  .speedup-box .number { font-size: 2.5rem; font-weight: 700; color: var(--green); }
+  .speedup-box .label { font-size: 0.85rem; color: var(--muted); }
+  .info { font-size: 0.85rem; color: var(--muted); margin-top: 0.5rem; }
+  @media (max-width: 640px) { .comparison { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+
+<h1>Go SPMD — Browser SIMD Demo</h1>
+<p class="subtitle">Single Program Multiple Data for Go, targeting WebAssembly SIMD128</p>
+
+<div class="card">
+  <h2>SIMD Detection</h2>
+  <div id="detection">Detecting...</div>
+  <p class="info">Tests <code>WebAssembly.validate</code> with a minimal v128 module.</p>
+</div>
+
+<div class="card">
+  <h2>Mandelbrot Benchmark</h2>
+  <p style="color: var(--muted); margin-bottom: 0.5rem;">256x256 pixel Mandelbrot set — serial vs SPMD computation.</p>
+  <div class="buttons">
+    <button onclick="runDemo('auto')" id="btn-auto">Run (auto-detect)</button>
+    <button onclick="runBoth()" id="btn-both" class="secondary">Run Both &amp; Compare</button>
+  </div>
+  <div id="single-output" style="display:none;">
+    <div class="output" id="output"></div>
+  </div>
+  <div id="compare-output" style="display:none;">
+    <div class="comparison">
+      <div class="col">
+        <h3>SIMD Mode</h3>
+        <div class="output" id="output-simd"></div>
+      </div>
+      <div class="col">
+        <h3>Scalar Mode</h3>
+        <div class="output" id="output-scalar"></div>
+      </div>
+    </div>
+    <div class="speedup-box" id="speedup-box" style="display:none;">
+      <div class="number" id="speedup-number">—</div>
+      <div class="label">SIMD speedup over scalar (SPMD computation time)</div>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <h2>How It Works</h2>
+  <p style="color: var(--muted);">
+    The same Go SPMD source code compiles to two WASM binaries:<br>
+    <code>-simd=true</code> produces vectorized WASM with <code>v128</code> instructions (4 pixels per iteration).<br>
+    <code>-simd=false</code> produces scalar WASM (1 pixel per iteration).<br>
+    The browser detects SIMD support and loads the optimal binary automatically.
+  </p>
+</div>
+
+<script>
+// --- SIMD Detection ---
+function detectSimd() {
+  try {
+    return WebAssembly.validate(new Uint8Array([
+      0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+      0x01, 0x05, 0x01, 0x60, 0x00, 0x01, 0x7b,
+    ]));
+  } catch { return false; }
+}
+
+const simdSupported = detectSimd();
+document.getElementById('detection').innerHTML = simdSupported
+  ? '<span class="status yes"><span class="dot"></span>WebAssembly SIMD128 supported</span>'
+  : '<span class="status no"><span class="dot"></span>WebAssembly SIMD128 not supported</span>';
+
+// --- WASI Shim ---
+class WasiExit extends Error {
+  constructor(code) { super(`WASI exit: ${code}`); this.code = code; }
+}
+
+function createWasiImports(getMemory, stdout) {
+  return {
+    wasi_snapshot_preview1: {
+      fd_write(fd, iovs, iovsLen, nwrittenPtr) {
+        const mem = getMemory();
+        const view = new DataView(mem.buffer);
+        let written = 0;
+        for (let i = 0; i < iovsLen; i++) {
+          const ptr = view.getUint32(iovs + i * 8, true);
+          const len = view.getUint32(iovs + i * 8 + 4, true);
+          const bytes = new Uint8Array(mem.buffer, ptr, len);
+          stdout.push(new TextDecoder().decode(bytes));
+          written += len;
+        }
+        view.setUint32(nwrittenPtr, written, true);
+        return 0;
+      },
+      proc_exit(code) { throw new WasiExit(code); },
+      clock_time_get(id, precisionLo, precisionHi, timePtr) {
+        const mem = getMemory();
+        const view = new DataView(mem.buffer);
+        const ns = BigInt(Math.round(performance.now() * 1e6));
+        view.setBigUint64(timePtr, ns, true);
+        return 0;
+      },
+      args_sizes_get(argcPtr, argvBufSizePtr) {
+        const mem = getMemory();
+        const view = new DataView(mem.buffer);
+        view.setUint32(argcPtr, 0, true);
+        view.setUint32(argvBufSizePtr, 0, true);
+        return 0;
+      },
+      args_get() { return 0; },
+      random_get(buf, len) {
+        const mem = getMemory();
+        const view = new Uint8Array(mem.buffer, buf, len);
+        crypto.getRandomValues(view);
+        return 0;
+      },
+    },
+    asyncify: {
+      start_unwind() {}, stop_unwind() {},
+      start_rewind() {}, stop_rewind() {},
+    },
+  };
+}
+
+// --- Run WASM ---
+async function runWasm(file) {
+  const stdout = [];
+  let instanceMemory = null;
+  const getMemory = () => instanceMemory;
+  const imports = createWasiImports(getMemory, stdout);
+
+  const response = await fetch(file);
+  if (!response.ok) throw new Error(`Failed to fetch ${file}: ${response.status}`);
+  const bytes = await response.arrayBuffer();
+  const module = await WebAssembly.compile(bytes);
+  const instance = await WebAssembly.instantiate(module, imports);
+
+  // TinyGo exports its own memory
+  instanceMemory = instance.exports.memory;
+
+  try { instance.exports._start(); }
+  catch (e) { if (!(e instanceof WasiExit)) throw e; }
+
+  return stdout.join('');
+}
+
+// --- UI Helpers ---
+function formatOutput(text) {
+  return text
+    .replace(/(SPMD speedup: [\d.]+x)/g, '<span class="highlight">$1</span>')
+    .replace(/(Serial computation time: [\d.]+\w+)/g, '<span class="timing">$1</span>')
+    .replace(/(SPMD computation time: [\d.]+\w+)/g, '<span class="timing">$1</span>')
+    .replace(/(Verification: 0 differences[^\n]*)/g, '<span class="highlight">$1</span>')
+    .replace(/(Results match[^\n]*)/g, '<span class="highlight">$1</span>');
+}
+
+function extractSpmdTime(text) {
+  const match = text.match(/SPMD computation time: ([\d.]+)(us|ms|ns|s)/);
+  if (!match) return null;
+  const val = parseFloat(match[1]);
+  switch (match[2]) {
+    case 'ns': return val / 1e6;
+    case 'us': case 'µs': return val / 1e3;
+    case 'ms': return val;
+    case 's': return val * 1e3;
+  }
+  return val;
+}
+
+function setButtons(disabled) {
+  document.getElementById('btn-auto').disabled = disabled;
+  document.getElementById('btn-both').disabled = disabled;
+}
+
+// --- Actions ---
+async function runDemo(mode) {
+  setButtons(true);
+  const el = document.getElementById('output');
+  document.getElementById('single-output').style.display = 'block';
+  document.getElementById('compare-output').style.display = 'none';
+  el.innerHTML = 'Loading and running...';
+
+  try {
+    const file = mode === 'auto'
+      ? (simdSupported ? 'mandelbrot-simd.wasm' : 'mandelbrot-scalar.wasm')
+      : `mandelbrot-${mode}.wasm`;
+    const modeLabel = file.includes('simd') ? 'SIMD' : 'Scalar';
+    el.innerHTML = `<span class="label">Mode: ${modeLabel}</span>\nLoading ${file}...\n`;
+
+    const text = await runWasm(file);
+    el.innerHTML = `<span class="label">Mode: ${modeLabel}</span>\n` + formatOutput(text);
+  } catch (e) {
+    el.innerHTML = `<span style="color:var(--red)">Error: ${e.message}</span>`;
+  }
+  setButtons(false);
+}
+
+async function runBoth() {
+  setButtons(true);
+  document.getElementById('single-output').style.display = 'none';
+  document.getElementById('compare-output').style.display = 'block';
+  document.getElementById('speedup-box').style.display = 'none';
+
+  const elSimd = document.getElementById('output-simd');
+  const elScalar = document.getElementById('output-scalar');
+  elSimd.innerHTML = 'Loading mandelbrot-simd.wasm...';
+  elScalar.innerHTML = 'Waiting...';
+
+  try {
+    const simdText = await runWasm('mandelbrot-simd.wasm');
+    elSimd.innerHTML = formatOutput(simdText);
+
+    elScalar.innerHTML = 'Loading mandelbrot-scalar.wasm...';
+    const scalarText = await runWasm('mandelbrot-scalar.wasm');
+    elScalar.innerHTML = formatOutput(scalarText);
+
+    // Extract and compare SPMD times
+    const simdMs = extractSpmdTime(simdText);
+    const scalarMs = extractSpmdTime(scalarText);
+    if (simdMs && scalarMs && simdMs > 0) {
+      const speedup = (scalarMs / simdMs).toFixed(2);
+      document.getElementById('speedup-number').textContent = speedup + 'x';
+      document.getElementById('speedup-box').style.display = 'block';
+    }
+  } catch (e) {
+    elSimd.innerHTML += `\n<span style="color:var(--red)">Error: ${e.message}</span>`;
+  }
+  setButtons(false);
+}
+</script>
+</body>
+</html>
