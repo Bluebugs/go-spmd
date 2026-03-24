@@ -198,19 +198,21 @@ Lexer, parser, type system with `lanes.Varying[T]`, full SPMD type checking (ISP
 - **Mask stack removed** (DONE): All memory op masking migrated to SSA level (explicit masks on SPMDLoad/SPMDStore). spmdMaskStack/push/pop/current removed. Interleaved store analysis migrated to scan SPMDStore.
 - **2.9-2.10** (REMAINING): Varying for-loop masking
 - **Scalar fallback mode** (DONE): `-simd=false` flag, `SIMDRegisterSize` in `types.Config`, `spmdUsesSIMD()` helper
-- **Dual-mode E2E** (DONE): Level 8 compiles 8 tests in both SIMD and scalar, verifying identical output
-- **Key Metrics**: Mandelbrot ~3.19x SPMD speedup (0 diffs vs serial); hex-encode Dst ~4.5x, Src ~14.1x (wasmtime)
-- **E2E Results**: 42 run pass, 42 compile pass, 1 compile fail, 0 run fail, 11 reject OK, 8 dual-mode pass (62 total)
+- **SPMDStore merge** (DONE): SSA-level optimization merges consecutive stores to same address into single store + chained SPMDSelect
+- **Dual-mode E2E** (DONE): Level 8 (identical output, 8 tests) + Level 9 (scalar-validated, 16 tests + 1 compile-only)
+- **SIMD vs scalar benchmark** (DONE): `test/e2e/spmd-benchmark.sh` with wasmtime
+- **Key Metrics** (wasmtime, SIMD vs scalar SPMD): Hex-encode Dst **~8.9x**; Mandelbrot **~3.18x** (0 diffs); lo-sum/mean/min/max **~2.3-2.4x**; lo-clamp **~2.18x**; lo-contains **~1.62x**
+- **E2E Results**: 42 run pass, 42 compile pass, 1 compile fail, 0 run fail, 11 reject OK, 8 dual-mode pass, 16 scalar-validated pass (79 total)
 
 ### Phase 3: Validation (IN PROGRESS)
 
-Scalar fallback mode and dual-mode E2E testing are operational. Remaining: expand dual-mode coverage, performance benchmarking, browser integration. See `docs/poc-testing-workflow.md`.
+Scalar fallback mode, dual-mode E2E testing, and SIMD-vs-scalar benchmarking are operational. Remaining: browser SIMD detection demo, expand dual-mode coverage. See `docs/poc-testing-workflow.md`.
 
 **E2E Compile Failures** (1 remaining):
 
 - **Missing features (1)**: base64-decoder (varying indexing `r[varyingIndex]` + type inference for ShiftLeft)
 
-**Next Priority**: (1) Expand dual-mode test coverage, (2) Fix base64-decoder varying indexing, (3) Performance benchmarking
+**Next Priority**: (1) Browser SIMD detection demo, (2) Fix base64-decoder varying indexing, (3) Expand dual-mode test coverage
 
 ## Debugging Tips
 

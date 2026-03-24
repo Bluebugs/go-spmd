@@ -1,8 +1,8 @@
 # SPMD Implementation Plan for Go + TinyGo
 
-**Version**: 2.12
-**Last Updated**: 2026-03-14
-**Status**: Phase 1 Complete, Phase 2.0-2.9r complete, pointer-varying promoted to run-pass (ChangeType contiguous propagation + per-lane field GEP + spmdVectorTypeSuffix pointer fix), E2E: 42 run pass, 42 compile pass, 1 compile fail, 0 run fail, 11 reject OK (54 total)
+**Version**: 2.13
+**Last Updated**: 2026-03-23
+**Status**: Phase 1 Complete, Phase 2 near-complete (scalar fallback + store merge + lanes.Rotate/Swizzle done), Phase 3 IN PROGRESS (dual-mode E2E + benchmark operational). E2E: 79 total (42 SIMD run-pass, 8 dual-mode, 16 scalar-validated, 1 compile-fail, 11 reject-OK). Benchmarks: hex-encode 8.9x, mandelbrot 3.18x, reductions 2.2-2.4x.
 
 ## Project Overview
 
