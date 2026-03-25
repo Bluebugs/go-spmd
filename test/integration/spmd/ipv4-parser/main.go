@@ -325,29 +325,33 @@ func parseIPv4Inner(s string) (ip [4]byte, errCode uint8, errAt int) {
 
 	// Loop 1: classify every byte in parallel, build dot bitmask and prepare digits computation.
 	var dotBitmask uint16
+	var validBitmask uint16
 	var loop int
 	var digits [16]byte
 
 	go for i, c := range input {
 		isDot := c == '.'
 		digitMask := (c >= '0' && c <= '9')
-
-		// The contiguous load of input [16]byte already zeros positions i >= len(s)
-		// (via bitselect masking in createSPMDVectorFromMemory). So c == 0 is true
-		// exactly for the zero-padded positions, avoiding a separate lane-index
-		// comparison against len(s).
-		validChars := isDot || digitMask || c == 0
-
-		// Check character validity with precise error location.
-		if !reduce.All(validChars) {
-			return [4]byte{}, 2, reduce.FindFirstSet(!validChars) + loop
-		}
+		validChars := isDot || digitMask
 
 		digits[i] = c - '0'
 
-		// Build dot position bitmask (mimics _mm_movemask_epi8).
 		dotBitmask |= uint16(reduce.Mask(isDot)) << loop
+		validBitmask |= uint16(reduce.Mask(validChars)) << loop
 		loop += lanes.Count(c)
+	}
+
+	// Trim bitmasks to string length — clear false matches from garbage bytes
+	// beyond len(s). Instead of zero-padding the input vector (5 SIMD instructions),
+	// we trim the scalar bitmask (Lemire approach: 3 scalar instructions).
+	lengthMask := uint16((1 << len(s)) - 1)
+	dotBitmask &= lengthMask
+
+	// Validate all bytes within string length are dots or digits.
+	if validBitmask&lengthMask != lengthMask {
+		// Find first invalid character position.
+		invalidMask := ^validBitmask & lengthMask
+		return [4]byte{}, 2, bits.TrailingZeros16(invalidMask)
 	}
 
 	// Count dots using popcount on the bitmask.
