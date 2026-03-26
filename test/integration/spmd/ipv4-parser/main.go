@@ -45,8 +45,8 @@ var shuffleTable [81][16]byte
 
 // flensTable holds all 81 precomputed [l0, l1, l2, l3] field-length arrays.
 // Index = code3*3 + (l3-1), same as shuffleTable.
-// Use int so varying indexing matches the original [4]int{l0,l1,l2,l3} pattern.
-var flensTable [81][4]int
+// Use uint8 so [4]uint8 is 4 bytes — compact storage; values are 1-3 only.
+var flensTable [81][4]uint8
 
 func init() {
 	// Iterate all 81 combinations of (l0, l1, l2, l3) to precompute complete
@@ -87,7 +87,7 @@ func init() {
 						sm[f*4+3] = 0xFF
 					}
 					shuffleTable[idx] = sm
-					flensTable[idx] = [4]int{l0, l1, l2, l3}
+					flensTable[idx] = [4]uint8{uint8(l0), uint8(l1), uint8(l2), uint8(l3)}
 				}
 
 				// Pack into uint32: expectedMask | (code3*3)<<16 | startF3<<24.
@@ -402,15 +402,26 @@ func parseIPv4Inner(s string) (ip [4]byte, errCode uint8, errAt int) {
 	weights1 := [16]byte{50, 10, 1, 0, 50, 10, 1, 0, 50, 10, 1, 0, 50, 10, 1, 0}
 	weights2 := [16]byte{50, 0, 0, 0, 50, 0, 0, 0, 50, 0, 0, 0, 50, 0, 0, 0}
 	partial := lanes.DotProductI8x16Add(shuffled, weights1, [4]int{})
-	values := lanes.DotProductI8x16Add(shuffled, weights2, partial)
+	intValues := lanes.DotProductI8x16Add(shuffled, weights2, partial)
+
+	// Convert to uint16 for the SPMD loop (max value 999 fits in uint16).
+	var values [4]uint16
+	for i := range 4 {
+		values[i] = uint16(intValues[i])
+	}
 
 	// Leading zero check + overflow check + result extraction.
-	// Still needs per-field h/t/flen access for leading-zero detection.
-	go for field := range 4 {
-		h := int(shuffled[field*4+0])
-		t := int(shuffled[field*4+1])
-		flen := flens[field]
-		value := values[field]
+	// Use range int32(4) so field is Varying[int32] = <4 x i32> on all platforms.
+	// On x86-64, range 4 with int would give Varying[int] = <2 x i64> (2 lanes, 2
+	// iterations); range int32(4) gives <4 x i32> (4 lanes, 1 iteration) everywhere.
+	// flens [4]uint8 — byte-width field lengths; comparisons stay byte-width.
+	// h, t are byte from shuffled — no int() cast needed.
+	// value from values[field] is uint16 — comparison value > 255 is uint16 op.
+	go for field := range int32(4) {
+		h := shuffled[field*4+0]    // byte, no int() cast needed
+		t := shuffled[field*4+1]    // byte, no int() cast needed
+		flen := flens[field]        // uint8
+		value := values[field]      // uint16
 
 		// Leading zero: the first significant digit is zero in a multi-digit field.
 		hasLeadingZero := (flen == 2 && t == 0) || (flen == 3 && h == 0)
