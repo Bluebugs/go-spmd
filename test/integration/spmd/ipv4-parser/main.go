@@ -412,16 +412,16 @@ func parseIPv4Inner(s string) (ip [4]byte, errCode uint8, errAt int) {
 
 	// Leading zero check + overflow check + result extraction.
 	// Use range int32(4) so field is Varying[int32] = <4 x i32> on all platforms.
-	// On x86-64, range 4 with int would give Varying[int] = <2 x i64> (2 lanes, 2
-	// iterations); range int32(4) gives <4 x i32> (4 lanes, 1 iteration) everywhere.
-	// flens [4]uint8 — byte-width field lengths; comparisons stay byte-width.
-	// h, t are byte from shuffled — no int() cast needed.
-	// value from values[field] is uint16 — comparison value > 255 is uint16 op.
+	// On x86-64, range int (64-bit) over [4]uint16 gives Varying[int] = <2 x i64>
+	// (2 lanes per SIMD register), so the loop runs twice and shuffled[field*4+N]
+	// is computed via pshufb using only 2 of 4 lanes — fields 2 and 3 are never
+	// checked for leading zeros. Using range int32(4) gives <4 x i32> (128-bit,
+	// 4 lanes, 1 iteration) everywhere, ensuring all 4 fields are checked.
 	go for field := range int32(4) {
+		value := values[field]      // uint16
 		h := shuffled[field*4+0]    // byte, no int() cast needed
 		t := shuffled[field*4+1]    // byte, no int() cast needed
 		flen := flens[field]        // uint8
-		value := values[field]      // uint16
 
 		// Leading zero: the first significant digit is zero in a multi-digit field.
 		hasLeadingZero := (flen == 2 && t == 0) || (flen == 3 && h == 0)
