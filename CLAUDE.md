@@ -201,18 +201,21 @@ Lexer, parser, type system with `lanes.Varying[T]`, full SPMD type checking (ISP
 - **SPMDStore merge** (DONE): SSA-level optimization merges consecutive stores to same address into single store + chained SPMDSelect
 - **Dual-mode E2E** (DONE): Level 8 (identical output, 8 tests) + Level 9 (scalar-validated, 16 tests + 1 compile-only)
 - **SIMD vs scalar benchmark** (DONE): `test/e2e/spmd-benchmark.sh` with wasmtime
-- **Key Metrics** (wasmtime, SIMD vs scalar SPMD): Hex-encode Dst **~8.9x**; Mandelbrot **~3.18x** (0 diffs); lo-sum/mean/min/max **~2.3-2.4x**; lo-clamp **~2.18x**; lo-contains **~1.62x**
-- **E2E Results**: 42 run pass, 42 compile pass, 1 compile fail, 0 run fail, 11 reject OK, 8 dual-mode pass, 16 scalar-validated pass (79 total)
+- **x86-64 native target** (DONE): Rangeindex narrowing fix, unified SIMD mask wrapping (`spmdIsWASM()` → `spmdUsesSIMD()`), rangeindex elseif linearization. All 6 lo-* examples compile and run on x86-64.
+- **x86-64 benchmark** (DONE): `test/e2e/spmd-benchmark-x86.sh` — compares SPMD vs samber/lo generic vs lo/exp/simd AVX2
+- **Key Metrics** (wasmtime, SIMD vs scalar SPMD): Hex-encode Dst **~8.9x**; Mandelbrot **~3.18x** (0 diffs); lo-sum/mean/min/max **~2.3-2.4x**; lo-clamp **~2.82x**; lo-contains **~1.0x**
+- **Key Metrics** (x86-64 native, SPMD 4-wide SSE vs samber/lo): mean **2.13x**, min/max **~2.58x**, clamp **2.59x**, sum **1.47x**, contains ~1.0x. **Beats hand-written AVX2 intrinsics** (lo/exp/simd 8-wide) on 5/6 ops.
+- **E2E Results**: 66 run pass, 67 compile pass, 1 compile fail, 0 run fail, 11 reject OK (79 total)
 
 ### Phase 3: Validation (IN PROGRESS)
 
-Scalar fallback mode, dual-mode E2E testing, and SIMD-vs-scalar benchmarking are operational. Remaining: browser SIMD detection demo, expand dual-mode coverage. See `docs/poc-testing-workflow.md`.
+Scalar fallback mode, dual-mode E2E testing, SIMD-vs-scalar benchmarking, and x86-64 native benchmarking are operational. Remaining: browser SIMD detection demo, expand dual-mode coverage, AVX2 256-bit mode. See `docs/poc-testing-workflow.md`.
 
 **E2E Compile Failures** (1 remaining):
 
 - **Missing features (1)**: base64-decoder (varying indexing `r[varyingIndex]` + type inference for ShiftLeft)
 
-**Next Priority**: (1) Browser SIMD detection demo, (2) Fix base64-decoder varying indexing, (3) Expand dual-mode test coverage
+**Next Priority**: (1) AVX2 256-bit mode (8-wide i32), (2) Fix base64-decoder varying indexing, (3) Browser SIMD detection demo
 
 ## Debugging Tips
 
