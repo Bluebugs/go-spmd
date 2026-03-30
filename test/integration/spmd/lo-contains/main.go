@@ -73,8 +73,11 @@ func containsSPMD(data []int32, target int32) bool {
 		if v == target {
 			found = true
 		}
+		if reduce.Any(found) {
+			return true
+		}
 	}
-	return reduce.Any(found)
+	return false
 }
 
 func bench(fn func()) int64 {

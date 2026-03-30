@@ -78,8 +78,7 @@ func clampScalar(data, result []int32, lo, hi int32) {
 }
 
 func clampSPMD(data, result []int32, lo, hi int32) {
-	go for i := range len(data) {
-		v := data[i]
+	go for i, v := range data {
 		if v < lo {
 			result[i] = lo
 		} else if v > hi {
