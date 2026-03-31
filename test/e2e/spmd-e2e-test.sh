@@ -831,8 +831,8 @@ test_x86 "x86_lo-max"      "$INTEG/lo-max/main.go"      "contains:Correctness: P
 test_x86 "x86_lo-contains" "$INTEG/lo-contains/main.go" "contains:Correctness: PASS"
 test_x86 "x86_lo-clamp"    "$INTEG/lo-clamp/main.go"    "contains:Correctness: PASS"
 test_x86 "x86_to-upper"    "$INTEG/to-upper/main.go"    "contains:'hello world' -> 'HELLO WORLD'"
+test_x86 "x86_mandelbrot" "$INTEG/mandelbrot/main.go"  "contains:Mandelbrot SPMD example completed successfully"
 # simple-sum, odd-even: SIGSEGV on x86 native (range-over-slice 4-lane, under investigation)
-# mandelbrot: index out of range on x86 native (under investigation)
 # store-coalescing: lane-count-dependent interleaving, wrong output on x86 native (under investigation)
 # hex-encode: SIGSEGV on x86-64 native (known issue)
 
@@ -848,7 +848,7 @@ test_x86_avx2 "avx2_lo-clamp"    "$INTEG/lo-clamp/main.go"    "contains:Correctn
 test_x86_avx2 "avx2_simple-sum"  "$INTEG/simple-sum/main.go"  "Sum: 136"
 test_x86_avx2 "avx2_odd-even"    "$INTEG/odd-even/main.go"    "Result: Odd=4, Even=4"
 test_x86_avx2 "avx2_to-upper"    "$INTEG/to-upper/main.go"    "contains:'hello world' -> 'HELLO WORLD'"
-# mandelbrot: index out of range on x86 native (under investigation)
+test_x86_avx2 "avx2_mandelbrot" "$INTEG/mandelbrot/main.go"  "contains:Mandelbrot SPMD example completed successfully"
 
 fi  # x86_64 check
 
