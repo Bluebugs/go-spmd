@@ -15,21 +15,21 @@ import (
 
 // Mandelbrot computation parameters
 const (
-	WIDTH         = 256
-	HEIGHT        = 256
-	MAX_ITERATIONS = 256
-	X0            = -2.5
-	Y0            = -1.25
-	X1            = 1.5
-	Y1            = 1.25
+	WIDTH          = 256
+	HEIGHT         = 256
+	MAX_ITERATIONS = int32(256)
+	X0             = -2.5
+	Y0             = -1.25
+	X1             = 1.5
+	Y1             = 1.25
 )
 
 // Serial version of mandelbrot computation (for comparison)
-func mandelSerial(cRe, cIm float32, maxIter int) int {
+func mandelSerial(cRe, cIm float32, maxIter int32) int32 {
 	var zRe, zIm float32 = cRe, cIm
 
-	for i := 0; i < maxIter; i++ {
-		if zRe*zRe + zIm*zIm > 4.0 {
+	for i := int32(0); i < maxIter; i++ {
+		if zRe*zRe+zIm*zIm > 4.0 {
 			return i
 		}
 
@@ -42,34 +42,25 @@ func mandelSerial(cRe, cIm float32, maxIter int) int {
 	return maxIter
 }
 
-// SPMD version of mandelbrot computation (varying parameters)
-func mandelSPMD(cRe, cIm lanes.Varying[float32], maxIter int) lanes.Varying[int] {
+// SPMD version of mandelbrot computation (varying parameters).
+// Uses int32 for iterations so all varying types are 4 bytes, giving the
+// same lane count as float32 on any SIMD width (4 on SSE, 8 on AVX2).
+func mandelSPMD(cRe, cIm lanes.Varying[float32], maxIter int32) lanes.Varying[int32] {
 	var zRe lanes.Varying[float32] = cRe
 	var zIm lanes.Varying[float32] = cIm
-	var iterations lanes.Varying[int] = maxIter  // Start with max, reduce when diverged
+	var iterations lanes.Varying[int32] = maxIter
 
 	for iter := range maxIter {
-		// Calculate magnitude squared: |z|^2 = zRe^2 + zIm^2
 		magSquared := zRe*zRe + zIm*zIm
-
-		// Check divergence condition (|z|^2 > 4)
 		diverged := magSquared > 4.0
 
 		if diverged {
-			// Set iterations for points that just diverged
 			iterations = iter
-			// Break out of the loop for points that have diverged.
-			// Note: Previous version used reduce.Any(!diverged) to early-exit
-			// when all lanes diverged. Removed because the compiler now handles
-			// varying break correctly via per-lane mask tracking.
 			break
 		}
 
-		// Compute next iteration: z = z^2 + c
 		newRe := zRe*zRe - zIm*zIm
 		newIm := 2.0 * zRe * zIm
-
-		// Update z values (conditional assignment in SPMD context)
 		zRe = cRe + newRe
 		zIm = cIm + newIm
 	}
@@ -78,12 +69,12 @@ func mandelSPMD(cRe, cIm lanes.Varying[float32], maxIter int) lanes.Varying[int]
 }
 
 // Serial mandelbrot computation
-func mandelbrotSerial(x0, y0, x1, y1 float32, width, height, maxIter int, output []int) {
+func mandelbrotSerial(x0, y0, x1, y1 float32, width, height, maxIter int32, output []int32) {
 	dx := (x1 - x0) / float32(width)
 	dy := (y1 - y0) / float32(height)
 
-	for j := 0; j < height; j++ {
-		for i := 0; i < width; i++ {
+	for j := int32(0); j < height; j++ {
+		for i := int32(0); i < width; i++ {
 			x := x0 + float32(i)*dx
 			y := y0 + float32(j)*dy
 
@@ -94,58 +85,47 @@ func mandelbrotSerial(x0, y0, x1, y1 float32, width, height, maxIter int, output
 }
 
 // SPMD mandelbrot computation
-func mandelbrotSPMD(x0, y0, x1, y1 float32, width, height, maxIter int, output []int) {
+func mandelbrotSPMD(x0, y0, x1, y1 float32, width, height, maxIter int32, output []int32) {
 	dx := (x1 - x0) / float32(width)
 	dy := (y1 - y0) / float32(height)
 
-	// Process each row
-	for j := 0; j < height; j++ {
+	for j := int32(0); j < height; j++ {
 		y := y0 + float32(j)*dy
 
-		// SPMD processing across width
+		// SPMD processing across width — int32 loop variable matches float32 lane count
 		go for i := range width {
-			// Each lane computes a different x coordinate
 			x := x0 + lanes.Varying[float32](i)*dx
-
-			// Compute mandelbrot for this batch of points
 			iterations := mandelSPMD(x, y, maxIter)
-
-			// Store results - each lane stores its result
-			// i being a varying, index is computed as a varying
 			index := j*width + i
-			// Array assignment in SPMD context using a varying allow for storing a varying even if the array is not varying
 			output[index] = iterations
 		}
 	}
 }
 
 // Generate a subset of the mandelbrot set for visual verification
-func generateSample(output []int, width, height int) {
+func generateSample(output []int32, width, height int32) {
 	fmt.Println("Sample of Mandelbrot set ('+' = low iterations, '*' = high iterations, ' ' = max):")
 
-	// Print a 64x32 subset for visualization
-	sampleWidth := 64
-	sampleHeight := 32
+	sampleWidth := int32(64)
+	sampleHeight := int32(32)
 
-	for j := 0; j < sampleHeight; j++ {
-		for i := 0; i < sampleWidth; i++ {
-			// Map sample coordinates to full image
+	for j := int32(0); j < sampleHeight; j++ {
+		for i := int32(0); i < sampleWidth; i++ {
 			fullI := i * width / sampleWidth
 			fullJ := j * height / sampleHeight
 			index := fullJ*width + fullI
 
 			iterations := output[index]
 
-			// Convert iterations to ASCII art
 			var char byte
 			if iterations == MAX_ITERATIONS {
-				char = ' ' // In the set
+				char = ' '
 			} else if iterations < MAX_ITERATIONS/4 {
-				char = '+'  // Low iterations
+				char = '+'
 			} else if iterations < MAX_ITERATIONS/2 {
-				char = 'o'  // Medium iterations
+				char = 'o'
 			} else {
-				char = '*'  // High iterations
+				char = '*'
 			}
 
 			fmt.Printf("%c", char)
@@ -155,12 +135,12 @@ func generateSample(output []int, width, height int) {
 }
 
 // Verify correctness by comparing serial and SPMD results
-func verifyCorrectness(serialOutput, spmdOutput []int, width, height int) bool {
+func verifyCorrectness(serialOutput, spmdOutput []int32, width, height int32) bool {
 	differences := 0
-	maxDiff := 0
+	maxDiff := int32(0)
 
-	for i := 0; i < width*height; i++ {
-		diff := int(math.Abs(float64(serialOutput[i] - spmdOutput[i])))
+	for i := int32(0); i < width*height; i++ {
+		diff := int32(math.Abs(float64(serialOutput[i] - spmdOutput[i])))
 		if diff > 0 {
 			differences++
 			if diff > maxDiff {
@@ -172,7 +152,6 @@ func verifyCorrectness(serialOutput, spmdOutput []int, width, height int) bool {
 	fmt.Printf("Verification: %d differences out of %d pixels\n", differences, width*height)
 	fmt.Printf("Maximum difference: %d iterations\n", maxDiff)
 
-	// Allow small differences due to floating point precision
 	return differences == 0 || (float64(differences)/float64(width*height) < 0.01 && maxDiff <= 2)
 }
 
@@ -180,38 +159,32 @@ func verifyCorrectness(serialOutput, spmdOutput []int, width, height int) bool {
 func benchmark() bool {
 	fmt.Printf("Computing Mandelbrot set (%dx%d, %d iterations)\n", WIDTH, HEIGHT, MAX_ITERATIONS)
 
-	// Allocate output arrays
-	serialOutput := make([]int, WIDTH*HEIGHT)
-	spmdOutput := make([]int, WIDTH*HEIGHT)
+	serialOutput := make([]int32, WIDTH*HEIGHT)
+	spmdOutput := make([]int32, WIDTH*HEIGHT)
 
-	// Benchmark serial version
 	fmt.Println("\n--- Serial Version ---")
 	startTime := time.Now()
 	mandelbrotSerial(X0, Y0, X1, Y1, WIDTH, HEIGHT, MAX_ITERATIONS, serialOutput)
 	serialTime := time.Since(startTime)
 	fmt.Printf("Serial computation time: %v\n", serialTime)
 
-	// Benchmark SPMD version
 	fmt.Println("\n--- SPMD Version ---")
 	startTime = time.Now()
 	mandelbrotSPMD(X0, Y0, X1, Y1, WIDTH, HEIGHT, MAX_ITERATIONS, spmdOutput)
 	spmdTime := time.Since(startTime)
 	fmt.Printf("SPMD computation time: %v\n", spmdTime)
 
-	// Calculate speedup
 	speedup := float64(serialTime) / float64(spmdTime)
 	fmt.Printf("SPMD speedup: %.2fx\n", speedup)
 
-	// Verify correctness
 	fmt.Println("\n--- Verification ---")
 	correct := verifyCorrectness(serialOutput, spmdOutput, WIDTH, HEIGHT)
 	if correct {
-		fmt.Println("✓ Results match between serial and SPMD versions")
+		fmt.Println("Results match between serial and SPMD versions")
 	} else {
-		fmt.Println("✗ Results differ significantly")
+		fmt.Println("Results differ significantly")
 	}
 
-	// Generate visual sample
 	fmt.Println("\n--- Visual Sample ---")
 	generateSample(spmdOutput, WIDTH, HEIGHT)
 
@@ -222,25 +195,24 @@ func benchmark() bool {
 func demonstrateVaryingParameters() {
 	fmt.Println("\n=== Varying Parameter Demonstration ===")
 
-	// Create varying coordinates for different mandelbrot points
 	xCoords := lanes.From([]float32{-0.5, 0.0, -0.75, 0.25})
 	yCoords := lanes.From([]float32{0.0, 0.5, 0.1, -0.25})
 
 	fmt.Printf("Testing points: x=%v, y=%v\n", reduce.From(xCoords), reduce.From(yCoords))
 
-	// Compute mandelbrot iterations for all points simultaneously
 	iterations := mandelSPMD(xCoords, yCoords, MAX_ITERATIONS)
 
 	fmt.Printf("Iterations: %v\n", reduce.From(iterations))
 
-	// Extract results as slices for per-point display
 	xSlice := reduce.From(xCoords)
 	ySlice := reduce.From(yCoords)
 	iterSlice := reduce.From(iterations)
 
-	for i := range xSlice {
-		fmt.Printf("Point (%.2f, %.2f): diverged after %d iterations\n",
-			xSlice[i], ySlice[i], iterSlice[i])
+	for i := range iterSlice {
+		if i < len(xSlice) && i < len(ySlice) {
+			fmt.Printf("Point (%.2f, %.2f): diverged after %d iterations\n",
+				xSlice[i], ySlice[i], iterSlice[i])
+		}
 	}
 }
 
@@ -248,25 +220,19 @@ func main() {
 	fmt.Println("=== Go SPMD Mandelbrot Set Computation ===")
 	fmt.Println("Based on Intel ISPC mandelbrot example")
 
-	// Test 1: Single point demonstration
 	demonstrateVaryingParameters()
 
-	// Test 2: Full mandelbrot set computation and benchmarking
 	correct := benchmark()
 
-	// Summary
 	fmt.Println("\n=== Summary ===")
 	fmt.Printf("Algorithm: Mandelbrot set computation\n")
 	fmt.Printf("Image size: %dx%d pixels\n", WIDTH, HEIGHT)
 	fmt.Printf("Max iterations: %d\n", MAX_ITERATIONS)
-	fmt.Printf("SIMD lanes: %d (determined by target architecture)\n", 4) // WASM SIMD128 typically has 4 lanes for float32
 
 	if correct {
-		fmt.Println("✓ SPMD implementation produces correct results")
-		fmt.Println("✓ Expected significant performance improvement with SIMD")
-		fmt.Println("✓ Demonstrates complex mathematical computation in SPMD Go")
+		fmt.Println("SPMD implementation produces correct results")
 	} else {
-		fmt.Println("✗ Implementation needs debugging")
+		fmt.Println("Implementation needs debugging")
 	}
 
 	fmt.Println("\nMandelbrot SPMD example completed successfully!")
