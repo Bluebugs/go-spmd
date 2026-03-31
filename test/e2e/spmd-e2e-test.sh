@@ -130,6 +130,135 @@ test_compile_and_run() {
     fi
 }
 
+# x86-64 native compilation and execution helpers
+compile_x86() {
+    local src="$1" out="$2" extra="${3:-}"
+    PATH="$GOROOT_SPMD/bin:$PATH" GOEXPERIMENT=spmd \
+        "$TINYGO" build -llvm-features="+ssse3,+sse4.2" $extra -o "$out" "$src" 2>&1
+}
+
+compile_x86_avx2() {
+    local src="$1" out="$2" extra="${3:-}"
+    PATH="$GOROOT_SPMD/bin:$PATH" GOEXPERIMENT=spmd \
+        "$TINYGO" build -llvm-features="+ssse3,+sse4.2,+avx2" $extra -o "$out" "$src" 2>&1
+}
+
+test_x86() {
+    local name="$1" src="$2" expected="${3:-}" extra="${4:-}"
+    local out="$OUTDIR/${name}"
+    TOTAL=$((TOTAL + 1))
+    local result
+    if ! result=$(compile_x86 "$src" "$out" "$extra" 2>&1); then
+        COMPILE_FAIL=$((COMPILE_FAIL + 1))
+        local err=$(echo "$result" | tail -3)
+        printf "${RED}COMPILE FAIL${NC} %-40s %s\n" "$name" "$err"
+        return 1
+    fi
+    COMPILE_PASS=$((COMPILE_PASS + 1))
+
+    local output
+    if ! output=$(timeout 30 "$out" 2>&1); then
+        RUN_FAIL=$((RUN_FAIL + 1))
+        local err=$(echo "$output" | head -3)
+        printf "${YELLOW}RUN FAIL${NC}     %-40s %s\n" "$name" "$err"
+        return 1
+    fi
+
+    if [ -n "$expected" ]; then
+        local match_mode="exact"
+        local match_pattern="$expected"
+        if [[ "$expected" == contains:* ]]; then
+            match_mode="contains"
+            match_pattern="${expected#contains:}"
+        fi
+
+        local passed=false
+        if [ "$match_mode" = "exact" ]; then
+            [ "$output" = "$match_pattern" ] && passed=true
+        else
+            passed=true
+            while IFS= read -r needle; do
+                if ! echo "$output" | grep -qF "$needle"; then
+                    passed=false
+                    break
+                fi
+            done <<< "${match_pattern//|||/$'\n'}"
+        fi
+
+        if $passed; then
+            RUN_PASS=$((RUN_PASS + 1))
+            printf "${GREEN}PASS${NC}         %-40s %s\n" "$name" "(output verified)"
+        else
+            RUN_FAIL=$((RUN_FAIL + 1))
+            printf "${RED}WRONG OUTPUT${NC} %-40s\n" "$name"
+            echo "  expected: ${expected:0:80}"
+            echo "  got:      ${output:0:80}"
+            return 1
+        fi
+    else
+        RUN_PASS=$((RUN_PASS + 1))
+        printf "${GREEN}PASS${NC}         %-40s %s\n" "$name" "(no output check)"
+    fi
+}
+
+test_x86_avx2() {
+    local name="$1" src="$2" expected="${3:-}" extra="${4:-}"
+    local out="$OUTDIR/${name}"
+    TOTAL=$((TOTAL + 1))
+    local result
+    if ! result=$(compile_x86_avx2 "$src" "$out" "$extra" 2>&1); then
+        COMPILE_FAIL=$((COMPILE_FAIL + 1))
+        local err=$(echo "$result" | tail -3)
+        printf "${RED}COMPILE FAIL${NC} %-40s %s\n" "$name" "$err"
+        return 1
+    fi
+    COMPILE_PASS=$((COMPILE_PASS + 1))
+
+    local output
+    if ! output=$(timeout 30 "$out" 2>&1); then
+        RUN_FAIL=$((RUN_FAIL + 1))
+        local err=$(echo "$output" | head -3)
+        printf "${YELLOW}RUN FAIL${NC}     %-40s %s\n" "$name" "$err"
+        return 1
+    fi
+
+    if [ -n "$expected" ]; then
+        local match_mode="exact"
+        local match_pattern="$expected"
+        if [[ "$expected" == contains:* ]]; then
+            match_mode="contains"
+            match_pattern="${expected#contains:}"
+        fi
+
+        local passed=false
+        if [ "$match_mode" = "exact" ]; then
+            [ "$output" = "$match_pattern" ] && passed=true
+        else
+            passed=true
+            while IFS= read -r needle; do
+                if ! echo "$output" | grep -qF "$needle"; then
+                    passed=false
+                    break
+                fi
+            done <<< "${match_pattern//|||/$'\n'}"
+        fi
+
+        if $passed; then
+            RUN_PASS=$((RUN_PASS + 1))
+            printf "${GREEN}PASS${NC}         %-40s %s\n" "$name" "(output verified)"
+        else
+            RUN_FAIL=$((RUN_FAIL + 1))
+            printf "${RED}WRONG OUTPUT${NC} %-40s\n" "$name"
+            echo "  expected: ${expected:0:80}"
+            echo "  got:      ${output:0:80}"
+            return 1
+        fi
+    else
+        RUN_PASS=$((RUN_PASS + 1))
+        printf "${GREEN}PASS${NC}         %-40s %s\n" "$name" "(no output check)"
+    fi
+}
+
 test_compile_fail() {
     local name="$1" src="$2"
     TOTAL=$((TOTAL + 1))
@@ -688,6 +817,40 @@ test_compile_and_run "scalar_array-counting"            "$INTEG/array-counting/m
 # pointer-varying: lane-count-dependent logic (lanes.Index per-lane), fails its
 # own correctness check in scalar mode. Compile-only validation.
 test_compile "scalar_pointer-varying" "$INTEG/pointer-varying/main.go" "-simd=false"
+
+# ========== LEVEL 10 & 11: x86-64 native (SSE and AVX2) ==========
+if [ "$(uname -m)" = "x86_64" ]; then
+
+# ========== LEVEL 10: x86-64 native SSE (128-bit, 4-wide i32) ==========
+printf "\n${BLUE}--- Level 10: x86-64 native SSE (128-bit, 4-wide i32) ---${NC}\n"
+
+test_x86 "x86_lo-sum"      "$INTEG/lo-sum/main.go"      "contains:Correctness: PASS"
+test_x86 "x86_lo-mean"     "$INTEG/lo-mean/main.go"     "contains:Correctness: PASS"
+test_x86 "x86_lo-min"      "$INTEG/lo-min/main.go"      "contains:Correctness: PASS"
+test_x86 "x86_lo-max"      "$INTEG/lo-max/main.go"      "contains:Correctness: PASS"
+test_x86 "x86_lo-contains" "$INTEG/lo-contains/main.go" "contains:Correctness: PASS"
+test_x86 "x86_lo-clamp"    "$INTEG/lo-clamp/main.go"    "contains:Correctness: PASS"
+test_x86 "x86_to-upper"    "$INTEG/to-upper/main.go"    "contains:'hello world' -> 'HELLO WORLD'"
+# simple-sum, odd-even: SIGSEGV on x86 native (range-over-slice 4-lane, under investigation)
+# mandelbrot: index out of range on x86 native (under investigation)
+# store-coalescing: lane-count-dependent interleaving, wrong output on x86 native (under investigation)
+# hex-encode: SIGSEGV on x86-64 native (known issue)
+
+# ========== LEVEL 11: x86-64 native AVX2 (256-bit, 8-wide i32) ==========
+printf "\n${BLUE}--- Level 11: x86-64 native AVX2 (256-bit, 8-wide i32) ---${NC}\n"
+
+test_x86_avx2 "avx2_lo-sum"      "$INTEG/lo-sum/main.go"      "contains:Correctness: PASS"
+test_x86_avx2 "avx2_lo-mean"     "$INTEG/lo-mean/main.go"     "contains:Correctness: PASS"
+test_x86_avx2 "avx2_lo-min"      "$INTEG/lo-min/main.go"      "contains:Correctness: PASS"
+test_x86_avx2 "avx2_lo-max"      "$INTEG/lo-max/main.go"      "contains:Correctness: PASS"
+test_x86_avx2 "avx2_lo-contains" "$INTEG/lo-contains/main.go" "contains:Correctness: PASS"
+test_x86_avx2 "avx2_lo-clamp"    "$INTEG/lo-clamp/main.go"    "contains:Correctness: PASS"
+test_x86_avx2 "avx2_simple-sum"  "$INTEG/simple-sum/main.go"  "Sum: 136"
+test_x86_avx2 "avx2_odd-even"    "$INTEG/odd-even/main.go"    "Result: Odd=4, Even=4"
+test_x86_avx2 "avx2_to-upper"    "$INTEG/to-upper/main.go"    "contains:'hello world' -> 'HELLO WORLD'"
+# mandelbrot: index out of range on x86 native (under investigation)
+
+fi  # x86_64 check
 
 # ========== SUMMARY ==========
 echo ""
