@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"math/bits"
 	"time"
-
 	"lanes"
 	"reduce"
 )
@@ -423,11 +422,11 @@ func parseIPv4Inner(s string) (ip [4]byte, errCode uint8, errAt int) {
 		flen := flens[field]        // uint8
 
 		// Leading zero: the first significant digit is zero in a multi-digit field.
-		hasLeadingZero := (flen == 2 && t == 0) || (flen == 3 && h == 0)
+		hasLeadingZero := (flen == uint8(2) && t == 0) || (flen == uint8(3) && h == 0)
 		if reduce.Any(hasLeadingZero) {
 			return [4]byte{}, 5, 0
 		}
-		if reduce.Any(value > 255) {
+		if reduce.Any(value > uint16(255)) {
 			return [4]byte{}, 6, 0
 		}
 		ip[field] = uint8(value)
