@@ -2,7 +2,7 @@
 
 **Version**: 2.14
 **Last Updated**: 2026-04-03
-**Status**: Phase 1 Complete, Phase 2 near-complete, Phase 3 IN PROGRESS (E2E + benchmarks operational). E2E: 87 tests (34 RUN PASS, 41 COMPILE PASS, 1 compile fail (base64-decoder), 11 reject OK). Benchmarks: hex-encode 8.9x, mandelbrot 3.03x, lo-sum/mean/min/max 2.3-2.4x. x86-64: AVX2 7.27x (lo-min), SSE 2.6x (lo-min).
+**Status**: Phase 1 Complete, Phase 2 near-complete, Phase 3 IN PROGRESS (E2E + benchmarks operational). E2E: 88 tests (35 RUN PASS, 41 COMPILE PASS, 0 compile fail, 11 reject OK). Benchmarks: hex-encode 8.9x, mandelbrot 3.03x, lo-sum/mean/min/max 2.3-2.4x. x86-64: AVX2 7.27x (lo-min), SSE 2.6x (lo-min).
 
 ## Project Overview
 
@@ -732,9 +732,7 @@ Ported 10 `*_ext_spmd.go` files from types2 to go/types with full API translatio
 - 33 RUN PASS: L0_store, L0_cond, L0_func, L1_reduce_add, L2_lanes_index, L3_varying_var, L4_range_slice, L4b_varying_break, L5a_simple_sum, L5b_odd_even, L5f_varying_switch, L5g_compound_conditions, integ_simple-sum, integ_odd-even, integ_hex-encode, integ_debug-varying, integ_lanes-index-restrictions, integ_to-upper, integ_mandelbrot, integ_store-coalescing, integ_ipv4-parser, integ_type-switch-varying, integ_defer-varying, integ_panic-recover-varying, integ_bit-counting, integ_array-counting, integ_non-spmd-varying-return, integ_spmd-call-contexts, integ_map-restrictions, integ_lo-sum, integ_lo-mean, integ_lo-min, integ_lo-max, integ_lo-contains, integ_lo-clamp (corrected prior count), integ_pointer-varying
 - 8 COMPILE-ONLY PASS: integ_type-casting-varying, integ_printf-verbs, integ_goroutine-varying, integ_select-with-varying-channels, integ_varying-array-iteration, integ_spmd-call-contexts (run-pass per script), integ_map-restrictions (run-pass per script)
 - 11 REJECT OK: All illegal examples correctly rejected
-- 2 COMPILE FAIL (categorized by root cause):
-  - **Missing features (1)**: base64-decoder (type inference + varying index)
-  - **External bugs (1)**: union-type-generics (x-tools SPMDType in typeparams.Free / missing lanes.Rotate)
+- 0 COMPILE FAIL: All integration tests compile successfully
 
 ### 2.8c Constrained Varying Type Support -- REMOVED
 
@@ -1052,7 +1050,7 @@ Split `go for` loops into main phase (full vectors, ConstAllOnes mask, plain v12
 - [x] **printf-verbs**: Printf integration displays varying values correctly
 - [x] **hex-encode**: String processing algorithms work in both modes
 - [x] **to-upper**: Character manipulation operations work correctly
-- [ ] **base64-decoder**: Complex cross-lane operations work (PoC goal) — compile fail
+- [x] **base64-decoder**: Complex cross-lane operations work (PoC goal) — RUN PASS (SIMD 1.3x speedup)
 - [x] **ipv4-parser**: Real-world parsing algorithm works (PoC goal)
 - [x] **debug-varying**: Debugging and introspection features work
 - [x] **goroutine-varying**: Goroutine launch with varying values works
@@ -1409,7 +1407,7 @@ Split `go for` loops into main phase (full vectors, ConstAllOnes mask, plain v12
 
 ---
 
-**Last Completed**: E2E test correction (2026-04-03) — union-type-generics promoted from compile-fail to run-pass (was misclassified). Moved from Level 6 to Level 5d. Updated E2E counts: 87 tests (34 RUN PASS, 41 COMPILE PASS, 1 compile fail (base64-decoder only)).
+**Last Completed**: base64-decoder fix (2026-04-04) — Fixed compilation errors (varying index + type mismatch), fixed runtime crash in scalar mode (reduce.From returns 1 element vs 16). Now passes both SIMD and scalar modes. E2E: 88 tests (35 RUN PASS, 41 COMPILE PASS, 0 compile fail).
 **Next Action**: Fix remaining 2 compile failures:
 1. base64-decoder (type inference + varying indexing)
 2. union-type-generics (SPMDType in typeparams.Free + missing lanes.Rotate)

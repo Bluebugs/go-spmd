@@ -698,15 +698,8 @@ test_compile_and_run "integ_lo-max"      "$INTEG/lo-max/main.go"      "contains:
 test_compile_and_run "integ_lo-contains" "$INTEG/lo-contains/main.go" "contains:Correctness: PASS" "" "-scheduler=none"
 test_compile_and_run "integ_lo-clamp"    "$INTEG/lo-clamp/main.go"    "contains:Correctness: PASS" "" "-scheduler=none"
 test_compile_and_run "integ_pointer-varying" "$INTEG/pointer-varying/main.go" "contains:Correctness: PASS" "" "-scheduler=none"
-
-# ========== LEVEL 6: SPMD functions with mask ==========
-printf "\n${BLUE}--- Level 6: Complex patterns (compile only) ---${NC}\n"
-
-for dir in base64-decoder; do
-    if [ -f "$INTEG/$dir/main.go" ]; then
-        test_compile "integ_$dir" "$INTEG/$dir/main.go"
-    fi
-done
+test_compile_and_run "integ_base64-decoder" "$INTEG/base64-decoder/main.go" \
+    "contains:'SGVsbG8gV29ybGQ=' -> 'Hello World'" "" "-scheduler=none"
 
 # ========== LEVEL 7: Illegal examples (should fail) ==========
 printf "\n${BLUE}--- Level 7: Illegal examples (should be rejected) ---${NC}\n"

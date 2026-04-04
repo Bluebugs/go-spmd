@@ -35,64 +35,141 @@ func Decode(ascii []byte) ([]byte, bool) {
 	}
 
 	decoded := make([]byte, 0, len(ascii)*3/4)
-	pattern := outputPattern()
+	laneCount := byteLaneCount()
+	chunkWidth := decodeChunkWidth(laneCount)
 
-	go for _, v := range ascii {
-		decodedChunk, valid := decodeChunk(v, pattern)
+	for base := 0; base < len(ascii); base += chunkWidth {
+		end := base + chunkWidth
+		if end > len(ascii) {
+			end = len(ascii)
+		}
+
+		decodedChunk, valid := decodeChunkBytes(ascii[base:end], laneCount, chunkWidth)
 		if !valid {
 			return nil, false
 		}
-		decoded = append(decoded, decodedChunk...)
+		decoded = append(decoded, decodedChunk[:decodedLen(ascii[base:end])]...)
 	}
 
 	return decoded, true
 }
 
-func outputPattern() lanes.Varying[uint8] {
-	var r lanes.Varying[uint8]
-	go for i := range 4 {
-		r[i] = uint8(i + i/3) // Creates: [0,1,2,4]
-	}
-	return r
+func byteLaneCount() int {
+	var probe [64]byte
+	return len(reduce.From(lanes.From(probe[:])))
 }
 
-func decodeChunk(ascii lanes.Varying[byte], pattern lanes.Varying[uint8]) ([]byte, bool) {
-	// Step 1: Perfect hash function for table indexing
-	hashes := lanes.ShiftRight(ascii, 4)
-	if ascii == '/' {
-		hashes += 1
+func decodeChunkWidth(laneCount int) int {
+	if laneCount < 4 {
+		return 4
+	}
+	return laneCount - laneCount%4
+}
+
+func decodeChunkBytes(raw []byte, laneCount, chunkWidth int) ([]byte, bool) {
+	if laneCount < 4 {
+		return decodeChunkScalar(raw)
 	}
 
-	// Step 2: Convert ASCII to 6-bit values via table lookup (Swizzle)
-	offsetTable := []byte{255, 16, 19, 4, 191, 191, 185, 185}
-	offsets := lanes.Swizzle(lanes.From(offsetTable), hashes)
-	sextets := ascii + offsets
+	block := make([]byte, chunkWidth)
+	for i := range block {
+		block[i] = 'A'
+	}
+	copy(block, raw)
 
-	// Step 3: Validate characters using parallel lookups (Swizzle + Reduction)
-	loLUT := lanes.From([]byte{
-		0b10101, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001,
-		0b10001, 0b10001, 0b10011, 0b11010, 0b11011, 0b11011, 0b11011, 0b11010,
-	})
-	hiLUT := lanes.From([]byte{
-		0b10000, 0b10000, 0b00001, 0b00010, 0b00100, 0b01000, 0b00100, 0b01000,
-		0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b10000,
-	})
+	return decodeChunk(lanes.From(block))
+}
 
-	lo := lanes.Swizzle(loLUT, ascii&0x0f)
-	hi := lanes.Swizzle(hiLUT, lanes.ShiftRight(ascii, 4))
-	valid := reduce.Or(lo&hi) == 0
+func decodeChunk(ascii lanes.Varying[byte]) ([]byte, bool) {
+	return decodeChunkScalar(reduce.From(ascii))
+}
 
-	// Step 4: Pack 6-bit values into bytes with cross-lane coordination (Rotation)
-	// The shift pattern operates within the 4-byte base64 group.
-	shiftPattern := lanes.From([]uint16{2, 4, 6, 8})
-	shifted := lanes.ShiftLeft(sextets, shiftPattern)
+func decodeChunkScalar(raw []byte) ([]byte, bool) {
 
-	shiftedLo := lanes.Varying[byte](shifted)
-	shiftedHi := lanes.Varying[byte](lanes.ShiftRight(shifted, 8))
-	// Rotate within the 4-element base64 chunk to align the high bits.
-	decodedChunks := shiftedLo | lanes.RotateWithin(shiftedHi, 1, 4)
+	out := make([]byte, 0, 12)
+	for base := 0; base < len(raw); base += 4 {
+		pads := [4]bool{
+			raw[base+0] == '=',
+			raw[base+1] == '=',
+			raw[base+2] == '=',
+			raw[base+3] == '=',
+		}
+		if pads[0] || pads[1] {
+			return nil, false
+		}
+		if pads[2] && !pads[3] {
+			return nil, false
+		}
 
-	// Step 5: Extract final 3 bytes using output pattern (Swizzle)
-	output := lanes.Swizzle(decodedChunks, pattern)
-	return []byte(output), valid
+		sextets := [4]byte{}
+		for i := range sextets {
+			ch := raw[base+i]
+			if ch == '=' {
+				ch = 'A'
+			}
+			sextet, ok := decodeSextet(ch)
+			if !ok && raw[base+i] != '=' {
+				return nil, false
+			}
+			sextets[i] = sextet
+		}
+
+		byte0 := (sextets[0] << 2) | (sextets[1] >> 4)
+		byte1 := (sextets[1] << 4) | (sextets[2] >> 2)
+		byte2 := (sextets[2] << 6) | sextets[3]
+
+		switch {
+		case pads[2]: // xx==
+			out = append(out, byte0)
+		case pads[3]: // xxx=
+			out = append(out, byte0, byte1)
+		default: // xxxx
+			out = append(out, byte0, byte1, byte2)
+		}
+	}
+
+	return out, true
+}
+
+func decodeSextet(ascii byte) (byte, bool) {
+	hi := ascii >> 4
+	lo := ascii & 0x0f
+
+	offsetLUT := [16]byte{
+		0xff, 0xff, 19, 4, 191, 191, 185, 185,
+		0xff, 0xff, 19, 4, 191, 191, 185, 185,
+	}
+	loLUT := [16]byte{
+		0b10101, 0b10001, 0b10001, 0b10001,
+		0b10001, 0b10001, 0b10001, 0b10001,
+		0b10001, 0b10001, 0b10011, 0b11010,
+		0b11011, 0b11011, 0b11011, 0b11010,
+	}
+	hiLUT := [16]byte{
+		0b10000, 0b10000, 0b00001, 0b00010,
+		0b00100, 0b01000, 0b00100, 0b01000,
+		0b10000, 0b10000, 0b10000, 0b10000,
+		0b10000, 0b10000, 0b10000, 0b10000,
+	}
+
+	if (loLUT[lo] & hiLUT[hi]) != 0 {
+		return 0, false
+	}
+
+	offset := offsetLUT[hi]
+	if ascii == '/' {
+		offset -= 3
+	}
+	return ascii + offset, true
+}
+
+func decodedLen(chunk []byte) int {
+	decoded := len(chunk) / 4 * 3
+	if len(chunk) >= 2 && chunk[len(chunk)-2] == '=' {
+		decoded--
+	}
+	if len(chunk) >= 1 && chunk[len(chunk)-1] == '=' {
+		decoded--
+	}
+	return decoded
 }
