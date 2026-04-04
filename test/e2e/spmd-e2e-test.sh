@@ -682,6 +682,8 @@ test_compile_and_run "integ_ipv4-parser"      "$INTEG/ipv4-parser/main.go" \
 test_compile_and_run "integ_type-switch-varying" "$INTEG/type-switch-varying/main.go" \
     "contains:Varying int: sum=336|||Assert ok: sum=208|||All type switch varying tests completed" \
     "" "-scheduler=none"
+test_compile_and_run "integ_union-type-generics" "$INTEG/union-type-generics/main.go" \
+    "contains:All union type generic operations completed successfully" "" "-scheduler=none"
 test_compile_and_run "integ_defer-varying"       "$INTEG/defer-varying/main.go" \
     "contains:Processed value: [6 14 4 18]|||Allocated for values > 5: [_ 700 _ 900]|||Third defer (first execution): [300 700 200 900]|||All defer varying tests completed successfully" \
     "" "-scheduler=none"
@@ -705,9 +707,6 @@ for dir in base64-decoder; do
         test_compile "integ_$dir" "$INTEG/$dir/main.go"
     fi
 done
-
-test_compile_and_run "integ_union-type-generics" "$INTEG/union-type-generics/main.go" \
-    "contains:All union type generic operations completed successfully" "" "-scheduler=none"
 
 # ========== LEVEL 7: Illegal examples (should fail) ==========
 printf "\n${BLUE}--- Level 7: Illegal examples (should be rejected) ---${NC}\n"
