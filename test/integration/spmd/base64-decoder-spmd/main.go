@@ -94,17 +94,11 @@ func validateHot(src []byte) bool {
 func decodeHot(dst, src []byte) {
 	groups := len(src) / 4
 	
-	// Fix: Pad src so inactive SPMD lanes (up to 3 beyond groups) don't access out-of-bounds.
-	// SPMD processes 4 groups/iteration (i32, 4 lanes); inactive lanes
-	// read harmless padding rather than triggering bounds checks.
-	padded := make([]byte, len(src)+4*4)
-	copy(padded, src)
-	
 	go for g := range groups {
-		c0 := decodeTable[padded[g*4+0]]
-		c1 := decodeTable[padded[g*4+1]]
-		c2 := decodeTable[padded[g*4+2]]
-		c3 := decodeTable[padded[g*4+3]]
+		c0 := decodeTable[src[g*4+0]]
+		c1 := decodeTable[src[g*4+1]]
+		c2 := decodeTable[src[g*4+2]]
+		c3 := decodeTable[src[g*4+3]]
 		dst[g*3+0] = (c0 << 2) | (c1 >> 4)
 		dst[g*3+1] = (c1 << 4) | (c2 >> 2)
 		dst[g*3+2] = (c2 << 6) | c3
