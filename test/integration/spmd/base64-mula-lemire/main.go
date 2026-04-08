@@ -31,48 +31,23 @@ var decodeLUT = [16]byte{
 	0, 0, 0, 0, 0, 0, 0, 0,
 }
 
-// decodeHotSPMD decodes pre-validated base64 using nibble-LUT (vpshufb).
-// src must have length divisible by 4 and contain no padding characters.
-// dst must have capacity for at least len(src)/4*3 bytes.
-//
-// Each decodeLUT[c>>4] with a varying byte index compiles to vpshufb (x86)
-// or i8x16.swizzle (WASM) via the byte-array indexing fast path, eliminating
-// the 256-entry scatter-gather table of the original decoder.
-func decodeHotSPMD(dst, src []byte) {
-	groups := len(src) / 4
-
-	go for g := range groups {
-		// Load 4 bytes for this quartet.
-		c0 := src[g*4+0]
-		c1 := src[g*4+1]
-		c2 := src[g*4+2]
-		c3 := src[g*4+3]
-
-		// Nibble-LUT decode: each lookup compiles to vpshufb / i8x16.swizzle.
-		// ASCII + offset = sextet; byte wrapping (no-op for valid sextets 0-63).
-		// '+' (0x2B) needs offset 19 but decodeLUT[2]=16 (correct for '/'),
-		// so add 3 when ch == '+' — this compiles to a SPMD select instruction.
-		s0 := c0 + decodeLUT[c0>>4]
-		if c0 == byte('+') {
-			s0 += 3
+// decodeHotSPMD fills sextets[i] = ASCII-to-sextet(src[i]) for each byte in src.
+// src must be padded to a SIMD-width multiple (32 bytes for AVX2) by the caller
+// so that inactive tail lanes always address valid memory.
+// Packing sextets into output bytes is done by the caller using the real
+// (unpadded) group count, not len(src)/4.
+func decodeHotSPMD(sextets, src []byte) {
+	// SPMD: each lane handles one byte. decodeLUT[ch>>4] compiles to vpshufb
+	// (x86) or i8x16.swizzle (WASM), eliminating scatter-gather.
+	go for i, ch := range src {
+		// Nibble-LUT: sextet = ch + decodeLUT[ch>>4].
+		// '+' (0x2B) shares hi-nibble 2 with '/' but needs offset 19 vs 16;
+		// the conditional adds 3 and compiles to a branchless SPMD select.
+		s := ch + decodeLUT[ch>>4]
+		if ch == byte('+') {
+			s += 3
 		}
-		s1 := c1 + decodeLUT[c1>>4]
-		if c1 == byte('+') {
-			s1 += 3
-		}
-		s2 := c2 + decodeLUT[c2>>4]
-		if c2 == byte('+') {
-			s2 += 3
-		}
-		s3 := c3 + decodeLUT[c3>>4]
-		if c3 == byte('+') {
-			s3 += 3
-		}
-
-		// Pack 4×6-bit sextets → 3×8-bit bytes.
-		dst[g*3+0] = (s0 << 2) | (s1 >> 4)
-		dst[g*3+1] = (s1 << 4) | (s2 >> 2)
-		dst[g*3+2] = (s2 << 6) | s3
+		sextets[i] = s
 	}
 }
 
@@ -156,37 +131,61 @@ func spmdDecode(src []byte) ([]byte, bool) {
 	}
 
 	groups := len(src) / 4
-	// hotGroups excludes the last quartet if it contains padding.
+	// hotGroups excludes the last quartet when it contains padding, so the
+	// SPMD loop never sees '=' characters.
 	hotGroups := groups
 	if padCount > 0 {
 		hotGroups--
 	}
+	hotBytes := hotGroups * 4 // number of valid src bytes for the SPMD loop
 
-	// Extra capacity avoids bounds panics when SIMD writes up to laneCount-1
-	// bytes past the end of the logical output in the tail group.
+	// Extra capacity avoids bounds panics when the scalar pack loop reads
+	// sextets up to the hotBytes boundary.
 	dst := make([]byte, groups*3+16)
 
-	// Pad hotSrc to a multiple of 16 bytes so inactive lanes in the SPMD tail
-	// pass always access valid memory. The SPMD compiler elides bounds checks
-	// only for contiguous range-over-slice loops; range-over-int with computed
-	// indices still bounds-checks inactive lanes. Padding with 'A' (sextet 0)
-	// keeps the values valid and produces zero bits that the inactive-lane mask
-	// suppresses before any store.
-	padded := hotGroups * 4
-	if rem := padded % 16; rem != 0 {
-		padded += 16 - rem
+	// Pre-allocate the sextets buffer so decodeHotSPMD avoids allocation in
+	// the hot path.  Size matches hotSrc length (padded below).
+	//
+	// Pad hotSrc to a multiple of 32 bytes so inactive lanes in the SPMD tail
+	// iteration always access valid memory on all targets (WASM: 16 lanes,
+	// x86 SSE: 16 lanes, x86 AVX2: 32 lanes). range-over-slice elides bounds
+	// checks only within the slice bounds; the pad region keeps indices valid.
+	// Padding with 'A' (sextet 0) is safe: inactive-lane mask suppresses
+	// writes, and the scalar pack loop only reads sextets[0..hotBytes-1].
+	padded := hotBytes
+	if rem := padded % 32; rem != 0 {
+		padded += 32 - rem
 	}
+
 	var hotSrc []byte
 	if padded <= len(src) {
 		hotSrc = src[:padded]
 	} else {
 		hotSrc = make([]byte, padded)
-		copy(hotSrc, src[:hotGroups*4])
-		for i := hotGroups * 4; i < padded; i++ {
-			hotSrc[i] = 'A' // valid base64 sextet (value 0)
+		copy(hotSrc, src[:hotBytes])
+		for i := hotBytes; i < padded; i++ {
+			hotSrc[i] = 'A' // valid base64 character (sextet 0)
 		}
 	}
-	decodeHotSPMD(dst, hotSrc)
+
+	// Run SPMD decode: fills sextets[0..hotBytes-1] with 6-bit values.
+	// Only the first hotBytes entries are valid; the padded tail holds zeros
+	// from 'A' padding and is ignored by the pack loop below.
+	sextets := make([]byte, padded)
+	decodeHotSPMD(sextets, hotSrc)
+
+	// Pack hotGroups sextets into bytes (Step 2, scalar).
+	// Use hotGroups (not len(hotSrc)/4) so we never read padding-region sextets
+	// into dst, which would overflow dst (allocated for groups*3+16 bytes).
+	for g := 0; g < hotGroups; g++ {
+		s0 := sextets[g*4+0]
+		s1 := sextets[g*4+1]
+		s2 := sextets[g*4+2]
+		s3 := sextets[g*4+3]
+		dst[g*3+0] = (s0 << 2) | (s1 >> 4)
+		dst[g*3+1] = (s1 << 4) | (s2 >> 2)
+		dst[g*3+2] = (s2 << 6) | s3
+	}
 
 	// Handle the padding quartet with scalar fallback.
 	if hotGroups < groups {
