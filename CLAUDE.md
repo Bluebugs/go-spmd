@@ -208,17 +208,17 @@ Lexer, parser, type system with `lanes.Varying[T]`, full SPMD type checking (ISP
 - **Key Metrics** (wasmtime, SIMD vs scalar SPMD): Hex-encode Dst **~8.9x**; Mandelbrot **~3.03x**; lo-sum/mean/min/max **~2.3-2.4x**; lo-clamp **~2.82x**
 - **Key Metrics** (x86-64 AVX2 8-wide, SPMD vs scalar): lo-min **7.27x**, lo-max **7.18x**, mandelbrot **6.07x**, lo-sum **5.09x**, lo-clamp **4.82x**, lo-mean **3.66x**
 - **Key Metrics** (x86-64 SSE 4-wide, SPMD vs scalar): lo-min **2.63x**, lo-max **2.59x**, lo-sum **2.61x**, mandelbrot **3.71x**, hex-encode dst **6.31x**
-- **E2E Results**: 86 run pass, 87 compile pass, 1 compile fail, 0 run fail, 11 reject OK (99 total)
+- **Key Metrics** (base64 Mula-Lemire hot loop, AVX2): **0.44 instrs/byte** (was 14.3 with scatter-gather) — 32x instruction reduction, 1 vpshufb per 32 bytes
+- **Compiler optimizations** (2026-04-06): SwizzleWithin const-only, spmdSwizzleWithTable AVX2 fix, direct store on all-ones mask, vpmaddubsw/vpmaddwd pattern detection (x86+WASM), DotProductI8x16Add removed
+- **E2E Results**: 90 run pass, 91 compile pass, 0 compile fail, 0 run fail, 11 reject OK (102 total)
 
 ### Phase 3: Validation (IN PROGRESS)
 
 Scalar fallback, dual-mode E2E, SIMD-vs-scalar benchmarking, x86-64 native (SSE + AVX2) all operational. Remaining: browser SIMD detection demo. See `docs/poc-testing-workflow.md`.
 
-**E2E Compile Failures** (1 remaining):
+**E2E Compile Failures** (0 remaining)
 
-- **Missing features (1)**: base64-decoder (varying indexing `r[varyingIndex]` + type inference for ShiftLeft)
-
-**Next Priority**: (1) Fix base64-decoder varying indexing, (2) Browser SIMD detection demo, (3) AVX2 byte-width performance optimization
+**Next Priority**: (1) Vectorize base64 sextet packing loop (pmaddubsw pattern), (2) Browser SIMD detection demo, (3) Outer-SPMD batching for IPv4 parser
 
 ## Debugging Tips
 
