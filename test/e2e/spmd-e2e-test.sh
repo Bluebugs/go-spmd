@@ -703,6 +703,8 @@ test_compile_and_run "integ_base64-decoder" "$INTEG/base64-decoder/main.go" \
     "contains:'SGVsbG8gV29ybGQ=' -> 'Hello World'" "" "-scheduler=none"
 test_compile_and_run "integ_base64-mula-lemire" "$INTEG/base64-mula-lemire/main.go" \
     "contains:Correctness: PASS" "" "-scheduler=none"
+test_compile_and_run "integ_pmaddubsw-pattern" "$INTEG/pmaddubsw-pattern/main.go" \
+    "contains:Correctness: PASS" "" "-scheduler=none"
 
 # ========== LEVEL 7: Illegal examples (should fail) ==========
 printf "\n${BLUE}--- Level 7: Illegal examples (should be rejected) ---${NC}\n"
