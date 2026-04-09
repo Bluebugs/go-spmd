@@ -8,7 +8,10 @@
 // Algorithm: sextet = ch + decodeLUT[ch>>4], with an extra +3 for '+' (0x2B).
 package main
 
-import "fmt"
+import (
+	"fmt"
+	"lanes"
+)
 
 // Nibble-LUT decode table, indexed by the high nibble of the ASCII character.
 //
@@ -31,24 +34,53 @@ var decodeLUT = [16]byte{
 	0, 0, 0, 0, 0, 0, 0, 0,
 }
 
-// decodeHotSPMD fills sextets[i] = ASCII-to-sextet(src[i]) for each byte in src.
-// src must be padded to a SIMD-width multiple (32 bytes for AVX2) by the caller
-// so that inactive tail lanes always address valid memory.
-// Packing sextets into output bytes is done by the caller using the real
-// (unpadded) group count, not len(src)/4.
-func decodeHotSPMD(sextets, src []byte) {
-	// SPMD: each lane handles one byte. decodeLUT[ch>>4] compiles to vpshufb
-	// (x86) or i8x16.swizzle (WASM), eliminating scatter-gather.
+// decodeHotSPMD decodes base64 source bytes directly to output using SPMD.
+// Returns the number of bytes written to dst (== len(src)*3/4).
+// src must have length that is a multiple of 4 (whole groups only, no padding
+// characters). The caller must ensure the backing array of src extends at least
+// laneCount bytes past len(src) so that inactive tail-iteration lane reads stay
+// within valid memory; the caller pads the backing array with 'A' for this.
+func decodeHotSPMD(dst, src []byte) int {
+	offset := 0
 	go for i, ch := range src {
-		// Nibble-LUT: sextet = ch + decodeLUT[ch>>4].
+		// Step 1: ASCII → 6-bit sextet (nibble LUT via swizzle).
 		// '+' (0x2B) shares hi-nibble 2 with '/' but needs offset 19 vs 16;
 		// the conditional adds 3 and compiles to a branchless SPMD select.
 		s := ch + decodeLUT[ch>>4]
 		if ch == byte('+') {
 			s += 3
 		}
-		sextets[i] = s
+
+		// Step 2: Pack 4→3 using cross-lane access + CompactStore.
+		// lanes.Rotate(s, +1) fetches the next lane's value for packing:
+		// Rotate(<s0,s1,s2,s3>, +1) => <s1,s2,s3,s0>, so lane i gets s[i+1].
+		// At SIMD register boundaries, lane 3's "next" wraps to s[0] (garbage
+		// for this group), but pos==3 masks it off via CompactStore so it is
+		// never written.
+		next := lanes.Rotate(s, 1)
+		pos := i % 4
+
+		// Compute packing output for positions 0, 1, 2 (position 3 is suppressed
+		// by CompactStore mask). Each expression is varying; the SPMD compiler
+		// selects the correct one per-lane based on the varying pos condition.
+		out0 := (s << 2) | (next >> 4)
+		out1 := (s << 4) | (next >> 2)
+		out2 := (s << 6) | next
+
+		// Merge: select the right value per lane based on pos.
+		out12 := out1
+		if pos == 2 {
+			out12 = out2
+		}
+		out := out0
+		if pos != 0 {
+			out = out12
+		}
+
+		n := lanes.CompactStore(dst[offset:], out, pos != 3)
+		offset += n
 	}
+	return offset
 }
 
 // decodeSextet converts a single base64 ASCII character to its 6-bit value.
@@ -139,19 +171,16 @@ func spmdDecode(src []byte) ([]byte, bool) {
 	}
 	hotBytes := hotGroups * 4 // number of valid src bytes for the SPMD loop
 
-	// Extra capacity avoids bounds panics when the scalar pack loop reads
-	// sextets up to the hotBytes boundary.
-	dst := make([]byte, groups*3+16)
+	dst := make([]byte, groups*3)
 
-	// Pre-allocate the sextets buffer so decodeHotSPMD avoids allocation in
-	// the hot path.  Size matches hotSrc length (padded below).
-	//
-	// Pad hotSrc to a multiple of 32 bytes so inactive lanes in the SPMD tail
-	// iteration always access valid memory on all targets (WASM: 16 lanes,
-	// x86 SSE: 16 lanes, x86 AVX2: 32 lanes). range-over-slice elides bounds
-	// checks only within the slice bounds; the pad region keeps indices valid.
-	// Padding with 'A' (sextet 0) is safe: inactive-lane mask suppresses
-	// writes, and the scalar pack loop only reads sextets[0..hotBytes-1].
+	// Allocate hotSrc with at least 32 bytes of backing beyond hotBytes so that
+	// inactive tail-iteration lanes can read without faulting on any target
+	// (WASM: 16 byte-lanes, x86 SSE: 16 byte-lanes, x86 AVX2: 32 byte-lanes).
+	// The slice passed to decodeHotSPMD is hotSrc[:hotBytes] (not padded length)
+	// so the go-for iterates exactly hotBytes times; the SPMD tail mask
+	// (i < hotBytes) suppresses CompactStore writes for inactive tail lanes.
+	// Padding bytes are filled with 'A' (sextet 0); they are read but never
+	// written due to the tail mask.
 	padded := hotBytes
 	if rem := padded % 32; rem != 0 {
 		padded += 32 - rem
@@ -168,24 +197,13 @@ func spmdDecode(src []byte) ([]byte, bool) {
 		}
 	}
 
-	// Run SPMD decode: fills sextets[0..hotBytes-1] with 6-bit values.
-	// Only the first hotBytes entries are valid; the padded tail holds zeros
-	// from 'A' padding and is ignored by the pack loop below.
-	sextets := make([]byte, padded)
-	decodeHotSPMD(sextets, hotSrc)
-
-	// Pack hotGroups sextets into bytes (Step 2, scalar).
-	// Use hotGroups (not len(hotSrc)/4) so we never read padding-region sextets
-	// into dst, which would overflow dst (allocated for groups*3+16 bytes).
-	for g := 0; g < hotGroups; g++ {
-		s0 := sextets[g*4+0]
-		s1 := sextets[g*4+1]
-		s2 := sextets[g*4+2]
-		s3 := sextets[g*4+3]
-		dst[g*3+0] = (s0 << 2) | (s1 >> 4)
-		dst[g*3+1] = (s1 << 4) | (s2 >> 2)
-		dst[g*3+2] = (s2 << 6) | s3
-	}
+	// Run combined SPMD decode: lookup + pack + compact-store in one pass.
+	// Pass hotSrc[:hotBytes] so the go-for iterates exactly hotBytes times; the
+	// tail mask (i < hotBytes) suppresses CompactStore for inactive tail lanes
+	// while hotSrc's padded backing ensures those lanes read valid memory.
+	// Returns the number of bytes written into dst (== hotGroups*3).
+	written := decodeHotSPMD(dst, hotSrc[:hotBytes])
+	_ = written // hotGroups*3 bytes written; padding quartet appended below
 
 	// Handle the padding quartet with scalar fallback.
 	if hotGroups < groups {
