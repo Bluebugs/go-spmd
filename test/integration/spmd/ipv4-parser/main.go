@@ -388,25 +388,12 @@ func parseIPv4Inner(s string) (ip [4]byte, errCode uint8, errAt int) {
 		shuffled[i] = digits[m]
 	}
 
-	// Decimal extraction via two relaxed dot product calls.
-	//
-	// i32x4.relaxed_dot_i8x16_i7x16_add_s requires the second operand values to
-	// be in the signed 7-bit range [-64, 63]; weight 100 exceeds that limit.
-	// Decompose: 100h + 10t + o = (50h + 10t + o) + 50h.
-	//
-	// weights1 accumulates 50h + 10t + o for each field.
-	// weights2 adds the remaining 50h, using the partial result as accumulator.
-	// Both sets of weights are within [-64, 63]. Unused positions (mapped to
-	// 0xFF by the shuffle mask) swizzle to 0 and contribute nothing.
-	weights1 := [16]byte{50, 10, 1, 0, 50, 10, 1, 0, 50, 10, 1, 0, 50, 10, 1, 0}
-	weights2 := [16]byte{50, 0, 0, 0, 50, 0, 0, 0, 50, 0, 0, 0, 50, 0, 0, 0}
-	partial := lanes.DotProductI8x16Add(shuffled, weights1, [4]int{})
-	intValues := lanes.DotProductI8x16Add(shuffled, weights2, partial)
-
-	// Convert to uint16 for the SPMD loop (max value 999 fits in uint16).
+	// Decimal conversion: 100*hundreds + 10*tens + ones per field.
+	// Only 4 fields — scalar arithmetic is fine; the SIMD value is in the shuffle above.
+	// Max value 999 fits in uint16.
 	var values [4]uint16
-	for i := range 4 {
-		values[i] = uint16(intValues[i])
+	for f := 0; f < 4; f++ {
+		values[f] = uint16(shuffled[f*4])*100 + uint16(shuffled[f*4+1])*10 + uint16(shuffled[f*4+2])
 	}
 
 	// Leading zero check + overflow check + result extraction.
