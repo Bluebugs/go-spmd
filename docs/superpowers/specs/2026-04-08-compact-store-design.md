@@ -136,6 +136,24 @@ CompactStore writes a variable number of elements depending on the mask.
 - **Runtime mask**: emit `popcount(effective_mask)`, compare against `len(dst)`, branch to panic if insufficient. One compare + one conditional branch per CompactStore.
 - **Elision**: when the compiler can prove the slice is large enough (e.g., caller pre-allocated sufficient space and the loop processes a known count), LLVM's standard redundant bounds check elimination removes the check. No special elision logic needed.
 
+## 4b. Overwrite Semantics
+
+The underlying store writes a full SIMD-width vector to memory, even though
+only `n` elements contain valid data. Trailing bytes beyond position `n` are
+garbage that will be overwritten by the next CompactStore call. This matches
+the standard SIMD string-processing pattern (Mula-Lemire, simdutf).
+
+The caller must ensure `dst`'s backing memory has at least `lanes.Count[T]()`
+elements of accessible space beyond the current write offset. In practice:
+
+```go
+// Allocate with SIMD-width slack
+dst := make([]byte, outputLen + lanes.Count[byte](v))
+```
+
+The slice bounds check validates `len(dst) >= popcount(mask)`, but the physical
+store writes up to `lanes.Count[T]()` bytes starting at `&dst[0]`.
+
 ## 5. Example: Base64 4→3 Packing
 
 The motivating use case — Mula-Lemire style base64 decoding with vectorized lookup AND packing:
