@@ -209,7 +209,14 @@ Lexer, parser, type system with `lanes.Varying[T]`, full SPMD type checking (ISP
 - **Key Metrics** (x86-64 AVX2 8-wide, SPMD vs scalar): lo-min **7.27x**, lo-max **7.18x**, mandelbrot **6.07x**, lo-sum **5.09x**, lo-clamp **4.82x**, lo-mean **3.66x**
 - **Key Metrics** (x86-64 SSE 4-wide, SPMD vs scalar): lo-min **2.63x**, lo-max **2.59x**, lo-sum **2.61x**, mandelbrot **3.71x**, hex-encode dst **6.31x**
 - **Key Metrics** (base64 Mula-Lemire hot loop, AVX2): **0.44 instrs/byte** (was 14.3 with scatter-gather) — 32x instruction reduction, 1 vpshufb per 32 bytes
+- **lanes.CompactStore** (2026-04-08): New SIMD compress-store builtin. Writes active lanes contiguously, returns count. Constant-mask path uses pshufb/swizzle + vector store.
+- **SPMDMux** (2026-04-10): Collapses SPMDSelect chains from `i % K` patterns into single per-lane index selection. Handles NEQ masks via X/Y swap.
+- **SPMDInterleaveStore** (2026-04-10): Replaces SPMDMux + CompactStore with diagonal-extraction shuffles + ORs + compaction + contiguous store. Eliminates 200+ instruction scatter chain → ~7 instructions.
+- **Key Metrics** (base64 decode, SPMD vs scalar, 1MB): SSSE3 **23.69x** (4505 MB/s, 0.67 cyc/B), AVX2 **29.16x** (4979 MB/s, 0.60 cyc/B), WASM **11.91x** (1636 MB/s, 1.83 cyc/B)
+- **Key Metrics** (base64 decode, SPMD vs Go stdlib): SSSE3 **2.3x**, AVX2 **2.8x**, WASM **3.0x** faster than `encoding/base64`
+- **Key Metrics** (base64 decode, SPMD vs simdutf C++): simdutf AVX2 19590 MB/s vs SPMD AVX2 5265 MB/s — 3.7x gap (shift formulas vs pmaddubsw/pmaddwd)
 - **Compiler optimizations** (2026-04-06): SwizzleWithin const-only, spmdSwizzleWithTable AVX2 fix, direct store on all-ones mask, vpmaddubsw/vpmaddwd pattern detection (x86+WASM), DotProductI8x16Add removed
+- **Compiler optimizations** (2026-04-09/10): x86 feature implication chain (+avx2 implies +ssse3), swizzle fallback lane count fix, constant-mask SPMDSelect fast-path, decomposed REM power-of-2 optimization, AVX2 cross-lane compaction fix
 - **E2E Results**: 90 run pass, 91 compile pass, 0 compile fail, 0 run fail, 11 reject OK (102 total)
 
 ### Phase 3: Validation (IN PROGRESS)
@@ -218,7 +225,7 @@ Scalar fallback, dual-mode E2E, SIMD-vs-scalar benchmarking, x86-64 native (SSE 
 
 **E2E Compile Failures** (0 remaining)
 
-**Next Priority**: (1) Vectorize base64 sextet packing loop (pmaddubsw pattern), (2) Browser SIMD detection demo, (3) Outer-SPMD batching for IPv4 parser
+**Next Priority**: (1) Recognize shift/OR formulas as pmaddubsw/pmaddwd to close 3.7x gap to simdutf, (2) Browser SIMD detection demo, (3) Outer-SPMD batching for IPv4 parser
 
 ## Debugging Tips
 
