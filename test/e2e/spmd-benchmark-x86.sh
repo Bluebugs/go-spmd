@@ -204,6 +204,180 @@ for fn in sum mean min max contains clamp; do
     fi
 done
 
+# ========== Base64 Decode Comparison ==========
+printf "${BOLD}${BLUE}╔══════════════════════════════════════════════════════════════════════════════╗${NC}\n"
+printf "${BOLD}${BLUE}║                    Base64 Decode Comparison (MB/s, all sizes)               ║${NC}\n"
+printf "${BOLD}${BLUE}╚══════════════════════════════════════════════════════════════════════════════╝${NC}\n\n"
+
+B64_DIR="$INTEG/base64-mula-lemire"
+SIMDUTF_BIN="/tmp/simdutf/build/benchmarks/base64/benchmark_base64"
+
+# --- Build SPMD base64 binaries ---
+printf "${BOLD}--- Building SPMD base64 benchmarks ---${NC}\n"
+
+B64_SSSE3="$OUTDIR/bench-b64-ssse3"
+B64_AVX2="$OUTDIR/bench-b64-avx2"
+
+b64_ssse3_ok=false
+b64_avx2_ok=false
+
+if PATH="$GOROOT_SPMD/bin:$PATH" GOEXPERIMENT=spmd \
+    "$TINYGO" build -llvm-features="+ssse3,+sse4.2" -o "$B64_SSSE3" \
+    "$B64_DIR/bench.go" >/dev/null 2>&1; then
+    b64_ssse3_ok=true
+    printf "  ${GREEN}✓${NC} SPMD SSSE3\n"
+else
+    printf "  ${RED}✗${NC} SPMD SSSE3 (compile error)\n"
+fi
+
+if PATH="$GOROOT_SPMD/bin:$PATH" GOEXPERIMENT=spmd \
+    "$TINYGO" build -llvm-features="+ssse3,+sse4.2,+avx2" -o "$B64_AVX2" \
+    "$B64_DIR/bench.go" >/dev/null 2>&1; then
+    b64_avx2_ok=true
+    printf "  ${GREEN}✓${NC} SPMD AVX2\n"
+else
+    printf "  ${RED}✗${NC} SPMD AVX2 (compile error)\n"
+fi
+echo ""
+
+# --- Run Go stdlib base64 benchmark ---
+printf "${BOLD}--- Running Go stdlib base64 benchmark ---${NC}\n"
+stdlib_b64_out=$(PATH="$GOROOT_SPMD/bin:$PATH" go run "$B64_DIR/bench-stdlib.go" 2>&1)
+echo "$stdlib_b64_out" > "$OUTDIR/b64-stdlib.txt"
+printf "  ${GREEN}Done${NC}\n\n"
+
+# --- Run SPMD base64 benchmarks ---
+printf "${BOLD}--- Running SPMD base64 benchmarks ---${NC}\n"
+ssse3_b64_out=""
+avx2_b64_out=""
+if $b64_ssse3_ok; then
+    ssse3_b64_out=$("$B64_SSSE3" 2>&1)
+    echo "$ssse3_b64_out" > "$OUTDIR/b64-ssse3.txt"
+    printf "  ${GREEN}✓${NC} SPMD SSSE3 done\n"
+fi
+if $b64_avx2_ok; then
+    avx2_b64_out=$("$B64_AVX2" 2>&1)
+    echo "$avx2_b64_out" > "$OUTDIR/b64-avx2.txt"
+    printf "  ${GREEN}✓${NC} SPMD AVX2 done\n"
+fi
+echo ""
+
+# --- Run simdutf benchmark if available ---
+printf "${BOLD}--- Running simdutf base64 benchmark ---${NC}\n"
+simdutf_out=""
+if [ -x "$SIMDUTF_BIN" ]; then
+    # Generate test files (raw LCG payload, same as bench.go)
+    python3 -c "
+import base64
+def make_payload(n):
+    state = 0xdeadbeef
+    buf = bytearray(n)
+    for i in range(n):
+        state = (state * 1664525 + 1013904223) & 0xFFFFFFFF
+        buf[i] = state >> 24
+    return bytes(buf)
+for sz, name in [(1024,'1kb'),(10240,'10kb'),(102400,'100kb'),(1048576,'1mb')]:
+    raw = make_payload(sz // 3 * 3)
+    enc = base64.b64encode(raw)
+    open(f'/tmp/simdutf_test_{name}.b64','wb').write(enc)
+" 2>/dev/null
+    # Collect haswell results for each size
+    simdutf_results=""
+    for sz in 1kb 10kb 100kb 1mb; do
+        res=$("$SIMDUTF_BIN" -d "/tmp/simdutf_test_${sz}.b64" 2>&1 | \
+              grep "simdutf::haswell " | grep -v "garbage" | \
+              grep -oP '[0-9]+\.[0-9]+(?= GB/s)')
+        simdutf_results="${simdutf_results}${sz}:${res} "
+    done
+    simdutf_out="$simdutf_results"
+    printf "  ${GREEN}Done${NC} (simdutf::haswell)\n\n"
+else
+    printf "  ${YELLOW}Skipped — simdutf binary not found at $SIMDUTF_BIN${NC}\n"
+    printf "  ${YELLOW}To build: cd /tmp && git clone --depth 1 https://github.com/simdutf/simdutf.git${NC}\n"
+    printf "  ${YELLOW}          cd simdutf && mkdir build && cd build${NC}\n"
+    printf "  ${YELLOW}          cmake .. -DCMAKE_BUILD_TYPE=Release -DSIMDUTF_BENCHMARKS=ON && make -j\$(nproc) benchmark_base64${NC}\n\n"
+fi
+
+# Helper: extract MB/s for a given size label from stdlib output
+# Output format: "[1KB  ]" on one line, then "    stdlib:   1894 MB/s" on the next line.
+extract_stdlib_mbps() {
+    local output="$1" size_tag="$2"
+    # Find the block starting with [size_tag], then grab the stdlib MB/s on the next line.
+    echo "$output" | awk "/\[${size_tag}\]/{found=1} found && /stdlib:/{print; found=0}" | \
+        grep -oP '[0-9]+(?= MB/s)' | head -1
+}
+
+# Helper: extract MB/s for a given size label from SPMD bench output
+# Label format: "    spmd:   4419 MB/s"
+# We need to find the line group for a given label, then pick spmd line.
+extract_spmd_mbps() {
+    local output="$1" size_tag="$2"
+    # Find the block starting with [size_tag], then grab spmd MB/s
+    echo "$output" | awk "/\\[${size_tag}/{found=1} found && /spmd:/{print; found=0}" | \
+        grep -oP '[0-9]+(?= MB/s)' | head -1
+}
+
+# Helper: simdutf result (GB/s → MB/s) for a given size
+extract_simdutf_mbps() {
+    local results="$1" size_tag="$2"
+    local gbs
+    gbs=$(echo "$results" | grep -oP "${size_tag}:[0-9]+\.[0-9]+" | cut -d: -f2)
+    if [ -n "$gbs" ]; then
+        # Convert GB/s to MB/s (×1000)
+        printf "%.0f" "$(echo "$gbs * 1000" | bc)"
+    fi
+}
+
+printf "${BOLD}${BLUE}╔══════════════════════════════════════════════════════════════════════════════════╗${NC}\n"
+printf "${BOLD}${BLUE}║          Base64 Decode Throughput Table (MB/s encoded input, higher is better)  ║${NC}\n"
+printf "${BOLD}${BLUE}╚══════════════════════════════════════════════════════════════════════════════════╝${NC}\n\n"
+
+printf "  ${BOLD}%-8s %12s %12s %12s %12s %12s${NC}\n" \
+    "Size" "Go stdlib" "SPMD SSSE3" "SPMD AVX2" "simdutf" "AVX2/stdlib"
+printf "  %-8s %12s %12s %12s %12s %12s\n" \
+    "────────" "──────────" "──────────" "──────────" "──────────" "──────────"
+
+for size_tag in "1KB  " "10KB " "100KB" "1MB  "; do
+    # Normalize for simdutf key (strip spaces, lowercase)
+    simd_key=$(echo "$size_tag" | tr -d ' ' | tr '[:upper:]' '[:lower:]')
+
+    stdlib_mb=$(extract_stdlib_mbps "$stdlib_b64_out" "$size_tag")
+    ssse3_mb=$(extract_spmd_mbps "$ssse3_b64_out" "$size_tag")
+    avx2_mb=$(extract_spmd_mbps "$avx2_b64_out" "$size_tag")
+    simdutf_mb=$(extract_simdutf_mbps "$simdutf_out" "$simd_key")
+
+    # Speedup: SPMD AVX2 vs Go stdlib (AVX2 MB/s / stdlib MB/s, >1.0 means SPMD is faster)
+    vs_stdlib=$(compute_speedup "${avx2_mb:-}" "${stdlib_mb:-}")
+
+    # Color SPMD columns green if faster than stdlib
+    ssse3_color=""
+    avx2_color=""
+    if [ -n "$ssse3_mb" ] && [ -n "$stdlib_mb" ] && [ "$(echo "$ssse3_mb > $stdlib_mb" | bc)" -eq 1 ]; then
+        ssse3_color="${GREEN}"
+    fi
+    if [ -n "$avx2_mb" ] && [ -n "$stdlib_mb" ] && [ "$(echo "$avx2_mb > $stdlib_mb" | bc)" -eq 1 ]; then
+        avx2_color="${GREEN}"
+    fi
+
+    printf "  %-8s %12s ${ssse3_color}%12s${NC} ${avx2_color}%12s${NC} %12s %12s\n" \
+        "${size_tag}" \
+        "${stdlib_mb:+${stdlib_mb} MB/s}" \
+        "${ssse3_mb:+${ssse3_mb} MB/s}" \
+        "${avx2_mb:+${avx2_mb} MB/s}" \
+        "${simdutf_mb:+${simdutf_mb} MB/s}" \
+        "$vs_stdlib"
+done
+
+echo ""
+printf "  ${BOLD}Notes:${NC}\n"
+printf "  Go stdlib:  encoding/base64 (gc compiler, stdlib assembly, amd64)\n"
+printf "  SPMD SSSE3: TinyGo + LLVM, SSSE3 pshufb nibble-LUT + CompactStore (16-wide)\n"
+printf "  SPMD AVX2:  TinyGo + LLVM, AVX2 vpshufb nibble-LUT + CompactStore (32-wide)\n"
+printf "  simdutf:    C++ haswell AVX2 (https://github.com/simdutf/simdutf)\n"
+printf "  All throughputs measured on encoded-byte input volume (standard industry convention)\n"
+printf "  simdutf numbers are single-run best from benchmark_base64 binary (output in GB/s × 1000)\n"
+echo ""
+
 # ========== Summary ==========
 printf "${BOLD}${BLUE}=== Notes ===${NC}\n"
 printf "  lo generic:  samber/lo pure Go generics, gc compiler (no SIMD)\n"
