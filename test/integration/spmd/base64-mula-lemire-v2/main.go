@@ -2,24 +2,15 @@
 
 // Mula-Lemire base64 decoder v2: uses pmaddubsw/pmaddwd packing.
 // The key difference from v1: instead of shift/OR + CompactStore,
-// this version uses three cascading go-for loops at decreasing
-// SIMD widths (byte -> int16 -> int32) to trigger pmaddubsw and
-// pmaddwd pattern detection.
+// this version uses cascading go-for loops at decreasing SIMD widths
+// (byte → int16 → int32) to trigger pmaddubsw and pmaddwd pattern detection.
 //
-// Algorithm:
-//
-//	Step 1 (decodeSextets): go for over []byte  -> vpshufb sextet decode
-//	Step 2 (packChunk):     go for over []int16 -> pmaddubsw (a*64+b)
-//	Step 3 (packChunk):     go for over []int32 -> pmaddwd   (a*4096+b)
-//	Step 4 (packChunk):     go for over []int32 -> extract 3 bytes per int32
-//
+// The caller iterates over the source in register-sized chunks.
+// decodeAndPack processes exactly one chunk: decode sextets + pack output.
 // No Rotate, no SPMDMux, no CompactStore.
 package main
 
-import (
-	"fmt"
-	"lanes"
-)
+import "fmt"
 
 // Nibble-LUT decode table, indexed by the high nibble of the ASCII character.
 //
@@ -40,84 +31,56 @@ var decodeLUT = [16]byte{
 	0, 0, 0, 0, 0, 0, 0, 0,
 }
 
-// decodeSextets fills sextets[] with 6-bit values decoded from base64 src bytes.
-// Uses a nibble-LUT go-for loop (byte-width SIMD, e.g. 16 lanes on SSE, 32 on AVX2)
-// that compiles to vpshufb on x86 / i8x16.swizzle on WASM.
-// '+' (0x2B) shares hi-nibble 2 with '/' but needs offset 19 vs 16; the conditional
-// adds 3 and compiles to a branchless SPMD select.
-func decodeSextets(sextets, src []byte) {
+// decodeAndPack processes one SIMD-register-width chunk of base64 source.
+// src must be exactly laneCount bytes (16 on SSE, 32 on AVX2).
+// Decodes sextets + packs via cascading multiply-add loops.
+// Returns number of output bytes written to dst (= len(src) * 3/4).
+func decodeAndPack(dst, src []byte) int {
+	n := len(src)
+
+	// Loop 1 (byte-width): decode ASCII → 6-bit sextets via nibble LUT.
+	// 16 lanes on SSE, 32 on AVX2.
+	sextets := make([]byte, n)
 	go for i, ch := range src {
-		_ = i
 		s := ch + decodeLUT[ch>>4]
 		if ch == byte('+') {
 			s += 3
 		}
 		sextets[i] = s
 	}
-}
 
-// packChunk packs sextets into output bytes using multiply-add cascades.
-//
-// The three go-for loops target decreasing element widths:
-//
-//	Loop A ([]int16, 8 lanes on SSE, 16 on AVX2):
-//	  merged[g] = sextets[g*2]*64 + sextets[g*2+1]
-//	  Pattern: a*64+b  =>  pmaddubsw (multiply unsigned bytes, add adjacent pairs)
-//
-//	Loop B ([]int32, 4 lanes on SSE, 8 on AVX2):
-//	  packed[g] = merged[g*2]*4096 + merged[g*2+1]
-//	  Pattern: a*4096+b  =>  pmaddwd (multiply signed int16s, add adjacent pairs)
-//	  Result: packed[g] = (s0<<18)|(s1<<12)|(s2<<6)|s3
-//
-//	Loop C ([]int32, same width as B):
-//	  Extracts the 3 output bytes from each packed int32:
-//	    byte0 = packed[g]>>16   (bits 23-16)
-//	    byte1 = packed[g]>>8    (bits 15-8)
-//	    byte2 = packed[g]       (bits  7-0)
-//
-// sextets length must be a multiple of 4.
-// Returns the number of bytes written to dst (== len(sextets)*3/4).
-func packChunk(dst []byte, sextets []byte) int {
-	// Loop A: merge adjacent sextet pairs into int16 via pmaddubsw pattern.
-	halfLen := len(sextets) / 2
+	// Loop 2 (int16-width): merge adjacent sextet pairs.
+	// 8 lanes on SSE, 16 on AVX2.
+	// a*64 + b = (a<<6)|b → pmaddubsw pattern [64, 1, 64, 1, ...].
+	halfLen := n / 2
 	merged := make([]int16, halfLen)
 	go for g := range merged {
-		a := int16(sextets[g*2])
-		b := int16(sextets[g*2+1])
-		// a*64 + b: multiply-add of two unsigned bytes -> int16
-		// Matches the pmaddubsw multiplier vector [64, 1, 64, 1, ...].
-		merged[g] = a*64 + b
+		merged[g] = int16(sextets[g*2])*64 + int16(sextets[g*2+1])
 	}
 
-	// Loop B: merge adjacent int16 pairs into int32 via pmaddwd pattern.
+	// Loop 3 (int32-width): merge adjacent int16 pairs.
+	// 4 lanes on SSE, 8 on AVX2.
+	// a*4096 + b → pmaddwd pattern [4096, 1, 4096, 1, ...].
+	// Result: (s0<<18)|(s1<<12)|(s2<<6)|s3
 	quarterLen := halfLen / 2
 	packed := make([]int32, quarterLen)
 	go for g := range packed {
-		a := int32(merged[g*2])
-		b := int32(merged[g*2+1])
-		// a*4096 + b: multiply-add of two signed int16s -> int32
-		// Matches the pmaddwd multiplier vector [4096, 1, 4096, 1, ...].
-		// Result: (s0<<18)|(s1<<12)|(s2<<6)|s3
-		packed[g] = a*4096 + b
+		packed[g] = int32(merged[g*2])*4096 + int32(merged[g*2+1])
 	}
 
-	// Loop C: extract 3 output bytes per int32.
-	// packed[g] = (s0<<18)|(s1<<12)|(s2<<6)|s3
-	//   dst[g*3+0] = bits 23-16 (byte0 = packed[g]>>16 & 0xFF)
-	//   dst[g*3+1] = bits 15-8  (byte1 = packed[g]>>8  & 0xFF)
-	//   dst[g*3+2] = bits  7-0  (byte2 = packed[g]     & 0xFF)
-	// The stride-3 stores may produce interleaved or scalar stores depending
-	// on compiler support; correctness is guaranteed regardless.
+	// Loop 4 (int32-width): extract 3 bytes per packed int32.
 	go for g := range packed {
 		dst[g*3+0] = byte(packed[g] >> 16)
 		dst[g*3+1] = byte(packed[g] >> 8)
 		dst[g*3+2] = byte(packed[g])
 	}
+
 	return quarterLen * 3
 }
 
-// spmdDecode decodes a base64-encoded src using SPMD sextet decode +
-// pmaddubsw/pmaddwd packing. Returns the decoded bytes and a success flag.
+// spmdDecode decodes base64 using per-chunk SPMD processing.
+// The caller iterates over the source in register-sized chunks,
+// calling decodeAndPack for each chunk.
 func spmdDecode(src []byte) ([]byte, bool) {
 	if len(src) == 0 {
 		return nil, true
@@ -126,7 +89,6 @@ func spmdDecode(src []byte) ([]byte, bool) {
 		return nil, false
 	}
 
-	// Count trailing padding characters.
 	padCount := 0
 	if src[len(src)-1] == '=' {
 		padCount++
@@ -136,53 +98,44 @@ func spmdDecode(src []byte) ([]byte, bool) {
 	}
 
 	groups := len(src) / 4
-	// hotGroups excludes the last quartet when it contains padding, so the
-	// SPMD loops never see '=' characters.
 	hotGroups := groups
 	if padCount > 0 {
 		hotGroups--
 	}
 	hotBytes := hotGroups * 4
 
-	// Extra slack for SIMD overwrite: Loop C writes stride-3 into dst but
-	// the go-for bounds cover quarterLen groups, so total written is hotGroups*3.
-	// Allocate groups*3+32 to give headroom for any SIMD over-store.
-	dst := make([]byte, groups*3+32)
+	dst := make([]byte, groups*3+64)
 
-	// Pad hotSrc to a multiple of 32 bytes for AVX2 (32 byte-lanes) compatibility.
-	// Inactive tail lanes may read the padding but will never write output due to
-	// the tail mask applied by the SPMD loop lowering pass.
-	padded := hotBytes
-	if rem := padded % 32; rem != 0 {
-		padded += 32 - rem
+	// Determine chunk size = byte lane count. Use 32 as safe default
+	// (works for both SSE 16-lane and AVX2 32-lane).
+	chunkSize := 32
+	outOffset := 0
+
+	// Process full chunks.
+	for off := 0; off+chunkSize <= hotBytes; off += chunkSize {
+		n := decodeAndPack(dst[outOffset:], src[off:off+chunkSize])
+		outOffset += n
 	}
 
-	var hotSrc []byte
-	if padded <= len(src) {
-		hotSrc = src[:padded]
-	} else {
-		hotSrc = make([]byte, padded)
-		copy(hotSrc, src[:hotBytes])
-		// Fill padding with 'A' (sextet 0) so inactive lane reads are benign.
-		for i := hotBytes; i < padded; i++ {
-			hotSrc[i] = 'A'
+	// Handle remaining bytes (less than one full chunk).
+	rem := hotBytes % chunkSize
+	if rem > 0 && rem%4 == 0 {
+		// Pad remainder to chunkSize with 'A' (sextet 0).
+		padded := make([]byte, chunkSize)
+		copy(padded, src[hotBytes-rem:hotBytes])
+		for i := rem; i < chunkSize; i++ {
+			padded[i] = 'A'
 		}
+		tmpDst := make([]byte, chunkSize) // oversize for safety
+		n := decodeAndPack(tmpDst, padded)
+		// Only copy the valid output bytes (rem*3/4).
+		validOut := rem * 3 / 4
+		copy(dst[outOffset:], tmpDst[:validOut])
+		outOffset += validOut
+		_ = n
 	}
 
-	// Step 1: decode ASCII characters to 6-bit sextets.
-	sextets := make([]byte, padded)
-	decodeSextets(sextets, hotSrc)
-
-	// Steps 2-4: pack sextets -> int16 -> int32 -> output bytes.
-	// Pass the full padded sextets slice (length = multiple of 32) so that the
-	// cascading go-for loops (byte->int16->int32) never encounter a tail partial
-	// register: all three loops see lengths that are exact multiples of their
-	// respective lane counts.  The extra groups beyond hotGroups decode from 'A'
-	// (sextet 0) into harmless zeros that land in the slack area of dst.
-	packChunk(dst, sextets)
-	written := hotGroups * 3
-
-	// Handle the optional padding quartet with a scalar fallback.
+	// Handle padding quartet with scalar fallback.
 	if hotGroups < groups {
 		tail := src[hotGroups*4:]
 		c0, _ := decodeSextet(tail[0])
@@ -194,13 +147,13 @@ func spmdDecode(src []byte) ([]byte, bool) {
 		if tail[3] != '=' {
 			c3, _ = decodeSextet(tail[3])
 		}
-		dst[written+0] = (c0 << 2) | (c1 >> 4)
-		dst[written+1] = (c1 << 4) | (c2 >> 2)
-		dst[written+2] = (c2 << 6) | c3
-		written += 3
+		dst[outOffset+0] = (c0 << 2) | (c1 >> 4)
+		dst[outOffset+1] = (c1 << 4) | (c2 >> 2)
+		dst[outOffset+2] = (c2 << 6) | c3
+		outOffset += 3
 	}
 
-	return dst[:written-padCount], true
+	return dst[:outOffset-padCount], true
 }
 
 // decodeSextet converts a single base64 ASCII character to its 6-bit value.
@@ -262,21 +215,7 @@ func scalarDecode(src []byte) ([]byte, bool) {
 	return dst[:groups*3-padCount], true
 }
 
-// verifyLaneCount prints the effective SIMD widths to confirm the compiler
-// targeted the expected element types. This is informational only.
-func verifyLaneCount() {
-	var b byte
-	var s int16
-	var i int32
-	fmt.Printf("Lane counts: byte=%d int16=%d int32=%d\n",
-		lanes.Count[byte](b),
-		lanes.Count[int16](s),
-		lanes.Count[int32](i),
-	)
-}
-
 func main() {
-	verifyLaneCount()
 
 	testCases := []struct {
 		input    string
