@@ -10,7 +10,10 @@
 // No Rotate, no SPMDMux, no CompactStore.
 package main
 
-import "fmt"
+import (
+	"fmt"
+	"lanes"
+)
 
 // Nibble-LUT decode table, indexed by the high nibble of the ASCII character.
 //
@@ -68,7 +71,11 @@ func decodeAndPack(dst, src []byte) int {
 		packed[g] = int32(merged[g*2])*4096 + int32(merged[g*2+1])
 	}
 
-	// Loop 4 (int32-width): extract 3 bytes per packed int32.
+	// Loop 4: extract 3 bytes per packed int32.
+	// packed[g] = (s0<<18)|(s1<<12)|(s2<<6)|s3
+	//   byte0 = packed[g]>>16 (bits 23-16)
+	//   byte1 = packed[g]>>8  (bits 15-8)
+	//   byte2 = packed[g]     (bits  7-0)
 	go for g := range packed {
 		dst[g*3+0] = byte(packed[g] >> 16)
 		dst[g*3+1] = byte(packed[g] >> 8)
@@ -106,9 +113,11 @@ func spmdDecode(src []byte) ([]byte, bool) {
 
 	dst := make([]byte, groups*3+64)
 
-	// Determine chunk size = byte lane count. Use 32 as safe default
-	// (works for both SSE 16-lane and AVX2 32-lane).
-	chunkSize := 32
+	// Chunk size = byte SIMD width. 16 on SSE, 32 on AVX2.
+	// This ensures each go-for loop inside decodeAndPack runs exactly
+	// one iteration, enabling full unrolling and register promotion.
+	var bv lanes.Varying[byte]
+	chunkSize := lanes.Count[byte](bv)
 	outOffset := 0
 
 	// Process full chunks.
