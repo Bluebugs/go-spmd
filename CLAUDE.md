@@ -212,11 +212,14 @@ Lexer, parser, type system with `lanes.Varying[T]`, full SPMD type checking (ISP
 - **lanes.CompactStore** (2026-04-08): New SIMD compress-store builtin. Writes active lanes contiguously, returns count. Constant-mask path uses pshufb/swizzle + vector store.
 - **SPMDMux** (2026-04-10): Collapses SPMDSelect chains from `i % K` patterns into single per-lane index selection. Handles NEQ masks via X/Y swap.
 - **SPMDInterleaveStore** (2026-04-10): Replaces SPMDMux + CompactStore with diagonal-extraction shuffles + ORs + compaction + contiguous store. Eliminates 200+ instruction scatter chain → ~7 instructions.
-- **Key Metrics** (base64 decode, SPMD vs scalar, 1MB): SSSE3 **23.69x** (4505 MB/s, 0.67 cyc/B), AVX2 **29.16x** (4979 MB/s, 0.60 cyc/B), WASM **11.91x** (1636 MB/s, 1.83 cyc/B)
-- **Key Metrics** (base64 decode, SPMD vs Go stdlib): SSSE3 **2.3x**, AVX2 **2.8x**, WASM **3.0x** faster than `encoding/base64`
-- **Key Metrics** (base64 decode, SPMD vs simdutf C++): simdutf AVX2 19590 MB/s vs SPMD AVX2 5265 MB/s — 3.7x gap (shift formulas vs pmaddubsw/pmaddwd)
+- **Key Metrics** (base64 v1, shift/OR + InterleaveStore, 1MB): SSSE3 **24.55x** (4293 MB/s, 0.70 cyc/B), AVX2 **29.42x** (5178 MB/s, 0.58 cyc/B), WASM **13.37x** (1663 MB/s, 1.80 cyc/B)
+- **Key Metrics** (base64 v2, pmaddubsw + cascading loops, 1MB): SSSE3 **4208 MB/s**, AVX2 **6509 MB/s**, WASM **2740 MB/s**
+- **Key Metrics** (base64 decode, SPMD vs Go stdlib): AVX2 v2 **11.8x** faster than `encoding/base64` (~550 MB/s)
+- **Key Metrics** (base64 decode, SPMD vs simdutf C++): simdutf AVX2 19930 MB/s vs SPMD AVX2 v2 6509 MB/s — 3.1x gap (Loop 4 byte-extract compaction 24 instrs vs simdutf's vpshufb+vpermd 3 instrs)
+- **Base64 v2 decoder** (2026-04-11): Three cascading `go for` loops (byte→int16→int32) trigger pmaddubsw/pmaddwd. `lanes.Count[byte]()` for chunkSize ensures single-iteration unrolling. Pack phase at parity with simdutf (2 instrs each).
 - **Compiler optimizations** (2026-04-06): SwizzleWithin const-only, spmdSwizzleWithTable AVX2 fix, direct store on all-ones mask, vpmaddubsw/vpmaddwd pattern detection (x86+WASM), DotProductI8x16Add removed
 - **Compiler optimizations** (2026-04-09/10): x86 feature implication chain (+avx2 implies +ssse3), swizzle fallback lane count fix, constant-mask SPMDSelect fast-path, decomposed REM power-of-2 optimization, AVX2 cross-lane compaction fix
+- **Compiler optimizations** (2026-04-11): All-ones mask load fast-path (plain vmovdqu/v128.load), LICM for SPMD compilations (loop-simplify+lcssa+licm), InterleaveStore NEQ mask fix + callee.Pkg nil fix + Indices mapping fix
 - **E2E Results**: 90 run pass, 91 compile pass, 0 compile fail, 0 run fail, 11 reject OK (102 total)
 
 ### Phase 3: Validation (IN PROGRESS)
@@ -225,7 +228,7 @@ Scalar fallback, dual-mode E2E, SIMD-vs-scalar benchmarking, x86-64 native (SSE 
 
 **E2E Compile Failures** (0 remaining)
 
-**Next Priority**: (1) Recognize shift/OR formulas as pmaddubsw/pmaddwd to close 3.7x gap to simdutf, (2) Browser SIMD detection demo, (3) Outer-SPMD batching for IPv4 parser
+**Next Priority**: (1) Loop 4 byte-extract compaction — `lanes.ReinterpretBytes` to enable vpshufb+vpermd instead of 24-instr shuffle tree (closes 3.1x gap to simdutf), (2) Browser SIMD detection demo, (3) Outer-SPMD batching for IPv4 parser
 
 ## Debugging Tips
 
