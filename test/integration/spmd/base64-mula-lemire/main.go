@@ -1,11 +1,13 @@
 // run -goexperiment spmd
 
-// Mula-Lemire base64 decoder using nibble-LUT (vpshufb) approach.
-// The key insight: byte-array indexing with a varying index (lut[varyingByte])
-// compiles to vpshufb (x86) / i8x16.swizzle (WASM) via the byte-array fast path.
-// This eliminates the 256-entry scatter-gather table used in the original decoder.
+// Mula-Lemire base64 decoder v2: uses pmaddubsw/pmaddwd packing.
+// The key difference from v1: instead of shift/OR + CompactStore,
+// this version uses cascading go-for loops at decreasing SIMD widths
+// (byte → int16 → int32) to trigger pmaddubsw and pmaddwd pattern detection.
 //
-// Algorithm: sextet = ch + decodeLUT[ch>>4], with an extra +3 for '+' (0x2B).
+// The caller iterates over the source in register-sized chunks.
+// decodeAndPack processes exactly one chunk: decode sextets + pack output.
+// No Rotate, no SPMDMux, no CompactStore.
 package main
 
 import (
@@ -18,8 +20,6 @@ import (
 // '+' (0x2B, sextet 62) and '/' (0x2F, sextet 63) share hi-nibble 2.
 // decodeLUT[2] = 16 is correct for '/' (0x2F + 16 = 63).
 // '+' needs offset 19, so we add 3 via a varying conditional (SPMD select).
-// A correctionLUT indexed by lo-nibble would also corrupt 'K' (0x4B) and
-// 'k' (0x6B) which share lo-nibble 0xB — hence the per-character branch.
 //
 // Values computed as (sextet - ASCII) & 0xFF:
 //
@@ -34,53 +34,135 @@ var decodeLUT = [16]byte{
 	0, 0, 0, 0, 0, 0, 0, 0,
 }
 
-// decodeHotSPMD decodes base64 source bytes directly to output using SPMD.
-// Returns the number of bytes written to dst (== len(src)*3/4).
-// src must have length that is a multiple of 4 (whole groups only, no padding
-// characters). The caller must ensure the backing array of src extends at least
-// laneCount bytes past len(src) so that inactive tail-iteration lane reads stay
-// within valid memory; the caller pads the backing array with 'A' for this.
-func decodeHotSPMD(dst, src []byte) int {
-	offset := 0
+// decodeAndPack processes one SIMD-register-width chunk of base64 source.
+// src must be exactly laneCount bytes (16 on SSE, 32 on AVX2).
+// Decodes sextets + packs via cascading multiply-add loops.
+// Returns number of output bytes written to dst (= len(src) * 3/4).
+func decodeAndPack(dst, src []byte) int {
+	n := len(src)
+
+	// Loop 1 (byte-width): decode ASCII → 6-bit sextets via nibble LUT.
+	// 16 lanes on SSE, 32 on AVX2.
+	sextets := make([]byte, n)
 	go for i, ch := range src {
-		// Step 1: ASCII → 6-bit sextet (nibble LUT via swizzle).
-		// '+' (0x2B) shares hi-nibble 2 with '/' but needs offset 19 vs 16;
-		// the conditional adds 3 and compiles to a branchless SPMD select.
 		s := ch + decodeLUT[ch>>4]
 		if ch == byte('+') {
 			s += 3
 		}
-
-		// Step 2: Pack 4→3 using cross-lane access + CompactStore.
-		// lanes.Rotate(s, +1) fetches the next lane's value for packing:
-		// Rotate(<s0,s1,s2,s3>, +1) => <s1,s2,s3,s0>, so lane i gets s[i+1].
-		// At SIMD register boundaries, lane 3's "next" wraps to s[0] (garbage
-		// for this group), but pos==3 masks it off via CompactStore so it is
-		// never written.
-		next := lanes.Rotate(s, 1)
-		pos := i % 4
-
-		// Compute packing output for positions 0, 1, 2 (position 3 is suppressed
-		// by CompactStore mask). Each expression is varying; the SPMD compiler
-		// selects the correct one per-lane based on the varying pos condition.
-		out0 := (s << 2) | (next >> 4)
-		out1 := (s << 4) | (next >> 2)
-		out2 := (s << 6) | next
-
-		// Merge: select the right value per lane based on pos.
-		out12 := out1
-		if pos == 2 {
-			out12 = out2
-		}
-		out := out0
-		if pos != 0 {
-			out = out12
-		}
-
-		n := lanes.CompactStore(dst[offset:], out, pos != 3)
-		offset += n
+		sextets[i] = s
 	}
-	return offset
+
+	// Loop 2 (int16-width): merge adjacent sextet pairs.
+	// 8 lanes on SSE, 16 on AVX2.
+	// a*64 + b = (a<<6)|b → pmaddubsw pattern [64, 1, 64, 1, ...].
+	halfLen := n / 2
+	merged := make([]int16, halfLen)
+	go for g := range merged {
+		merged[g] = int16(sextets[g*2])*64 + int16(sextets[g*2+1])
+	}
+
+	// Loop 3 (int32-width): merge adjacent int16 pairs.
+	// 4 lanes on SSE, 8 on AVX2.
+	// a*4096 + b → pmaddwd pattern [4096, 1, 4096, 1, ...].
+	// Result: (s0<<18)|(s1<<12)|(s2<<6)|s3
+	quarterLen := halfLen / 2
+	packed := make([]int32, quarterLen)
+	go for g := range packed {
+		packed[g] = int32(merged[g*2])*4096 + int32(merged[g*2+1])
+	}
+
+	// Loop 4: extract 3 bytes per packed int32.
+	// packed[g] = (s0<<18)|(s1<<12)|(s2<<6)|s3
+	//   byte0 = packed[g]>>16 (bits 23-16)
+	//   byte1 = packed[g]>>8  (bits 15-8)
+	//   byte2 = packed[g]     (bits  7-0)
+	go for g := range packed {
+		dst[g*3+0] = byte(packed[g] >> 16)
+		dst[g*3+1] = byte(packed[g] >> 8)
+		dst[g*3+2] = byte(packed[g])
+	}
+
+	return quarterLen * 3
+}
+
+// spmdDecode decodes base64 using per-chunk SPMD processing.
+// The caller iterates over the source in register-sized chunks,
+// calling decodeAndPack for each chunk.
+func spmdDecode(src []byte) ([]byte, bool) {
+	if len(src) == 0 {
+		return nil, true
+	}
+	if len(src)%4 != 0 {
+		return nil, false
+	}
+
+	padCount := 0
+	if src[len(src)-1] == '=' {
+		padCount++
+	}
+	if len(src) >= 2 && src[len(src)-2] == '=' {
+		padCount++
+	}
+
+	groups := len(src) / 4
+	hotGroups := groups
+	if padCount > 0 {
+		hotGroups--
+	}
+	hotBytes := hotGroups * 4
+
+	dst := make([]byte, groups*3+64)
+
+	// Chunk size = byte SIMD width. 16 on SSE, 32 on AVX2.
+	// This ensures each go-for loop inside decodeAndPack runs exactly
+	// one iteration, enabling full unrolling and register promotion.
+	var bv lanes.Varying[byte]
+	chunkSize := lanes.Count[byte](bv)
+	outOffset := 0
+
+	// Process full chunks.
+	for off := 0; off+chunkSize <= hotBytes; off += chunkSize {
+		n := decodeAndPack(dst[outOffset:], src[off:off+chunkSize])
+		outOffset += n
+	}
+
+	// Handle remaining bytes (less than one full chunk).
+	rem := hotBytes % chunkSize
+	if rem > 0 && rem%4 == 0 {
+		// Pad remainder to chunkSize with 'A' (sextet 0).
+		padded := make([]byte, chunkSize)
+		copy(padded, src[hotBytes-rem:hotBytes])
+		for i := rem; i < chunkSize; i++ {
+			padded[i] = 'A'
+		}
+		tmpDst := make([]byte, chunkSize) // oversize for safety
+		n := decodeAndPack(tmpDst, padded)
+		// Only copy the valid output bytes (rem*3/4).
+		validOut := rem * 3 / 4
+		copy(dst[outOffset:], tmpDst[:validOut])
+		outOffset += validOut
+		_ = n
+	}
+
+	// Handle padding quartet with scalar fallback.
+	if hotGroups < groups {
+		tail := src[hotGroups*4:]
+		c0, _ := decodeSextet(tail[0])
+		c1, _ := decodeSextet(tail[1])
+		var c2, c3 byte
+		if tail[2] != '=' {
+			c2, _ = decodeSextet(tail[2])
+		}
+		if tail[3] != '=' {
+			c3, _ = decodeSextet(tail[3])
+		}
+		dst[outOffset+0] = (c0 << 2) | (c1 >> 4)
+		dst[outOffset+1] = (c1 << 4) | (c2 >> 2)
+		dst[outOffset+2] = (c2 << 6) | c3
+		outOffset += 3
+	}
+
+	return dst[:outOffset-padCount], true
 }
 
 // decodeSextet converts a single base64 ASCII character to its 6-bit value.
@@ -109,7 +191,6 @@ func scalarDecode(src []byte) ([]byte, bool) {
 		return nil, false
 	}
 
-	// Count padding characters at the end.
 	padCount := 0
 	if src[len(src)-1] == '=' {
 		padCount++
@@ -143,89 +224,8 @@ func scalarDecode(src []byte) ([]byte, bool) {
 	return dst[:groups*3-padCount], true
 }
 
-// spmdDecode decodes base64 using the SPMD nibble-LUT hot loop with scalar
-// fallback for the padding quartet.
-func spmdDecode(src []byte) ([]byte, bool) {
-	if len(src) == 0 {
-		return nil, true
-	}
-	if len(src)%4 != 0 {
-		return nil, false
-	}
-
-	// Count padding characters at the end.
-	padCount := 0
-	if src[len(src)-1] == '=' {
-		padCount++
-	}
-	if len(src) >= 2 && src[len(src)-2] == '=' {
-		padCount++
-	}
-
-	groups := len(src) / 4
-	// hotGroups excludes the last quartet when it contains padding, so the
-	// SPMD loop never sees '=' characters.
-	hotGroups := groups
-	if padCount > 0 {
-		hotGroups--
-	}
-	hotBytes := hotGroups * 4 // number of valid src bytes for the SPMD loop
-
-	dst := make([]byte, groups*3)
-
-	// Allocate hotSrc with at least 32 bytes of backing beyond hotBytes so that
-	// inactive tail-iteration lanes can read without faulting on any target
-	// (WASM: 16 byte-lanes, x86 SSE: 16 byte-lanes, x86 AVX2: 32 byte-lanes).
-	// The slice passed to decodeHotSPMD is hotSrc[:hotBytes] (not padded length)
-	// so the go-for iterates exactly hotBytes times; the SPMD tail mask
-	// (i < hotBytes) suppresses CompactStore writes for inactive tail lanes.
-	// Padding bytes are filled with 'A' (sextet 0); they are read but never
-	// written due to the tail mask.
-	padded := hotBytes
-	if rem := padded % 32; rem != 0 {
-		padded += 32 - rem
-	}
-
-	var hotSrc []byte
-	if padded <= len(src) {
-		hotSrc = src[:padded]
-	} else {
-		hotSrc = make([]byte, padded)
-		copy(hotSrc, src[:hotBytes])
-		for i := hotBytes; i < padded; i++ {
-			hotSrc[i] = 'A' // valid base64 character (sextet 0)
-		}
-	}
-
-	// Run combined SPMD decode: lookup + pack + compact-store in one pass.
-	// Pass hotSrc[:hotBytes] so the go-for iterates exactly hotBytes times; the
-	// tail mask (i < hotBytes) suppresses CompactStore for inactive tail lanes
-	// while hotSrc's padded backing ensures those lanes read valid memory.
-	// Returns the number of bytes written into dst (== hotGroups*3).
-	written := decodeHotSPMD(dst, hotSrc[:hotBytes])
-	_ = written // hotGroups*3 bytes written; padding quartet appended below
-
-	// Handle the padding quartet with scalar fallback.
-	if hotGroups < groups {
-		tail := src[hotGroups*4:]
-		c0, _ := decodeSextet(tail[0])
-		c1, _ := decodeSextet(tail[1])
-		var c2, c3 byte
-		if tail[2] != '=' {
-			c2, _ = decodeSextet(tail[2])
-		}
-		if tail[3] != '=' {
-			c3, _ = decodeSextet(tail[3])
-		}
-		dst[hotGroups*3+0] = (c0 << 2) | (c1 >> 4)
-		dst[hotGroups*3+1] = (c1 << 4) | (c2 >> 2)
-		dst[hotGroups*3+2] = (c2 << 6) | c3
-	}
-
-	return dst[:groups*3-padCount], true
-}
-
 func main() {
+
 	testCases := []struct {
 		input    string
 		expected string
@@ -237,11 +237,11 @@ func main() {
 		{"YQ==", "a"},
 		{"YWI=", "ab"},
 		{"YWJj", "abc"},
-		// Longer input to exercise multiple SIMD lanes.
+		// Longer input exercises multiple SIMD register widths.
 		{"VGhlIHF1aWNrIGJyb3duIGZveCBqdW1wcyBvdmVyIHRoZSBsYXp5IGRvZw==",
 			"The quick brown fox jumps over the lazy dog"},
-		// 'K' (0x4B) and 'k' (0x6B) share lo-nibble 0xB with '+' (0x2B).
-		// A correctionLUT indexed by lo-nibble would corrupt these characters.
+		// 'K' (0x4B) and 'k' (0x6B) share lo-nibble 0xB with '+' (0x2B);
+		// a correctionLUT indexed by lo-nibble would corrupt these characters.
 		{"S2VlcA==", "Keep"},
 		{"a2VlcA==", "keep"},
 	}
