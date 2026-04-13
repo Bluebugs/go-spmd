@@ -1062,7 +1062,7 @@ Split `go for` loops into main phase (full vectors, ConstAllOnes mask, plain v12
 - [x] **non-spmd-varying-return**: Non-SPMD functions returning varying work
 - [x] **spmd-call-contexts**: SPMD functions callable from any context
 - [x] **lanes-index-restrictions**: lanes.Index() context restrictions enforced
-- [ ] **union-type-generics**: Generic type constraints for reduce/lanes functions work — compile fail (last remaining failure)
+- [x] **union-type-generics**: Generic type constraints for reduce/lanes functions work — RUN PASS (fixed 2026-03-21)
 
 ### 3.2 Illegal Example Validation
 
@@ -1344,10 +1344,10 @@ All Phase 3 validation work is complete. The only remaining compile failure is `
 
 **Last Completed**: Base64 Mula-Lemire v2 decoder (2026-04-12) — Cascading go-for loops (byte→int16→int32) trigger pmaddubsw/pmaddwd pattern detection + byte-decomposition store. AVX2 18141 MB/s (91% of simdutf C++), SSSE3 9201 MB/s, WASM 6004 MB/s. 33x faster than Go stdlib.
 
-**Next Action**: Performance work largely complete. Remaining items are correctness fixes:
-1. union-type-generics (last compile failure — generic SPMD functions)
-2. IndexAddr SExt fix (unsigned index bug on 64-bit targets)
-3. Varying for-loop masking E2E validation
+**Next Action**: All phases complete. 3 low-priority deferred features remain:
+1. Varying[array] indexing (type checker change)
+2. &varyingVar address-of (semantic design)
+3. Divergent inner loops N>1 (complex feature)
 
 ### Recent Major Achievements (Phase 1.5 Extensions)
 
