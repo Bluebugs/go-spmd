@@ -56,49 +56,114 @@ func benchDecodeAndPack(dst, src []byte) int {
 	return quarterLen * 3
 }
 
-func main() {
-	raw := make([]byte, 1024*1024)
-	for i := range raw {
-		raw[i] = byte(i * 7)
+// scalarDecodeBench is the scalar reference for comparison.
+func scalarDecodeBench(dst, src []byte) int {
+	groups := len(src) / 4
+	for g := 0; g < groups; g++ {
+		var s [4]byte
+		for j := 0; j < 4; j++ {
+			ch := src[g*4+j]
+			switch {
+			case 'A' <= ch && ch <= 'Z':
+				s[j] = ch - 'A'
+			case 'a' <= ch && ch <= 'z':
+				s[j] = ch - 'a' + 26
+			case '0' <= ch && ch <= '9':
+				s[j] = ch - '0' + 52
+			case ch == '+':
+				s[j] = 62
+			case ch == '/':
+				s[j] = 63
+			}
+		}
+		dst[g*3+0] = (s[0] << 2) | (s[1] >> 4)
+		dst[g*3+1] = (s[1] << 4) | (s[2] >> 2)
+		dst[g*3+2] = (s[2] << 6) | s[3]
 	}
-	encoded := encodeBase64Bench(raw)
+	return groups * 3
+}
 
+func main() {
 	var bv lanes.Varying[byte]
 	chunkSize := lanes.Count[byte](bv)
-	hotBytes := (len(encoded) / 4) * 4
-	padded := hotBytes
-	if rem := padded % chunkSize; rem != 0 {
-		padded += chunkSize - rem
-	}
-	hotSrc := make([]byte, padded)
-	copy(hotSrc, encoded[:hotBytes])
-	for i := hotBytes; i < padded; i++ {
-		hotSrc[i] = 'A'
-	}
-	dst := make([]byte, padded+64)
 
-	iters := 10
+	sizes := []struct {
+		name string
+		raw  int
+	}{
+		{"1KB  ", 1024},
+		{"10KB ", 10 * 1024},
+		{"100KB", 100 * 1024},
+		{"1MB  ", 1024 * 1024},
+	}
 
-	// Warmup
-	for w := 0; w < 3; w++ {
-		outOff := 0
-		for off := 0; off+chunkSize <= padded; off += chunkSize {
-			n := benchDecodeAndPack(dst[outOff:], hotSrc[off:off+chunkSize])
-			outOff += n
+	fmt.Printf("=== Base64 Decode Benchmark (chunkSize=%d) ===\n\n", chunkSize)
+
+	for _, sz := range sizes {
+		raw := make([]byte, sz.raw)
+		for i := range raw {
+			raw[i] = byte(i * 7)
 		}
-	}
+		encoded := encodeBase64Bench(raw)
+		hotBytes := (len(encoded) / 4) * 4
 
-	start := time.Now()
-	for iter := 0; iter < iters; iter++ {
-		outOff := 0
-		for off := 0; off+chunkSize <= padded; off += chunkSize {
-			n := benchDecodeAndPack(dst[outOff:], hotSrc[off:off+chunkSize])
-			outOff += n
+		// Pre-pad source for SPMD.
+		padded := hotBytes
+		if rem := padded % chunkSize; rem != 0 {
+			padded += chunkSize - rem
 		}
-	}
-	elapsed := time.Since(start)
+		hotSrc := make([]byte, padded)
+		copy(hotSrc, encoded[:hotBytes])
+		for i := hotBytes; i < padded; i++ {
+			hotSrc[i] = 'A'
+		}
 
-	bytesPerSec := float64(len(encoded)) * float64(iters) / elapsed.Seconds()
-	fmt.Printf("=== Base64 v2 (pmaddubsw, chunkSize=%d) @ 1MB ===\n", chunkSize)
-	fmt.Printf("  %.0f MB/s  (%v)\n", bytesPerSec/1e6, elapsed)
+		dstSPMD := make([]byte, padded+64)
+		dstScalar := make([]byte, hotBytes+64)
+
+		// Determine iterations.
+		iters := 5000000 / sz.raw
+		if iters < 5 {
+			iters = 5
+		}
+
+		// Warmup scalar.
+		for w := 0; w < 3; w++ {
+			scalarDecodeBench(dstScalar, encoded[:hotBytes])
+		}
+		// Benchmark scalar.
+		start := time.Now()
+		for iter := 0; iter < iters; iter++ {
+			scalarDecodeBench(dstScalar, encoded[:hotBytes])
+		}
+		scalarElapsed := time.Since(start)
+		scalarMBps := float64(len(encoded)) * float64(iters) / scalarElapsed.Seconds() / 1e6
+
+		// Warmup SPMD.
+		for w := 0; w < 3; w++ {
+			outOff := 0
+			for off := 0; off+chunkSize <= padded; off += chunkSize {
+				n := benchDecodeAndPack(dstSPMD[outOff:], hotSrc[off:off+chunkSize])
+				outOff += n
+			}
+		}
+		// Benchmark SPMD.
+		start = time.Now()
+		for iter := 0; iter < iters; iter++ {
+			outOff := 0
+			for off := 0; off+chunkSize <= padded; off += chunkSize {
+				n := benchDecodeAndPack(dstSPMD[outOff:], hotSrc[off:off+chunkSize])
+				outOff += n
+			}
+		}
+		spmdElapsed := time.Since(start)
+		spmdMBps := float64(len(encoded)) * float64(iters) / spmdElapsed.Seconds() / 1e6
+
+		speedup := spmdMBps / scalarMBps
+
+		fmt.Printf("  [%s]  encoded=%dB  raw=%dB  iters=%d\n", sz.name, len(encoded), sz.raw, iters)
+		fmt.Printf("    scalar:  %4.0f MB/s\n", scalarMBps)
+		fmt.Printf("    spmd:    %4.0f MB/s\n", spmdMBps)
+		fmt.Printf("    speedup: %.2fx\n\n", speedup)
+	}
 }
