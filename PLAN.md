@@ -1321,10 +1321,8 @@ Split `go for` loops into main phase (full vectors, ConstAllOnes mask, plain v12
   - TinyGo: spmdBreakMaskBackEdges + early-exit via spmdVectorAllTrue
   - E2E: mandelbrot example validates the pattern (regular for loop with varying break)
 
-- [ ] **Fix unconditional SExt in IndexAddr vector bounds check**
-  - Task: `*ssa.IndexAddr` vector path (compiler.go:3382) uses `CreateSExt` unconditionally for unsigned indices. Should use `spmdExtendIndex`.
-  - Status: NOT DONE — pre-existing bug
-  - Priority: Medium (unsigned indices > 2^31 sign-extended incorrectly)
+- [x] **Fix unconditional SExt in IndexAddr vector bounds check** — DONE (2026-04-12)
+  - Replaced `CreateSExt` with `spmdExtendIndex` which respects Go type signedness
 
 - [ ] **Varying[array] indexing: (*Varying[array])[varyingIndex] → Varying[elem]**
   - Status: NOT DONE — go/types rejects with "varying types are not indexable"
