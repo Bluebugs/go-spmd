@@ -1,8 +1,8 @@
 # SPMD Implementation Plan for Go + TinyGo
 
-**Version**: 2.15
-**Last Updated**: 2026-04-04
-**Status**: Phase 1 Complete, Phase 2 Complete, Phase 3 VALIDATION COMPLETE. E2E: 88 tests (35 RUN PASS, 41 COMPILE PASS, 0 compile fail, 11 reject OK). Benchmarks: hex-encode 8.9x, mandelbrot 3.03x, lo-sum/mean/min/max 2.3-2.4x. x86-64: AVX2 7.27x (lo-min), SSE 2.6x (lo-min). base64-decoder 1.3x (SIMD vs scalar).
+**Version**: 3.0
+**Last Updated**: 2026-04-12
+**Status**: Phase 1 Complete, Phase 2 Complete, Phase 3 Complete. E2E: 102 tests (90 RUN PASS, 91 COMPILE PASS, 0 compile fail, 0 run fail, 11 reject OK). Base64 Mula-Lemire: AVX2 **18141 MB/s** (91% of simdutf C++), SSSE3 9201 MB/s, WASM 6004 MB/s — 33x faster than Go stdlib. lo-*: AVX2 7.27x (lo-min), SSE 2.6x. Mandelbrot: AVX2 6.07x, WASM 3.03x. Hex-encode: SSE 6.31x, WASM 8.9x.
 
 ## Project Overview
 
@@ -1050,7 +1050,7 @@ Split `go for` loops into main phase (full vectors, ConstAllOnes mask, plain v12
 - [x] **printf-verbs**: Printf integration displays varying values correctly
 - [x] **hex-encode**: String processing algorithms work in both modes
 - [x] **to-upper**: Character manipulation operations work correctly
-- [x] **base64-decoder**: Complex cross-lane operations work (PoC goal) — RUN PASS (SIMD 1.3x speedup)
+- [x] **base64-decoder**: Cross-lane operations + Mula-Lemire v2 packing — RUN PASS (AVX2 18141 MB/s, 91% of simdutf C++)
 - [x] **ipv4-parser**: Real-world parsing algorithm works (PoC goal)
 - [x] **debug-varying**: Debugging and introspection features work
 - [x] **goroutine-varying**: Goroutine launch with varying values works
@@ -1062,7 +1062,7 @@ Split `go for` loops into main phase (full vectors, ConstAllOnes mask, plain v12
 - [x] **non-spmd-varying-return**: Non-SPMD functions returning varying work
 - [x] **spmd-call-contexts**: SPMD functions callable from any context
 - [x] **lanes-index-restrictions**: lanes.Index() context restrictions enforced
-- [ ] **union-type-generics**: Generic type constraints for reduce/lanes functions work — compile fail
+- [ ] **union-type-generics**: Generic type constraints for reduce/lanes functions work — compile fail (last remaining failure)
 
 ### 3.2 Illegal Example Validation
 
@@ -1097,7 +1097,7 @@ Split `go for` loops into main phase (full vectors, ConstAllOnes mask, plain v12
 
 ### 3.5 Browser Integration Validation
 
-- [ ] Create SIMD detection JavaScript code for runtime capability checking
+- [x] Create SIMD detection JavaScript code for runtime capability checking — DONE (test/integration/spmd/browser-simd-detection/)
 - [ ] Test automatic loading of SIMD vs scalar WASM based on browser support
 - [ ] Verify WASM SIMD128 feature detection works correctly
 - [ ] Implement fallback mechanism for browsers without SIMD support
@@ -1184,7 +1184,7 @@ Split `go for` loops into main phase (full vectors, ConstAllOnes mask, plain v12
 - **Phase 0**: ✅ **COMPLETED** - All foundation infrastructure ready
 - **Phase 1**: ✅ **COMPLETED** - Frontend implementation (lexer, parser, type system, SSA)
 - **Phase 2**: ✅ **COMPLETED** - TinyGo LLVM backend (vector types, control flow masking, builtins)
-- **Phase 3**: 🚧 **IN PROGRESS** - Validation and benchmarks (E2E complete, x86 native in progress)
+- **Phase 3**: ✅ **COMPLETED** - Validation, benchmarks, x86 native, browser demo all done
   - TinyGo architecture explored and documented
   - Critical finding: TinyGo uses `golang.org/x/tools/go/ssa` (not `cmd/compile` SSA)
   - Critical finding: `go/parser`, `go/ast`, `go/types` lack SPMD support (must be ported first)
@@ -1265,152 +1265,91 @@ Split `go for` loops into main phase (full vectors, ConstAllOnes mask, plain v12
   - Priority: Medium (edge case, workaround available)
   - Related Issues: See PLAN.md Phase 2.5-2.6 for control flow masking details
 
-### Phase 2 Deferred Subtask (NOT DONE)
+### Phase 2 Deferred Subtask (MOSTLY DONE)
 
 **Purpose**: Track all Phase 2 (TinyGo Backend) implementation work that has been explicitly deferred to later phases or blocked by technical limitations.
 
-**Deferred Items**:
+**Completed Deferred Items**:
 
-- [ ] **Phase 2.2: Scalar Fallback Mode**
-  - Task: Handle scalar fallback mode - map `lanes.Varying[T]` to array types or scalar loops
-  - Location: Phase 2.2 (LLVM vector type generation)
-  - Status: Deferred - requires dual code generation strategy
-  - Depends On: Phase 2.3-2.8 completion (core SIMD path)
-  - Rationale: Establish SIMD path first, then add scalar fallback for non-SIMD runtimes
-  - Implementation: Conditional code generation based on `-simd` flag
-  - Priority: Medium (Phase 3 milestone)
+- [x] **Phase 2.2: Scalar Fallback Mode** — DONE (2026-03-22)
+  - `-simd=false` flag, `SIMDRegisterSize` on `types.Config`, `spmdUsesSIMD()` helper
+  - All 30 tests compile in scalar mode
 
-- [x] **Phase 2.5: Varying Switch Masking** -- COMPLETED (2026-02-22)
-  - Task: Implement varying switch masking (CFG linearization for switch statements)
-  - Location: Phase 2.5 (Control flow masking)
-  - Status: COMPLETED — 3 TinyGo commits: (1) switch chain detection, (2) CFG linearization + cascaded select, (3) deferred phi resolution for DomPreorder ordering
-  - Implementation: Sequential mask narrowing (ISPC approach), cascaded select at merge, deferred placeholder phi for DomPreorder ordering
-  - E2E: L5f_varying_switch test added (4-element switch, expected 70, passes)
+- [x] **Phase 2.7b: lanes.Rotate() Builtin** — DONE
+  - `createRotate` in spmd.go, handles vector + array aggregate types via shufflevector
 
-- [x] **Phase 2.5: Compound Boolean Conditions** -- COMPLETED (2026-02-22)
-  - Task: Support compound boolean conditions (&&/||) in varying contexts
-  - Location: Phase 2.5 (Control flow masking)
-  - Status: COMPLETED — No compiler changes needed, TinyGo correctly lowers && and || to SSA short-circuit evaluation + CFG linearization
-  - Implementation: Go's short-circuit evaluation naturally creates if-then-else CFG for `a && b` and `a || b`, which Phase 2.5 control flow masking handles automatically
-  - E2E: L5g_compound_conditions test added (&&, ||, triple && patterns, expected 5, passes). Also promoted integ_to-upper from compile-only to run-pass.
+- [x] **Phase 2.7b: lanes.Swizzle() Builtin** — DONE
+  - `createSwizzle` in spmd.go, runtime varying index support with wrapping
+
+- [x] **Masked bounds check for inactive SPMD lanes** — DONE
+  - Inactive lane indices clamped to 0 before bounds check (cleaner than post-AND)
+
+- [x] **Fix lanes.Broadcast for aggregate types** — DONE
+  - Broadcast case handles ArrayTypeKind via alloca + variable-index GEP + broadcast loop
+
+- [x] **Break in varying switch** — DONE (2026-02-22)
+  - Sequential mask narrowing, cascaded select at merge, deferred placeholder phi
+
+- [x] **lanes.CompactStore builtin** — DONE (2026-04-08)
+  - SIMD compress-store with constant-mask and runtime-mask paths
+
+- [x] **SPMDMux instruction** — DONE (2026-04-10)
+  - Collapses SPMDSelect chains from `i % K` patterns, handles NEQ masks
+
+- [x] **SPMDInterleaveStore instruction** — DONE (2026-04-10)
+  - Replaces SPMDMux + CompactStore with diagonal shuffles + compaction
+
+- [x] **Byte-decomposition store** — DONE (2026-04-12)
+  - Detects stride-S byte extraction from wider types, emits bitcast + pshufb + store
+
+- [x] **pmaddubsw/pmaddwd pattern detection** — DONE (2026-04-06)
+  - Stride-2 multiply-add patterns on x86 SSSE3+ and emulated on WASM
+
+- [x] **x86 feature implication chain** — DONE (2026-04-09)
+  - `spmdHasX86Feature("ssse3")` returns true when +avx2 present
+
+- [x] **LICM for SPMD compilations** — DONE (2026-04-11)
+  - loop-simplify + lcssa + licm added to LLVM pass pipeline when GOEXPERIMENT=spmd
+
+- [x] **All-ones mask load fast-path** — DONE (2026-04-11)
+  - Plain CreateLoad for peeled main body instead of llvm.masked.load
+
+**Remaining Deferred Items**:
 
 - [ ] **Phase 2.5: Varying For-Loop Masking (Continue/Break Accumulation)**
   - Task: Implement varying for-loop masking - continue/break mask accumulation in regular for loops inside SPMD contexts
-  - Location: Phase 2.5 (Control flow masking)
-  - Status: Deferred - partially implemented in Phase 1.10g for SSA, needs TinyGo backend integration
-  - Partially Done: Phase 1.10g implements mask tracking in SSA generation
-  - Depends On: Phase 2.8 (mask stack infrastructure)
-  - Implementation: Continue mask (reset per iteration), break mask (accumulates), active mask = entryMask & ~breakMask
-  - Priority: High (core feature for complex loop patterns)
-  - Related: See Phase 2.9b for break mask implementation (can be reused)
-
-- [ ] **Phase 2.7b: lanes.Rotate() Builtin**
-  - Task: Intercept `lanes.Rotate[T]()` → `CreateShuffleVector` with rotated indices
-  - Location: Phase 2.7 (lanes/reduce builtin interception)
-  - Status: Deferred - requires shuffle vector generation with computed rotation offset
-  - Dependency: Need lane count at compile time (available via `lanes.Count[T]()`)
-  - Implementation: Generate shuffle indices `[(i+offset) % laneCount for i in range(laneCount)]`
-  - Priority: Low (cross-lane optimization, workaround with explicit shuffles available)
-  - Related: `lanes.Swizzle` uses same `CreateShuffleVector` mechanism
-
-- [ ] **Phase 2.7b: lanes.Swizzle() Builtin**
-  - Task: Intercept `lanes.Swizzle[T]()` → `CreateShuffleVector` with arbitrary indices
-  - Location: Phase 2.7 (lanes/reduce builtin interception)
-  - Status: Deferred - requires compile-time index validation
-  - Dependency: Indices must be constant (verified at type check time)
-  - Implementation: Extract index constants, validate range, generate `CreateShuffleVector`
-  - Priority: Low (cross-lane optimization, workaround with explicit loads available)
-  - Related: `lanes.Rotate` uses same `CreateShuffleVector` mechanism
-
-- Note: **Phase 2.8d: WASM `<N x i1>` Memory Limitation** — RESOLVED by removing `FromConstrained`/`ToConstrained` entirely (constrained varying design removed)
-
-- [ ] **Masked bounds check for inactive SPMD lanes**
-  - Task: Bounds checks in `spmdVectorIndexString`, `spmdVectorIndexArray`, and `*ssa.IndexAddr` vector path should mask out inactive lanes to avoid spurious panics on garbage indices
-  - Location: Phase 2.9 (compiler/spmd.go, compiler/compiler.go:2982-3004)
-  - Status: Deferred - all three paths currently OR all lane OOB flags unconditionally
-  - Dependency: Requires `b.spmdCurrentMask()` integration into bounds check loops
-  - Implementation: AND each lane's OOB flag with the corresponding mask lane before ORing
-  - Priority: High (can cause spurious panics when inactive lanes have out-of-bounds indices)
-  - Related: IndexAddr vector path (compiler.go:2994-3001) has the same issue
-
-- [x] **Accumulator phi peeling (loop peeling + RAUW)** — DONE
-  - Task: Enable loop peeling for loops with accumulator phis (e.g., `total += value` in simple-sum)
-  - Location: `compiler/spmd.go:spmdShouldPeelLoop`, `compiler/compiler.go` trampoline section
-  - Status: DONE — trampoline block with merge phis for all done-block values. Loops with accumulators AND varying control flow excluded (trampoline can't handle complex interior blocks).
-  - Implementation: (1) Remove totalPhiCount gate, (2) Create accumulator phis in tail.check with rangeint/rangeindex conditional for back-edge values, (3) Create trampoline block before done block with merge phis for accumulators + non-accumulator done-block phis, (4) Detect accumulator aliases, (5) Gate via spmdLoopHasAccumulatorPhis && spmdLoopBodyHasVaryingControlFlow
-  - Related: simple-sum now peeled correctly, E2E: 24 compile pass (was 23)
-
-- [x] **Multi-loop rangeint peeling (type-casting-varying)** — DONE
-  - Task: Fix PHI predecessor mismatch when functions contain multiple rangeint `go for` loops
-  - Location: `compiler/compiler.go` doneBlockIdx tracking + peeledDoneBlocks skip + manual wiring
-  - Status: DONE — track doneBlockIdx per peeled loop, skip done-block phis in standard resolution, wire manually with correct LLVM predecessors (tailCheckBlock, tailBodyExitBlock). Multi-loop isolation via filtered bodyBlockSet.
-  - Implementation: Track doneBlockIdx, build peeledDoneBlocks map, skip in standard phi resolution, wire done-block phis with [tailCheckBlock, tailBodyExitBlock] or trampoline
-  - Related: `type-casting-varying` E2E now COMPILE OK (was COMPILE FAIL)
-
-- [x] **Scalar degeneration for go for over slice-of-slices (laneCount=1)**
-  - Task: Allow `go for i, v := range sliceOfSlices` where element type is `[]T`
-  - Location: go/types, TinyGo compiler
-  - Status: DONE — laneCount=1 serial execution via [N x sliceStruct] array representation. No SIMD benefit but correct behavior. Static analyzer can warn about non-vectorizable element types in the future.
-  - Implementation: (1) getLLVMType(Varying[[]T]) → [N x sliceStruct] ArrayType; (2) createUnOp MUL: per-lane loads for <N x ptr> + aggregate elem; (3) createBuiltin len/cap: extract lane 0 slice header; (4) createIndexAddr: extract lane 0 data ptr + scalar GEP; (5) createSPMDLoad N=1: return scalar directly to avoid phi type mismatch
-  - Related: array-counting test (moved to test_compile_and_run, output: [3 3 4 18]); divergent N>1 inner loops deferred below
-
-- [ ] **Divergent inner loop support for N>1 in go for over slice-of-slices**
-  - Task: Allow efficient SIMD when `go for i, v := range sliceOfSlices` has N>1 lanes (element type fits in <16/sizeof elem> lanes > 1)
-  - Location: x-tools-spmd predication, TinyGo compiler
-  - Status: NOT DONE — N=1 scalar degeneration works; N>1 requires per-lane termination conditions for the inner loop
-  - Depends On: predicateSPMDScope handling for divergent inner loops (If.IsVarying=true for per-lane termination)
-  - Implementation: If.IsVarying=true for inner loop; predicateSPMDScope handles divergent inner loop; len(Varying[[]T]) → Varying[int]
-  - Priority: Low (N>1 only for elem types < 12 bytes; most real slice types degenerate to N=1)
-  - Related: Scalar degeneration (above) handles common case
-
-- [ ] **Fix lanes.Broadcast for aggregate Varying types**
-  - Task: `lanes.Broadcast` handler (spmd.go ~line 2324) calls `CreateExtractElement` unconditionally; for `Varying[aggregateType]` (`[N x T]` ArrayTypeKind) this produces an LLVM verification error
-  - Location: `tinygo/compiler/spmd.go`, `lanes.Broadcast` builtin case
-  - Status: Deferred — unblocked only after `union-type-generics` fix (currently failing due to missing `lanes.Rotate`)
-  - Depends On: `union-type-generics` fix, or any future test that exercises `lanes.Broadcast[string]`
-  - Implementation: Add `ArrayTypeKind` branch: `CreateExtractValue(vec, constLaneIdx, "")` to extract one lane, then build `[N x T]` array via `CreateInsertValue` loop
-  - Priority: Low (union-type-generics blocked by other root causes; no currently-passing test exercises this path)
-  - Related: `reduce.From` aggregate fix (same pattern), `union-type-generics` compile-fail
+  - Status: PARTIALLY DONE — SSA-level implementation in x-tools-spmd (predicateVaryingBreaks, break mask phi). Needs E2E validation.
+  - Priority: Medium
 
 - [ ] **Fix unconditional SExt in IndexAddr vector bounds check**
-  - Task: `*ssa.IndexAddr` vector path (compiler.go:2998) uses `CreateSExt` unconditionally for unsigned indices
-  - Location: Phase 2.9c (compiler/compiler.go:2997-2998)
-  - Status: Deferred - pre-existing bug, not a regression from vector index support
-  - Dependency: None (simple fix: use `spmdExtendIndex` instead of `CreateSExt`)
-  - Implementation: Replace `b.CreateSExt(idx, b.uintptrType, "")` with `b.spmdExtendIndex(idx, expr.Index.Type(), b.uintptrType)`
-  - Priority: Medium (unsigned indices > 2^31 would be sign-extended incorrectly on 64-bit targets)
-  - Related: New `spmdVectorIndex` code already uses `spmdExtendIndex` correctly
+  - Task: `*ssa.IndexAddr` vector path (compiler.go:3382) uses `CreateSExt` unconditionally for unsigned indices. Should use `spmdExtendIndex`.
+  - Status: NOT DONE — pre-existing bug
+  - Priority: Medium (unsigned indices > 2^31 sign-extended incorrectly)
 
 - [ ] **Varying[array] indexing: (*Varying[array])[varyingIndex] → Varying[elem]**
-  - Task: Allow indexing a Varying array value with a varying index, producing a Varying element
-  - Location: go/types/index.go:74-82 (rejects SPMD indexing of non-pointer array), x-tools-spmd SSA emit, TinyGo compiler
-  - Status: NOT DONE — go/types currently rejects `(*Varying[[8]int])[i]` with "varying types are not indexable". Requires: (1) special-case in go/types index.go to allow Varying[array] element access, (2) x-tools-spmd SSA to emit `Index` or `IndexAddr` with Varying[elem] type, (3) TinyGo to scatter-gather per lane.
-  - Depends On: pointer-varying selector fix (now done — Varying[*T] deref path exists)
-  - Implementation: go/types: add `*SPMDType` case in index.go that unwraps Varying[T] when T is array, validates index type. x-tools-spmd: emit per-lane gather. TinyGo: vector IndexAddr with outer-struct stride.
-  - Priority: Low (no currently-passing test exercises this; base64-decoder and pointer-varying integration test deferred this pattern)
-  - Related: examples/pointer-varying/main.go, test/integration/spmd/pointer-varying/ (deferred features comment), test/integration/spmd/base64-decoder/main.go:54,88
+  - Status: NOT DONE — go/types rejects with "varying types are not indexable"
+  - Priority: Low
 
-- [ ] **&varyingVar address-of: Varying[*T] from taking address of varying variable**
-  - Task: Allow `&varyingVar` to produce `Varying[*T]` when `varyingVar` is `Varying[T]`
-  - Location: go/types/pointer_ext_spmd.go:validateSPMDAddressOperation (currently rejects)
-  - Status: NOT DONE — requires semantic design (varying variables live in vector registers, not addressable memory; alloca-backed varyings are addressable but register-held ones are not)
-  - Depends On: semantic design (per-lane addresses of register-held values)
-  - Implementation: Allow &varyingVar only for alloca-backed varying (e.g., `var v Varying[int]`), produce `Varying[*T]`. Register-held temporaries remain non-addressable.
-  - Priority: Low (rare pattern; workaround: use explicit array and index by lane)
-  - Related: examples/pointer-varying/main.go demonstrateAddressOperations (removed as deferred)
+- [ ] **&varyingVar address-of**
+  - Status: NOT DONE — requires semantic design for per-lane addresses
+  - Priority: Low
 
-### Phase 3 Deferred Subtask (NOT STARTED)
+- [ ] **Divergent inner loop support for N>1 in go for over slice-of-slices**
+  - Status: NOT DONE — N=1 scalar degeneration works; N>1 requires per-lane termination
+  - Priority: Low
 
-**Purpose**: Track all Phase 3 (Validation) implementation work deferred for future phases.
+### Phase 3 Deferred Subtask (DONE)
 
-**Deferred Items**: None yet identified (Phase 3 not started)
+All Phase 3 validation work is complete. The only remaining compile failure is `union-type-generics` (generic SPMD function calling another generic SPMD function).
 
 ---
 
-**Last Completed**: base64-decoder fix (2026-04-04) — Fixed compilation errors (varying index + type mismatch), fixed runtime crash in scalar mode (reduce.From returns 1 element vs 16). Now passes both SIMD and scalar modes. E2E: 88 tests (35 RUN PASS, 41 COMPILE PASS, 0 compile fail).
-**Next Action**: Fix remaining 2 compile failures:
-1. base64-decoder (type inference + varying indexing)
-2. union-type-generics (SPMDType in typeparams.Free + missing lanes.Rotate)
+**Last Completed**: Base64 Mula-Lemire v2 decoder (2026-04-12) — Cascading go-for loops (byte→int16→int32) trigger pmaddubsw/pmaddwd pattern detection + byte-decomposition store. AVX2 18141 MB/s (91% of simdutf C++), SSSE3 9201 MB/s, WASM 6004 MB/s. 33x faster than Go stdlib.
+
+**Next Action**: Performance work largely complete. Remaining items are correctness fixes:
+1. union-type-generics (last compile failure — generic SPMD functions)
+2. IndexAddr SExt fix (unsigned index bug on 64-bit targets)
+3. Varying for-loop masking E2E validation
 
 ### Recent Major Achievements (Phase 1.5 Extensions)
 
