@@ -1316,10 +1316,10 @@ Split `go for` loops into main phase (full vectors, ConstAllOnes mask, plain v12
 
 **Remaining Deferred Items**:
 
-- [ ] **Phase 2.5: Varying For-Loop Masking (Continue/Break Accumulation)**
-  - Task: Implement varying for-loop masking - continue/break mask accumulation in regular for loops inside SPMD contexts
-  - Status: PARTIALLY DONE — SSA-level implementation in x-tools-spmd (predicateVaryingBreaks, break mask phi). Needs E2E validation.
-  - Priority: Medium
+- [x] **Phase 2.5: Varying For-Loop Masking (Continue/Break Accumulation)** — DONE
+  - SSA: predicateVaryingBreaks + break mask phi + result accumulator (7 unit tests passing)
+  - TinyGo: spmdBreakMaskBackEdges + early-exit via spmdVectorAllTrue
+  - E2E: mandelbrot example validates the pattern (regular for loop with varying break)
 
 - [ ] **Fix unconditional SExt in IndexAddr vector bounds check**
   - Task: `*ssa.IndexAddr` vector path (compiler.go:3382) uses `CreateSExt` unconditionally for unsigned indices. Should use `spmdExtendIndex`.
