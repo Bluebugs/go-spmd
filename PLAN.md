@@ -1324,9 +1324,8 @@ Split `go for` loops into main phase (full vectors, ConstAllOnes mask, plain v12
 - [x] **Fix unconditional SExt in IndexAddr vector bounds check** — DONE (2026-04-12)
   - Replaced `CreateSExt` with `spmdExtendIndex` which respects Go type signedness
 
-- [ ] **Varying[array] indexing: (*Varying[array])[varyingIndex] → Varying[elem]**
-  - Status: NOT DONE — go/types rejects with "varying types are not indexable"
-  - Priority: Low
+- [x] **Varying[array] indexing: Varying[[N]T][index] → Varying[T]** — DONE (2026-04-12)
+  - Both go/types and types2 updated. Array-element indexing on Varying types now allowed.
 
 - [ ] **&varyingVar address-of**
   - Status: PARTIALLY DONE — type checker allows `&Varying[T]` → `Varying[*T]`, TinyGo emits per-lane GEPs, but correctness issues remain in pointer-varying E2E test
