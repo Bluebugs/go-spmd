@@ -1333,7 +1333,7 @@ Split `go for` loops into main phase (full vectors, ConstAllOnes mask, plain v12
   - Note: pointer-varying E2E test has 3 pre-existing lane-count-dependent failures (use `int` = i64 on x86 → 2 lanes, test expects 4). Fix: change test to use `int32`.
 
 - [ ] **Divergent inner loop support for N>1 in go for over slice-of-slices**
-  - Status: NOT DONE — N=1 scalar degeneration works; N>1 requires per-lane termination
+  - Status: PARTIALLY DONE — lane count peeling + SSA varying-bound inclusion done. Compiles with N>1 but inner loop accesses only lane 0's slice. Needs per-lane slice header extraction in TinyGo's range-over-slice codegen.
   - Priority: Low
 
 ### Phase 3 Deferred Subtask (DONE)
