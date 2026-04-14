@@ -1329,7 +1329,7 @@ Split `go for` loops into main phase (full vectors, ConstAllOnes mask, plain v12
   - Priority: Low
 
 - [ ] **&varyingVar address-of**
-  - Status: NOT DONE — requires semantic design for per-lane addresses
+  - Status: PARTIALLY DONE — type checker allows `&Varying[T]` → `Varying[*T]`, TinyGo emits per-lane GEPs, but correctness issues remain in pointer-varying E2E test
   - Priority: Low
 
 - [ ] **Divergent inner loop support for N>1 in go for over slice-of-slices**
