@@ -1332,9 +1332,11 @@ Split `go for` loops into main phase (full vectors, ConstAllOnes mask, plain v12
   - TinyGo: per-lane GEPs using element type lane count (not pointer lane count)
   - Note: pointer-varying E2E test has 3 pre-existing lane-count-dependent failures (use `int` = i64 on x86 → 2 lanes, test expects 4). Fix: change test to use `int32`.
 
-- [ ] **Divergent inner loop support for N>1 in go for over slice-of-slices**
-  - Status: PARTIALLY DONE — lane count peeling + SSA varying-bound inclusion done. Compiles with N>1 but inner loop accesses only lane 0's slice. Needs per-lane slice header extraction in TinyGo's range-over-slice codegen.
-  - Priority: Low
+- [x] **Divergent inner loop support for N>1 in go for over slice-of-slices** — DONE (2026-04-12)
+  - Type checker: getTypeSize peels slice to inner elem type for lane count
+  - SSA: include varying-bound inner loops in SPMD scope (spmdInnerLoopHasVaryingBound)
+  - TinyGo: per-lane len/cap/IndexAddr extraction from [N x sliceStruct], divergent inner loop detection (isDivergentInner), per-lane gather mask
+  - Test: array-counting produces [3 3 4 18] on WASM and x86
 
 ### Phase 3 Deferred Subtask (DONE)
 
@@ -1344,10 +1346,8 @@ All Phase 3 validation work is complete. The only remaining compile failure is `
 
 **Last Completed**: Base64 Mula-Lemire v2 decoder (2026-04-12) — Cascading go-for loops (byte→int16→int32) trigger pmaddubsw/pmaddwd pattern detection + byte-decomposition store. AVX2 18141 MB/s (91% of simdutf C++), SSSE3 9201 MB/s, WASM 6004 MB/s. 33x faster than Go stdlib.
 
-**Next Action**: All phases complete. 3 low-priority deferred features remain:
-1. Varying[array] indexing (type checker change)
-2. &varyingVar address-of (semantic design)
-3. Divergent inner loops N>1 (complex feature)
+**Next Action**: ALL DEFERRED ITEMS RESOLVED. PLAN.md is COMPLETE.
+No remaining features. Project is fully feature-complete.
 
 ### Recent Major Achievements (Phase 1.5 Extensions)
 
