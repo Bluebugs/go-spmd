@@ -2,7 +2,7 @@
 
 **Version**: 3.0
 **Last Updated**: 2026-04-12
-**Status**: Phase 1 Complete, Phase 2 Complete, Phase 3 Complete. E2E: 102 tests (90 RUN PASS, 91 COMPILE PASS, 0 compile fail, 0 run fail, 11 reject OK). Base64 Mula-Lemire: AVX2 **18141 MB/s** (91% of simdutf C++), SSSE3 9201 MB/s, WASM 6004 MB/s — 33x faster than Go stdlib. lo-*: AVX2 7.27x (lo-min), SSE 2.6x. Mandelbrot: AVX2 6.07x, WASM 3.03x. Hex-encode: SSE 6.31x, WASM 8.9x.
+**Status**: Phase 1 Complete, Phase 2 Complete, Phase 3 Complete. E2E: 102 tests (90 RUN PASS, 91 COMPILE PASS, 0 compile fail, 0 run fail, 11 reject OK). Base64 Mula-Lemire: AVX2 **~17 GB/s** (~77% of simdutf C++ ~22 GB/s), SSSE3 ~8.5 GB/s, WASM 6004 MB/s — ~9x faster than Go stdlib. lo-*: AVX2 7.27x (lo-min), SSE 2.6x. Mandelbrot: AVX2 6.07x, WASM 3.03x. Hex-encode: SSE 6.31x, WASM 8.9x.
 
 ## Project Overview
 
@@ -1050,7 +1050,7 @@ Split `go for` loops into main phase (full vectors, ConstAllOnes mask, plain v12
 - [x] **printf-verbs**: Printf integration displays varying values correctly
 - [x] **hex-encode**: String processing algorithms work in both modes
 - [x] **to-upper**: Character manipulation operations work correctly
-- [x] **base64-decoder**: Cross-lane operations + Mula-Lemire v2 packing — RUN PASS (AVX2 18141 MB/s, 91% of simdutf C++)
+- [x] **base64-decoder**: Cross-lane operations + Mula-Lemire v2 packing — RUN PASS (AVX2 ~17 GB/s, ~77% of simdutf C++)
 - [x] **ipv4-parser**: Real-world parsing algorithm works (PoC goal)
 - [x] **debug-varying**: Debugging and introspection features work
 - [x] **goroutine-varying**: Goroutine launch with varying values works
@@ -1344,7 +1344,7 @@ All Phase 3 validation work is complete. The only remaining compile failure is `
 
 ---
 
-**Last Completed**: Base64 Mula-Lemire v2 decoder (2026-04-12) — Cascading go-for loops (byte→int16→int32) trigger pmaddubsw/pmaddwd pattern detection + byte-decomposition store. AVX2 18141 MB/s (91% of simdutf C++), SSSE3 9201 MB/s, WASM 6004 MB/s. 33x faster than Go stdlib.
+**Last Completed**: Base64 Mula-Lemire v2 decoder (2026-04-12) — Cascading go-for loops (byte→int16→int32) trigger pmaddubsw/pmaddwd pattern detection + byte-decomposition store. AVX2 ~17 GB/s (~77% of simdutf C++), SSSE3 ~8.5 GB/s, WASM 6004 MB/s. ~9x faster than Go stdlib.
 
 **Next Action**: ALL DEFERRED ITEMS RESOLVED. PLAN.md is COMPLETE.
 No remaining features. Project is fully feature-complete.
