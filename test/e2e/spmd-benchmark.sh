@@ -169,11 +169,37 @@ else
 fi
 echo ""
 
+# ========== Benchmark 6: Base64 Mula-Lemire decode ==========
+printf "${BOLD}--- Base64 Mula-Lemire Decode (throughput) ---${NC}\n"
+compile "$INTEG/base64-mula-lemire/bench.go" "$OUTDIR/b64-simd.wasm" "-scheduler=none" >/dev/null 2>&1
+compile "$INTEG/base64-mula-lemire/bench.go" "$OUTDIR/b64-scalar.wasm" "-scheduler=none -simd=false" >/dev/null 2>&1
+
+simd_out=$(run_wasm "$OUTDIR/b64-simd.wasm")
+scalar_out=$(run_wasm "$OUTDIR/b64-scalar.wasm")
+
+printf "  SIMD mode:\n"
+echo "$simd_out" | sed 's/^/    /'
+printf "  Scalar mode:\n"
+echo "$scalar_out" | sed 's/^/    /'
+echo ""
+
+# Also verify correctness parity against base64-mula-lemire/main.go (both modes must match).
+compile "$INTEG/base64-mula-lemire/main.go" "$OUTDIR/b64-main-simd.wasm" "-scheduler=none" >/dev/null 2>&1
+compile "$INTEG/base64-mula-lemire/main.go" "$OUTDIR/b64-main-scalar.wasm" "-scheduler=none -simd=false" >/dev/null 2>&1
+simd_ok=$(run_wasm "$OUTDIR/b64-main-simd.wasm")
+scalar_ok=$(run_wasm "$OUTDIR/b64-main-scalar.wasm")
+if [ "$simd_ok" = "$scalar_ok" ]; then
+    printf "  ${GREEN}✓ SIMD and scalar correctness match${NC}\n"
+else
+    printf "  ${RED}✗ Outputs differ${NC}\n"
+fi
+echo ""
+
 # ========== Binary size comparison ==========
 printf "${BOLD}--- Binary Size Comparison ---${NC}\n"
 printf "  %-25s %10s %10s %10s\n" "Test" "SIMD" "Scalar" "Ratio"
 printf "  %-25s %10s %10s %10s\n" "----" "----" "------" "-----"
-for name in hex-encode mandelbrot simple-sum store-coalescing; do
+for name in hex-encode mandelbrot simple-sum store-coalescing base64-mula-lemire; do
     simd_file="$OUTDIR/${name%%-*}-simd.wasm"
     scalar_file="$OUTDIR/${name%%-*}-scalar.wasm"
     # Use the actual filenames
@@ -182,6 +208,7 @@ for name in hex-encode mandelbrot simple-sum store-coalescing; do
         mandelbrot) simd_file="$OUTDIR/mandel-simd.wasm"; scalar_file="$OUTDIR/mandel-scalar.wasm" ;;
         simple-sum) simd_file="$OUTDIR/sum-simd.wasm"; scalar_file="$OUTDIR/sum-scalar.wasm" ;;
         store-coalescing) simd_file="$OUTDIR/store-simd.wasm"; scalar_file="$OUTDIR/store-scalar.wasm" ;;
+        base64-mula-lemire) simd_file="$OUTDIR/b64-simd.wasm"; scalar_file="$OUTDIR/b64-scalar.wasm" ;;
     esac
     if [ -f "$simd_file" ] && [ -f "$scalar_file" ]; then
         simd_size=$(stat -c%s "$simd_file")

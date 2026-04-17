@@ -771,6 +771,7 @@ test_dual_mode "dual_lo-min"           "$INTEG/lo-min/main.go"
 test_dual_mode "dual_lo-max"           "$INTEG/lo-max/main.go"
 test_dual_mode "dual_lo-contains"      "$INTEG/lo-contains/main.go"
 test_dual_mode "dual_lo-clamp"         "$INTEG/lo-clamp/main.go"
+test_dual_mode "dual_base64-mula-lemire" "$INTEG/base64-mula-lemire/main.go"
 
 # ========== LEVEL 9: Lane-count-dependent scalar validation ==========
 printf "\n${BLUE}--- Level 9: Scalar validation (lane-count-dependent tests) ---${NC}\n"

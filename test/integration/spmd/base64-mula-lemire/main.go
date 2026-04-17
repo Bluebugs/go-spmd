@@ -113,11 +113,12 @@ func spmdDecode(src []byte) ([]byte, bool) {
 
 	dst := make([]byte, groups*3+64)
 
-	// Chunk size = byte SIMD width. 16 on SSE, 32 on AVX2.
-	// This ensures each go-for loop inside decodeAndPack runs exactly
-	// one iteration, enabling full unrolling and register promotion.
+	// Chunk size = byte SIMD width. 16 on SSE, 32 on AVX2, 4 in scalar mode
+	// (minimum valid size for the byte/int16/int32 cascade). In SIMD mode,
+	// this ensures each go-for loop inside decodeAndPack runs exactly one
+	// iteration, enabling full unrolling and register promotion.
 	var bv lanes.Varying[byte]
-	chunkSize := lanes.Count[byte](bv)
+	chunkSize := max(4, lanes.Count[byte](bv))
 	outOffset := 0
 
 	// Process full chunks.

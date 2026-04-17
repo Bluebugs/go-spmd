@@ -85,7 +85,7 @@ func scalarDecodeBench(dst, src []byte) int {
 
 func main() {
 	var bv lanes.Varying[byte]
-	chunkSize := lanes.Count[byte](bv)
+	chunkSize := max(4, lanes.Count[byte](bv))
 
 	sizes := []struct {
 		name string
