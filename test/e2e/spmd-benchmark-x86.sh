@@ -215,11 +215,25 @@ SIMDUTF_BIN="/tmp/simdutf/build/benchmarks/base64/benchmark_base64"
 # --- Build SPMD base64 binaries ---
 printf "${BOLD}--- Building SPMD base64 benchmarks ---${NC}\n"
 
+B64_SCALAR="$OUTDIR/bench-b64-scalar"
 B64_SSSE3="$OUTDIR/bench-b64-ssse3"
 B64_AVX2="$OUTDIR/bench-b64-avx2"
 
+b64_scalar_ok=false
 b64_ssse3_ok=false
 b64_avx2_ok=false
+
+# SPMD scalar fallback (-simd=false): lanes.Count[byte]()=1, cascading loops run
+# sequentially. Included to show the cost of the SIMD-tuned algorithm when SIMD
+# is disabled — useful baseline for comparing against Go stdlib.
+if PATH="$GOROOT_SPMD/bin:$PATH" GOEXPERIMENT=spmd \
+    "$TINYGO" build -simd=false -o "$B64_SCALAR" \
+    "$B64_DIR/bench.go" >/dev/null 2>&1; then
+    b64_scalar_ok=true
+    printf "  ${GREEN}✓${NC} SPMD scalar (-simd=false)\n"
+else
+    printf "  ${RED}✗${NC} SPMD scalar (compile error)\n"
+fi
 
 if PATH="$GOROOT_SPMD/bin:$PATH" GOEXPERIMENT=spmd \
     "$TINYGO" build -llvm-features="+ssse3,+sse4.2" -o "$B64_SSSE3" \
@@ -248,8 +262,14 @@ printf "  ${GREEN}Done${NC}\n\n"
 
 # --- Run SPMD base64 benchmarks ---
 printf "${BOLD}--- Running SPMD base64 benchmarks ---${NC}\n"
+scalar_b64_out=""
 ssse3_b64_out=""
 avx2_b64_out=""
+if $b64_scalar_ok; then
+    scalar_b64_out=$("$B64_SCALAR" 2>&1)
+    echo "$scalar_b64_out" > "$OUTDIR/b64-scalar.txt"
+    printf "  ${GREEN}✓${NC} SPMD scalar done\n"
+fi
 if $b64_ssse3_ok; then
     ssse3_b64_out=$("$B64_SSSE3" 2>&1)
     echo "$ssse3_b64_out" > "$OUTDIR/b64-ssse3.txt"
@@ -328,20 +348,21 @@ extract_simdutf_mbps() {
     fi
 }
 
-printf "${BOLD}${BLUE}╔══════════════════════════════════════════════════════════════════════════════════╗${NC}\n"
-printf "${BOLD}${BLUE}║          Base64 Decode Throughput Table (MB/s encoded input, higher is better)  ║${NC}\n"
-printf "${BOLD}${BLUE}╚══════════════════════════════════════════════════════════════════════════════════╝${NC}\n\n"
+printf "${BOLD}${BLUE}╔═══════════════════════════════════════════════════════════════════════════════════════════════╗${NC}\n"
+printf "${BOLD}${BLUE}║          Base64 Decode Throughput Table (MB/s encoded input, higher is better)               ║${NC}\n"
+printf "${BOLD}${BLUE}╚═══════════════════════════════════════════════════════════════════════════════════════════════╝${NC}\n\n"
 
-printf "  ${BOLD}%-8s %12s %12s %12s %12s %12s${NC}\n" \
-    "Size" "Go stdlib" "SPMD SSSE3" "SPMD AVX2" "simdutf" "AVX2/stdlib"
-printf "  %-8s %12s %12s %12s %12s %12s\n" \
-    "────────" "──────────" "──────────" "──────────" "──────────" "──────────"
+printf "  ${BOLD}%-8s %12s %12s %12s %12s %12s %12s${NC}\n" \
+    "Size" "Go stdlib" "SPMD scalar" "SPMD SSSE3" "SPMD AVX2" "simdutf" "AVX2/stdlib"
+printf "  %-8s %12s %12s %12s %12s %12s %12s\n" \
+    "────────" "──────────" "──────────" "──────────" "──────────" "──────────" "──────────"
 
 for size_tag in "1KB  " "10KB " "100KB" "1MB  "; do
     # Normalize for simdutf key (strip spaces, lowercase)
     simd_key=$(echo "$size_tag" | tr -d ' ' | tr '[:upper:]' '[:lower:]')
 
     stdlib_mb=$(extract_stdlib_mbps "$stdlib_b64_out" "$size_tag")
+    scalar_mb=$(extract_spmd_mbps "$scalar_b64_out" "$size_tag")
     ssse3_mb=$(extract_spmd_mbps "$ssse3_b64_out" "$size_tag")
     avx2_mb=$(extract_spmd_mbps "$avx2_b64_out" "$size_tag")
     simdutf_mb=$(extract_simdutf_mbps "$simdutf_out" "$simd_key")
@@ -349,9 +370,17 @@ for size_tag in "1KB  " "10KB " "100KB" "1MB  "; do
     # Speedup: SPMD AVX2 vs Go stdlib (AVX2 MB/s / stdlib MB/s, >1.0 means SPMD is faster)
     vs_stdlib=$(compute_speedup "${avx2_mb:-}" "${stdlib_mb:-}")
 
-    # Color SPMD columns green if faster than stdlib
+    # Color SPMD columns green if faster than stdlib, red if slower (scalar expected slower)
+    scalar_color=""
     ssse3_color=""
     avx2_color=""
+    if [ -n "$scalar_mb" ] && [ -n "$stdlib_mb" ]; then
+        if [ "$(echo "$scalar_mb < $stdlib_mb" | bc)" -eq 1 ]; then
+            scalar_color="${RED}"
+        else
+            scalar_color="${GREEN}"
+        fi
+    fi
     if [ -n "$ssse3_mb" ] && [ -n "$stdlib_mb" ] && [ "$(echo "$ssse3_mb > $stdlib_mb" | bc)" -eq 1 ]; then
         ssse3_color="${GREEN}"
     fi
@@ -359,9 +388,10 @@ for size_tag in "1KB  " "10KB " "100KB" "1MB  "; do
         avx2_color="${GREEN}"
     fi
 
-    printf "  %-8s %12s ${ssse3_color}%12s${NC} ${avx2_color}%12s${NC} %12s %12s\n" \
+    printf "  %-8s %12s ${scalar_color}%12s${NC} ${ssse3_color}%12s${NC} ${avx2_color}%12s${NC} %12s %12s\n" \
         "${size_tag}" \
         "${stdlib_mb:+${stdlib_mb} MB/s}" \
+        "${scalar_mb:+${scalar_mb} MB/s}" \
         "${ssse3_mb:+${ssse3_mb} MB/s}" \
         "${avx2_mb:+${avx2_mb} MB/s}" \
         "${simdutf_mb:+${simdutf_mb} MB/s}" \
@@ -370,12 +400,16 @@ done
 
 echo ""
 printf "  ${BOLD}Notes:${NC}\n"
-printf "  Go stdlib:  encoding/base64 (gc compiler, stdlib assembly, amd64)\n"
-printf "  SPMD SSSE3: TinyGo + LLVM, SSSE3 pmaddubsw/pmaddwd + byte-decomposition store (16-wide)\n"
-printf "  SPMD AVX2:  TinyGo + LLVM, AVX2 vpmaddubsw/vpmaddwd + byte-decomposition store (32-wide)\n"
-printf "  simdutf:    C++ haswell AVX2 (https://github.com/simdutf/simdutf)\n"
+printf "  Go stdlib:   encoding/base64 (gc compiler, stdlib assembly, amd64)\n"
+printf "  SPMD scalar: TinyGo + LLVM, -simd=false (Mula-Lemire cascade degenerates to multi-pass scalar)\n"
+printf "  SPMD SSSE3:  TinyGo + LLVM, SSSE3 pmaddubsw/pmaddwd + byte-decomposition store (16-wide)\n"
+printf "  SPMD AVX2:   TinyGo + LLVM, AVX2 vpmaddubsw/vpmaddwd + byte-decomposition store (32-wide)\n"
+printf "  simdutf:     C++ haswell AVX2 (https://github.com/simdutf/simdutf)\n"
 printf "  All throughputs measured on encoded-byte input volume (standard industry convention)\n"
 printf "  simdutf numbers are single-run best from benchmark_base64 binary (output in GB/s × 1000)\n"
+printf "  SPMD scalar < stdlib is expected: the cascading byte→i16→i32 algorithm exists to expose\n"
+printf "  pmaddubsw/pmaddwd. With SIMD disabled it runs 3 scalar passes with shadow-stack\n"
+printf "  intermediates vs stdlib's direct per-group decode.\n"
 echo ""
 
 # ========== Summary ==========

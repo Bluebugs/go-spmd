@@ -174,13 +174,77 @@ printf "${BOLD}--- Base64 Mula-Lemire Decode (throughput) ---${NC}\n"
 compile "$INTEG/base64-mula-lemire/bench.go" "$OUTDIR/b64-simd.wasm" "-scheduler=none" >/dev/null 2>&1
 compile "$INTEG/base64-mula-lemire/bench.go" "$OUTDIR/b64-scalar.wasm" "-scheduler=none -simd=false" >/dev/null 2>&1
 
+# Compile Go stdlib reference under the same TinyGo/WASM runtime for apples-to-apples timing.
+# bench-stdlib.go uses only encoding/base64, so no GOEXPERIMENT=spmd is needed.
+stdlib_compile_ok=true
+WASMOPT="$WASMOPT" GOROOT="$GOROOT_SPMD" \
+    "$TINYGO" build -target=wasi -scheduler=none -o "$OUTDIR/b64-stdlib.wasm" \
+    "$INTEG/base64-mula-lemire/bench-stdlib.go" >/dev/null 2>&1 || stdlib_compile_ok=false
+
 simd_out=$(run_wasm "$OUTDIR/b64-simd.wasm")
 scalar_out=$(run_wasm "$OUTDIR/b64-scalar.wasm")
+stdlib_out=""
+if $stdlib_compile_ok; then
+    stdlib_out=$(run_wasm "$OUTDIR/b64-stdlib.wasm")
+fi
 
-printf "  SIMD mode:\n"
+printf "  SIMD mode (SPMD):\n"
 echo "$simd_out" | sed 's/^/    /'
-printf "  Scalar mode:\n"
+printf "  Scalar mode (SPMD -simd=false):\n"
 echo "$scalar_out" | sed 's/^/    /'
+if [ -n "$stdlib_out" ]; then
+    printf "  Go stdlib (TinyGo, same WASM runtime):\n"
+    echo "$stdlib_out" | sed 's/^/    /'
+else
+    printf "  ${YELLOW}Go stdlib compile failed — skipping stdlib comparison${NC}\n"
+fi
+echo ""
+
+# Summary table: stdlib vs SPMD scalar vs SPMD SIMD on the same runtime.
+# bench.go emits "spmd:   NNN MB/s" and "scalar: NNN MB/s" (internal reference).
+# bench-stdlib.go emits "stdlib: NNN MB/s".
+# Extract per-size MB/s from each source and build a unified table.
+extract_b64_mbps() {
+    local output="$1" size_tag="$2" label="$3"
+    echo "$output" | awk -v tag="$size_tag" -v lbl="$label" '
+        index($0, "[" tag "]") { found=1; next }
+        found && $1 == lbl":" { print $2; exit }
+    '
+}
+
+printf "  ${BOLD}Throughput summary (MB/s on encoded input, higher is better):${NC}\n"
+printf "  %-8s %12s %12s %12s %12s %12s\n" \
+    "Size" "Go stdlib" "SPMD scalar" "SPMD SIMD" "scalar/std" "SIMD/std"
+printf "  %-8s %12s %12s %12s %12s %12s\n" \
+    "────────" "──────────" "──────────" "──────────" "──────────" "──────────"
+for size_tag in "1KB  " "10KB " "100KB" "1MB  "; do
+    stdlib_mb=""
+    if [ -n "$stdlib_out" ]; then
+        stdlib_mb=$(extract_b64_mbps "$stdlib_out" "$size_tag" "stdlib")
+    fi
+    scalar_mb=$(extract_b64_mbps "$scalar_out" "$size_tag" "spmd")
+    simd_mb=$(extract_b64_mbps "$simd_out" "$size_tag" "spmd")
+
+    scalar_ratio=""
+    simd_ratio=""
+    if [ -n "$stdlib_mb" ] && [ -n "$scalar_mb" ] && [ "$stdlib_mb" != "0" ]; then
+        scalar_ratio=$(printf "%.2fx" "$(echo "scale=2; $scalar_mb / $stdlib_mb" | bc)")
+    fi
+    if [ -n "$stdlib_mb" ] && [ -n "$simd_mb" ] && [ "$stdlib_mb" != "0" ]; then
+        simd_ratio=$(printf "%.2fx" "$(echo "scale=2; $simd_mb / $stdlib_mb" | bc)")
+    fi
+
+    printf "  %-8s %12s %12s %12s %12s %12s\n" \
+        "$size_tag" \
+        "${stdlib_mb:+${stdlib_mb} MB/s}" \
+        "${scalar_mb:+${scalar_mb} MB/s}" \
+        "${simd_mb:+${simd_mb} MB/s}" \
+        "${scalar_ratio:-—}" \
+        "${simd_ratio:-—}"
+done
+printf "  ${BOLD}Note:${NC} Mula-Lemire cascade (byte→i16→i32) is SIMD-tuned.\n"
+printf "  In -simd=false mode it degenerates to multi-pass scalar with shadow-stack\n"
+printf "  intermediates, so scalar/std is expected to be <1.0x. See docs/notes.\n"
 echo ""
 
 # Also verify correctness parity against base64-mula-lemire/main.go (both modes must match).
