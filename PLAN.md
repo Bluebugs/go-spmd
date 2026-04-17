@@ -1,8 +1,8 @@
 # SPMD Implementation Plan for Go + TinyGo
 
 **Version**: 3.0
-**Last Updated**: 2026-04-12
-**Status**: Phase 1 Complete, Phase 2 Complete, Phase 3 Complete. E2E: 102 tests (90 RUN PASS, 91 COMPILE PASS, 0 compile fail, 0 run fail, 11 reject OK). Base64 Mula-Lemire: AVX2 **~17 GB/s** (~77% of simdutf C++ ~22 GB/s), SSSE3 ~8.5 GB/s, WASM 6004 MB/s — ~9x faster than Go stdlib. lo-*: AVX2 7.27x (lo-min), SSE 2.6x. Mandelbrot: AVX2 6.07x, WASM 3.03x. Hex-encode: SSE 6.31x, WASM 8.9x.
+**Last Updated**: 2026-04-17
+**Status**: Phase 1 Complete, Phase 2 Complete, Phase 3 Complete. E2E: 103 tests (91 RUN PASS, 92 COMPILE PASS, 0 compile fail, 0 run fail, 11 reject OK). Base64 Mula-Lemire: AVX2 **~17 GB/s** (~77% of simdutf C++ ~22 GB/s), SSSE3 ~8.5 GB/s, WASM 6004 MB/s — ~9x faster than Go stdlib. Now dual-mode safe (scalar `-simd=false` PASS since 2026-04-17). lo-*: AVX2 7.27x (lo-min), SSE 2.6x. Mandelbrot: AVX2 6.07x, WASM 3.03x. Hex-encode: SSE 6.31x, WASM 8.9x.
 
 ## Project Overview
 
@@ -1344,7 +1344,9 @@ All Phase 3 validation work is complete. The only remaining compile failure is `
 
 ---
 
-**Last Completed**: Base64 Mula-Lemire v2 decoder (2026-04-12) — Cascading go-for loops (byte→int16→int32) trigger pmaddubsw/pmaddwd pattern detection + byte-decomposition store. AVX2 ~17 GB/s (~77% of simdutf C++), SSSE3 ~8.5 GB/s, WASM 6004 MB/s. ~9x faster than Go stdlib.
+**Last Completed**: Base64 Mula-Lemire scalar-mode fix (2026-04-17) — `chunkSize := max(4, lanes.Count[byte](bv))` in `main.go`, `bench.go`, and `examples/base64-decoder/main.go`. In scalar mode `lanes.Count[byte]() = 1`, so the cascading byte→int16→int32 kernel computed `halfLen = 0` / `quarterLen = 0` and produced no output; only the '=' padding fallback emitted bytes. Added dual-mode Level 8 entry (`dual_base64-mula-lemire`) and Benchmark 6 in `spmd-benchmark.sh` (throughput + correctness parity). Observed ~11.5x speedup (chunkSize=16 SIMD vs chunkSize=4 scalar on wasmtime).
+
+**Previous**: Base64 Mula-Lemire v2 decoder (2026-04-12) — Cascading go-for loops (byte→int16→int32) trigger pmaddubsw/pmaddwd pattern detection + byte-decomposition store. AVX2 ~17 GB/s (~77% of simdutf C++), SSSE3 ~8.5 GB/s, WASM 6004 MB/s. ~9x faster than Go stdlib.
 
 **Next Action**: ALL DEFERRED ITEMS RESOLVED. PLAN.md is COMPLETE.
 No remaining features. Project is fully feature-complete.

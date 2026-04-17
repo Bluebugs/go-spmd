@@ -562,7 +562,7 @@ Still in the base64 decoder, at line 119:
 
 ```go
 var bv lanes.Varying[byte]
-chunkSize := lanes.Count[byte](bv)
+chunkSize := max(4, lanes.Count[byte](bv))
 outOffset := 0
 
 // Process full chunks.
@@ -577,6 +577,8 @@ for off := 0; off+chunkSize <= hotBytes; off += chunkSize {
 **Why this matters.** Inside `decodeAndPack`, every `go for` loop runs for exactly the right number of elements to fill one SIMD register once. There's no unrolling to compute, no partial iterations, no masked tail. Each `go for` compiles to a straight-line sequence of vector instructions — no loop at all after compiler lowering. Register allocation becomes trivial.
 
 Without `lanes.Count[byte]()`-sized chunks, the inner `go for` loops would include a main-body loop plus a masked tail, and the compiler would have a harder time keeping everything in registers.
+
+**Why the `max(4, ...)`.** Scalar mode (`-simd=false`) reports `lanes.Count[byte]() = 1`. A cascading byte → int16 → int32 kernel computes `halfLen = n/2`, `quarterLen = n/4`; with `n=1` both are zero and the kernel produces no output at all. The minimum `n` that exercises every level of the cascade is **`n = 2^(levels-1) × align`**, where `align` is the output granularity of the deepest level. For the base64 decoder (three cascade levels, 4 sextets per output triplet), that bound is 4. Any kernel with this shape needs the same guard. Use `max` of the lane count and the algorithmic minimum; the SIMD build uses the lane count (which is already ≥ 4 for bytes on any real target), the scalar build uses the minimum. Dual-mode testing (§8.2) catches this if you forget.
 
 **The general pattern:** for encoder/decoder/packer kernels, write the outer loop in scalar Go, use `lanes.Count[T]()` to size chunks, and let each `go for` inside the kernel run exactly one iteration.
 
