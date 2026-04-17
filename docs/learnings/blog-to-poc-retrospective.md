@@ -322,7 +322,7 @@ The most impactful use of `lanes.Count` in the PoC turned out to be entirely dif
 
 ```go
 var bv lanes.Varying[byte]
-chunkSize := lanes.Count[byte](bv)  // 16 on SSE, 32 on AVX2
+chunkSize := max(4, lanes.Count[byte](bv))  // 16 on SSE, 32 on AVX2, 4 in scalar mode
 
 for off := 0; off+chunkSize <= hotBytes; off += chunkSize {
     n := decodeAndPack(dst[outOffset:], src[off:off+chunkSize])

@@ -804,7 +804,7 @@ This is the example that proves SPMD Go is competitive with hand-written C++ SIM
    - Byte output loop: extract three bytes per int32 using stride-3 indexing — the compiler emits byte-decomposition store.
 
 2. **`spmdDecode` (line 91)** is the outer driver. It:
-   - Computes `chunkSize := lanes.Count[byte](bv)` — 16 on SSE, 32 on AVX2.
+   - Computes `chunkSize := max(4, lanes.Count[byte](bv))` — 16 on SSE, 32 on AVX2, 4 in scalar fallback (the minimum for the cascade to produce output).
    - Loops over the source in `chunkSize`-sized chunks, calling `decodeAndPack` for each.
    - Handles the remainder (less than one chunk) by padding with `'A'` and copying the valid output.
    - Handles base64 padding (`'='`) with a scalar fallback for the last quartet.
@@ -860,7 +860,7 @@ The fix — implemented as a benchmark but not upstreamed as a language feature 
 
 ## §10.4 Idioms that deliver wins
 
-- Size chunks with `chunkSize := lanes.Count[byte](bv)`; wrap the SPMD kernel in a scalar outer loop.
+- Size chunks with `chunkSize := max(minAlgorithmic, lanes.Count[byte](bv))`; wrap the SPMD kernel in a scalar outer loop. The `max` ensures scalar fallback still works for cascading kernels.
 - Cascading `go for` loops at decreasing widths (byte → int16 → int32) with constant-coefficient multiply-add for `vpmaddubsw`/`vpmaddwd`.
 - Contiguous slice load and store inside the `go for` — the "golden case."
 - Varying accumulator + `reduce.Add`/`Max`/`Min` outside the loop.
