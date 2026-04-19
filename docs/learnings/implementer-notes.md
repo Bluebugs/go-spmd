@@ -25,12 +25,12 @@ All speedups are vs. scalar Go compiled from the same source with `-simd=false`,
 |---|---|---|---|
 | Base64 Mula-Lemire decoder | x86 AVX2 | **~17 GB/s** | ~77% of simdutf C++ (~22 GB/s); ~9× Go stdlib `encoding/base64` (~1.9 GB/s) |
 | Base64 Mula-Lemire decoder | x86 SSSE3 | **9201 MB/s** | |
-| Base64 Mula-Lemire decoder | WASM simd128 (wasmtime) | **6004 MB/s** | |
-| Hex-encode (Dst) | WASM simd128 | **8.9×** | |
+| Base64 Mula-Lemire decoder | WASM simd128 | **~6 GB/s** (wasmtime; varies by host) | |
+| Hex-encode (Dst) | WASM simd128 | **6-9×** (varies by host) | |
 | Hex-encode (Dst) | x86 SSE | **6.31×** | |
 | Mandelbrot (int32) | x86 AVX2 | **6.07×** | |
 | Mandelbrot (int32) | x86 SSE | **3.71×** | |
-| Mandelbrot (int32) | WASM simd128 | **3.03×** | |
+| Mandelbrot (int32) | WASM simd128 | **2.5-3.6×** (varies by host) | |
 | lo-min / lo-max | x86 AVX2 8-wide i32 | **7.27× / 7.18×** | near theoretical 8× peak |
 | lo-sum / lo-clamp / lo-mean | x86 AVX2 | 5.09× / 4.82× / 3.66× | |
 

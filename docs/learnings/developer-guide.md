@@ -56,8 +56,8 @@ SPMD is most useful when the other approaches either don't work or are too painf
 
 In this PoC, SPMD delivered measurable wins on:
 
-- **Encoders and decoders.** Base64 decode hit **~77% of the simdutf C++ SIMD library's speed** on AVX2 (~17 GB/s vs simdutf's ~22 GB/s, **~9× faster** than Go's stdlib `encoding/base64`). Hex-encode hit **8.9×** on WASM simd128.
-- **Math kernels.** Mandelbrot divergence detection: **6.07×** on AVX2, **3.71×** on SSE, **3.03×** on WASM.
+- **Encoders and decoders.** Base64 decode hit **~77% of the simdutf C++ SIMD library's speed** on AVX2 (~17 GB/s vs simdutf's ~22 GB/s, **~9× faster** than Go's stdlib `encoding/base64`). Hex-encode hit **6-9×** on WASM simd128 (varies by host/runtime).
+- **Math kernels.** Mandelbrot divergence detection: **6.07×** on AVX2, **3.71×** on SSE, **2.5-3.6×** on WASM (varies by host).
 - **Array reductions.** `samber/lo` style min/max/sum/mean/clamp: **7.27× / 7.18× / 5.09× / 4.82× / 3.66×** on AVX2 respectively.
 - **Parsers and format converters.** IPv4 parsing, hex encoding, byte transforms.
 
@@ -239,7 +239,7 @@ func Encode(dst, src []byte) int {
 }
 ```
 
-This loops over the destination (twice the size of the source), picking the high or low nibble of each source byte and looking it up in a 16-byte constant table. On WASM simd128 it hits **8.9×** scalar. On x86 SSE it hits **6.31×**. See CLAUDE.md "Key Metrics" section for the full numbers.
+This loops over the destination (twice the size of the source), picking the high or low nibble of each source byte and looking it up in a 16-byte constant table. On WASM simd128 it hits **6-9×** scalar (varies by host/runtime). On x86 SSE it hits **6.31×**. See CLAUDE.md "Key Metrics" section for the full numbers.
 
 Things worth noticing:
 
@@ -714,7 +714,7 @@ func Encode(dst, src []byte) int {
 - `dst[i] = ...` — contiguous store. In the peeled main body, single `v128.store` or `vmovdqu`.
 
 **Measured speedup** (CLAUDE.md "Key Metrics" section):
-- WASM simd128: **8.9×**
+- WASM simd128: **6-9×** (varies by host)
 - x86 SSE: **6.31×**
 - x86 AVX2: **1.13×** — this looks bad, but it's because AVX2 byte iteration has 32 lanes and the decomposed index path pays a small per-GEP overhead that dominates at this width. See the implementer notes for why.
 
@@ -787,7 +787,7 @@ func mandelbrotSPMD(x0, y0, x1, y1 float32, width, height, maxIter int, output [
 **Measured speedup** (CLAUDE.md):
 - x86 AVX2: **6.07×**
 - x86 SSE: **3.71×**
-- WASM simd128: **3.03×**
+- WASM simd128: **2.5-3.6×** (varies by host)
 
 **The lesson:** divergent iteration counts (different lanes diverging at different times) are handled well by SPMD. Write the uniform loop with a varying break condition; the compiler tracks per-lane masks correctly.
 

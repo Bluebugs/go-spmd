@@ -770,7 +770,7 @@ All of these work. All of them lower to sensible LLVM IR (`shufflevector` for th
 Every example in the PoC was benchmarked at multiple points during development. At the end of the project, **every example had been rewritten at least once to use zero cross-lane primitives** (or, at most, `Broadcast`, `Count`, and `Index` — which are essentially free).
 
 - **Base64 Mula-Lemire decoder.** v1 used `lanes.CompactStore` and `lanes.Rotate` tricks for output packing. Peaked at ~2× scalar. v2 was rewritten to use cascading `go for` (§7) and byte-decomposition store (§8), with zero cross-lane operations. Hit **77% of simdutf C++** — a roughly 10× improvement over v1.
-- **Hex-encode.** No cross-lane operations in the final version. Hits 8.9× on WASM, 6.3× on SSE.
+- **Hex-encode.** No cross-lane operations in the final version. Hits 6-9× on WASM (varies by host), 6.3× on SSE.
 - **Mandelbrot.** No cross-lane operations. Hits 6.07× on AVX2.
 - **lo-min, lo-max, lo-sum, lo-mean, lo-clamp.** All reductions. Zero cross-lane operations. Up to 7.27× on AVX2.
 - **IPv4 parser.** Initially used `lanes.DotProductI8x16Add` as a builtin. When `vpmaddubsw` pattern detection (§7) landed, we removed the builtin entirely and the parser still compiled and ran correctly. Performance was unchanged.
@@ -889,7 +889,7 @@ All numbers are from the PoC's benchmark scripts (`test/e2e/spmd-benchmark.sh` f
 |---|---|---|
 | x86 AVX2 | **~17000** | ~77% of simdutf C++ (~22000 MB/s); ~9× Go stdlib `encoding/base64` (~1900 MB/s) |
 | x86 SSSE3 | **~8500** | |
-| WASM simd128 (wasmtime) | **6004** | |
+| WASM simd128 | **~6 GB/s** (wasmtime; varies by host) | |
 
 Hot-loop instructions per byte: **0.44**, vs. 14.3 in the scatter-gather v1 decoder.
 
@@ -921,12 +921,14 @@ Hex-encode on SSE exceeds the 4-wide theoretical limit because the recognizer hi
 
 ### §16.1.4 WASM simd128
 
-| Workload | Speedup |
+WASM performance varies significantly by host, runtime, and CPU. The numbers below are from wasmtime on x86-64; browser results differ (e.g., mandelbrot measured 2.5× on ARM Android, 3.6× in Firefox on x86-64).
+
+| Workload | Speedup (wasmtime, x86-64) |
 |---|---|
-| hex-encode Dst | **~8.9×** |
-| mandelbrot (int32) | **~3.03×** |
-| lo-sum / lo-mean / lo-min / lo-max | **~2.3–2.4×** |
-| lo-clamp | **~2.82×** |
+| hex-encode Dst | **6-9×** |
+| mandelbrot (int32) | **2.5-3.6×** |
+| lo-sum / lo-mean / lo-min / lo-max | **~2-3×** |
+| lo-clamp | **~2-3×** |
 
 ## §15.2 Commit SHAs per technique
 

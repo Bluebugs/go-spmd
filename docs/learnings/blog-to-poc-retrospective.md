@@ -223,7 +223,7 @@ func EncodeSrc(dst, src []byte) int {
 }
 ```
 
-The dst-centric version hit **8.9x on WASM** but only **1.13x on AVX2**. The src-centric version (the blog's approach) triggered the byte-decomposition store pattern and performed better on AVX2.
+The dst-centric version hit **6-9x on WASM** (varies by host) but only **1.13x on AVX2**. The src-centric version (the blog's approach) triggered the byte-decomposition store pattern and performed better on AVX2.
 
 The blog didn't anticipate:
 

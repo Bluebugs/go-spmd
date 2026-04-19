@@ -205,7 +205,7 @@ Lexer, parser, type system with `lanes.Varying[T]`, full SPMD type checking (ISP
 - **AVX2 256-bit mode** (DONE): `SIMDRegisterSize` detects `+avx2` → 32 bytes. Parameterized `spmdLaneCount`, `spmdMaskElemType`, x-tools-spmd `SIMDRegisterBits`. Deferred mask resolution at materialization points. `lanes.From` caps to context lane count.
 - **x86-64 benchmark** (DONE): `test/e2e/spmd-benchmark-x86.sh` — compares SPMD vs samber/lo generic vs lo/exp/simd AVX2
 - **x86-64 E2E** (DONE): Level 10 (SSE) + Level 11 (AVX2) in `spmd-e2e-test.sh`
-- **Key Metrics** (wasmtime, SIMD vs scalar SPMD): Hex-encode Dst **~8.9x**; Mandelbrot **~3.03x**; lo-sum/mean/min/max **~2.3-2.4x**; lo-clamp **~2.82x**
+- **Key Metrics** (wasmtime, SIMD vs scalar SPMD): Hex-encode Dst **~6-9x**; Mandelbrot **~2.5-3.6x**; lo-sum/mean/min/max **~2-3x**; lo-clamp **~2-3x**
 - **Key Metrics** (x86-64 AVX2 8-wide, SPMD vs scalar): lo-min **7.27x**, lo-max **7.18x**, mandelbrot **6.07x**, lo-sum **5.09x**, lo-clamp **4.82x**, lo-mean **3.66x**
 - **Key Metrics** (x86-64 SSE 4-wide, SPMD vs scalar): lo-min **2.63x**, lo-max **2.59x**, lo-sum **2.61x**, mandelbrot **3.71x**, hex-encode dst **6.31x**
 - **Key Metrics** (base64 Mula-Lemire hot loop, AVX2): **0.44 instrs/byte** (was 14.3 with scatter-gather) — 32x instruction reduction, 1 vpshufb per 32 bytes
@@ -214,7 +214,7 @@ Lexer, parser, type system with `lanes.Varying[T]`, full SPMD type checking (ISP
 - **SPMDInterleaveStore** (2026-04-10): Replaces SPMDMux + CompactStore with diagonal-extraction shuffles + ORs + compaction + contiguous store. Eliminates 200+ instruction scatter chain → ~7 instructions.
 - **lanes.CompactStore** (2026-04-08): SIMD compress-store builtin. SPMDMux + SPMDInterleaveStore chain for deinterleave patterns.
 - **Base64 Mula-Lemire decoder** (2026-04-12): Three cascading `go for` loops (byte→int16→int32) trigger pmaddubsw/pmaddwd. `lanes.Count[byte]()` for chunkSize ensures single-iteration unrolling. Byte-decomposition store for output compaction.
-- **Key Metrics** (base64 decode, SPMD, 100KB): SSSE3 **~8.5 GB/s**, AVX2 **~17 GB/s**, WASM **6004 MB/s**
+- **Key Metrics** (base64 decode, SPMD, 100KB): SSSE3 **~8.5 GB/s**, AVX2 **~17 GB/s**, WASM **~6 GB/s** (wasmtime; varies by host)
 - **Key Metrics** (base64 decode, SPMD vs Go stdlib): AVX2 **~9x** faster than `encoding/base64` (~1.9 GB/s)
 - **Key Metrics** (base64 decode, SPMD vs simdutf C++): simdutf AVX2 ~22 GB/s vs SPMD AVX2 ~17 GB/s — **~77% of simdutf** (~23% gap)
 - **Key Metrics** (hex-encode vs Go stdlib `encoding/hex`, 1024 bytes): WASM dst **4.84x**, src **1.68x**; x86 AVX2 dst **13.01x**, src **1.31x**; x86 SSSE3 dst **7.77x**; x86 SSE no-pshufb dst **0.56x** (slower — decomposed path without LUT). Re-benchmarked 2026-04-18.
