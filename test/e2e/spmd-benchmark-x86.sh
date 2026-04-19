@@ -412,6 +412,186 @@ printf "  pmaddubsw/pmaddwd. With SIMD disabled it runs 3 scalar passes with sha
 printf "  intermediates vs stdlib's direct per-group decode.\n"
 echo ""
 
+# ========== Hex-Encode Comparison ==========
+printf "${BOLD}${BLUE}╔══════════════════════════════════════════════════════════════════════════════╗${NC}\n"
+printf "${BOLD}${BLUE}║                    Hex-Encode Comparison (1024 bytes, min-time)             ║${NC}\n"
+printf "${BOLD}${BLUE}╚══════════════════════════════════════════════════════════════════════════════╝${NC}\n\n"
+
+HEX_DIR="$INTEG/hex-encode"
+
+# --- Build SPMD hex-encode binaries for all x86 feature sets ---
+printf "${BOLD}--- Building SPMD hex-encode benchmarks ---${NC}\n"
+
+HEX_SCALAR="$OUTDIR/hex-scalar"
+HEX_SSE="$OUTDIR/hex-sse"
+HEX_SSSE3="$OUTDIR/hex-ssse3"
+HEX_AVX2="$OUTDIR/hex-avx2"
+
+hex_scalar_ok=false
+hex_sse_ok=false
+hex_ssse3_ok=false
+hex_avx2_ok=false
+
+if PATH="$GOROOT_SPMD/bin:$PATH" GOEXPERIMENT=spmd \
+    "$TINYGO" build -simd=false -o "$HEX_SCALAR" \
+    "$HEX_DIR/main.go" >/dev/null 2>&1; then
+    hex_scalar_ok=true
+    printf "  ${GREEN}✓${NC} SPMD scalar (-simd=false)\n"
+else
+    printf "  ${RED}✗${NC} SPMD scalar (compile error)\n"
+fi
+
+if PATH="$GOROOT_SPMD/bin:$PATH" GOEXPERIMENT=spmd \
+    "$TINYGO" build -o "$HEX_SSE" \
+    "$HEX_DIR/main.go" >/dev/null 2>&1; then
+    hex_sse_ok=true
+    printf "  ${GREEN}✓${NC} SPMD SSE (default SSE2)\n"
+else
+    printf "  ${RED}✗${NC} SPMD SSE (compile error)\n"
+fi
+
+if PATH="$GOROOT_SPMD/bin:$PATH" GOEXPERIMENT=spmd \
+    "$TINYGO" build -llvm-features="+ssse3,+sse4.2" -o "$HEX_SSSE3" \
+    "$HEX_DIR/main.go" >/dev/null 2>&1; then
+    hex_ssse3_ok=true
+    printf "  ${GREEN}✓${NC} SPMD SSSE3\n"
+else
+    printf "  ${RED}✗${NC} SPMD SSSE3 (compile error)\n"
+fi
+
+if PATH="$GOROOT_SPMD/bin:$PATH" GOEXPERIMENT=spmd \
+    "$TINYGO" build -llvm-features="+ssse3,+sse4.2,+avx2" -o "$HEX_AVX2" \
+    "$HEX_DIR/main.go" >/dev/null 2>&1; then
+    hex_avx2_ok=true
+    printf "  ${GREEN}✓${NC} SPMD AVX2\n"
+else
+    printf "  ${RED}✗${NC} SPMD AVX2 (compile error)\n"
+fi
+echo ""
+
+# --- Run Go stdlib hex-encode benchmark (native gc, forked toolchain) ---
+printf "${BOLD}--- Running Go stdlib hex-encode benchmark ---${NC}\n"
+stdlib_hex_out=$(PATH="$GOROOT_SPMD/bin:$PATH" go run "$HEX_DIR/bench-stdlib.go" 2>&1)
+echo "$stdlib_hex_out" > "$OUTDIR/hex-stdlib.txt"
+printf "  ${GREEN}Done${NC}\n\n"
+
+# --- Run SPMD hex-encode benchmarks ---
+printf "${BOLD}--- Running SPMD hex-encode benchmarks ---${NC}\n"
+scalar_hex_out=""
+sse_hex_out=""
+ssse3_hex_out=""
+avx2_hex_out=""
+if $hex_scalar_ok; then
+    scalar_hex_out=$("$HEX_SCALAR" 2>&1)
+    printf "  ${GREEN}✓${NC} SPMD scalar done\n"
+fi
+if $hex_sse_ok; then
+    sse_hex_out=$("$HEX_SSE" 2>&1)
+    printf "  ${GREEN}✓${NC} SPMD SSE done\n"
+fi
+if $hex_ssse3_ok; then
+    ssse3_hex_out=$("$HEX_SSSE3" 2>&1)
+    printf "  ${GREEN}✓${NC} SPMD SSSE3 done\n"
+fi
+if $hex_avx2_ok; then
+    avx2_hex_out=$("$HEX_AVX2" 2>&1)
+    printf "  ${GREEN}✓${NC} SPMD AVX2 done\n"
+fi
+echo ""
+
+# --- Extract min-time microseconds from a "Label: min=... avg=... max=..." line ---
+extract_hex_min_us() {
+    local line="$1"
+    local tok
+    tok=$(echo "$line" | grep -oP 'min=\K[^ ]+' | head -1)
+    [ -z "$tok" ] && return
+    if echo "$tok" | grep -qP '[0-9.]+us$'; then
+        echo "$tok" | grep -oP '[0-9.]+'
+    elif echo "$tok" | grep -qP '[0-9.]+ms$'; then
+        local ms=$(echo "$tok" | grep -oP '[0-9.]+')
+        echo "$ms * 1000" | bc
+    elif echo "$tok" | grep -qP '[0-9.]+ns$'; then
+        local ns=$(echo "$tok" | grep -oP '[0-9.]+')
+        echo "scale=3; $ns / 1000" | bc
+    fi
+}
+
+# Helper: given an SPMD binary output, return "SPMD dst:" or "SPMD src:" min-us.
+extract_hex_variant_us() {
+    local output="$1" label="$2"    # label: "SPMD dst" or "SPMD src"
+    local line
+    line=$(echo "$output" | grep "^${label}:" | head -1)
+    extract_hex_min_us "$line"
+}
+
+stdlib_us=$(extract_hex_min_us "$(echo "$stdlib_hex_out" | grep '^Stdlib:' | head -1)")
+
+scalar_dst=$(extract_hex_variant_us "$scalar_hex_out" "SPMD dst")
+scalar_src=$(extract_hex_variant_us "$scalar_hex_out" "SPMD src")
+sse_dst=$(extract_hex_variant_us "$sse_hex_out" "SPMD dst")
+sse_src=$(extract_hex_variant_us "$sse_hex_out" "SPMD src")
+ssse3_dst=$(extract_hex_variant_us "$ssse3_hex_out" "SPMD dst")
+ssse3_src=$(extract_hex_variant_us "$ssse3_hex_out" "SPMD src")
+avx2_dst=$(extract_hex_variant_us "$avx2_hex_out" "SPMD dst")
+avx2_src=$(extract_hex_variant_us "$avx2_hex_out" "SPMD src")
+
+printf "${BOLD}${BLUE}╔════════════════════════════════════════════════════════════════════════════════════════════╗${NC}\n"
+printf "${BOLD}${BLUE}║          Hex-Encode Throughput Table (min-time in us, lower is better)                    ║${NC}\n"
+printf "${BOLD}${BLUE}╚════════════════════════════════════════════════════════════════════════════════════════════╝${NC}\n\n"
+
+printf "  ${BOLD}%-12s %12s %12s %12s %12s %12s %12s${NC}\n" \
+    "Variant" "Go stdlib" "SPMD scalar" "SPMD SSE" "SPMD SSSE3" "SPMD AVX2" "AVX2/stdlib"
+printf "  %-12s %12s %12s %12s %12s %12s %12s\n" \
+    "────────────" "──────────" "──────────" "──────────" "──────────" "──────────" "──────────"
+
+# Emit one row; $1=label, then scalar/sse/ssse3/avx2 min-us.
+emit_hex_row() {
+    local label="$1" scalar="$2" sse="$3" ssse3="$4" avx2="$5"
+    local vs_stdlib
+    vs_stdlib=$(compute_speedup "${stdlib_us:-}" "${avx2:-}")
+
+    local scalar_color="" sse_color="" ssse3_color="" avx2_color=""
+    if [ -n "$scalar" ] && [ -n "$stdlib_us" ]; then
+        if [ "$(echo "$scalar > $stdlib_us" | bc)" -eq 1 ]; then
+            scalar_color="${RED}"
+        else
+            scalar_color="${GREEN}"
+        fi
+    fi
+    if [ -n "$sse" ] && [ -n "$stdlib_us" ] && [ "$(echo "$sse < $stdlib_us" | bc)" -eq 1 ]; then
+        sse_color="${GREEN}"
+    fi
+    if [ -n "$ssse3" ] && [ -n "$stdlib_us" ] && [ "$(echo "$ssse3 < $stdlib_us" | bc)" -eq 1 ]; then
+        ssse3_color="${GREEN}"
+    fi
+    if [ -n "$avx2" ] && [ -n "$stdlib_us" ] && [ "$(echo "$avx2 < $stdlib_us" | bc)" -eq 1 ]; then
+        avx2_color="${GREEN}"
+    fi
+
+    printf "  %-12s %12s ${scalar_color}%12s${NC} ${sse_color}%12s${NC} ${ssse3_color}%12s${NC} ${avx2_color}%12s${NC} %12s\n" \
+        "$label" \
+        "${stdlib_us:+${stdlib_us}us}" \
+        "${scalar:+${scalar}us}" \
+        "${sse:+${sse}us}" \
+        "${ssse3:+${ssse3}us}" \
+        "${avx2:+${avx2}us}" \
+        "$vs_stdlib"
+}
+
+emit_hex_row "SPMD dst" "$scalar_dst" "$sse_dst" "$ssse3_dst" "$avx2_dst"
+emit_hex_row "SPMD src" "$scalar_src" "$sse_src" "$ssse3_src" "$avx2_src"
+
+echo ""
+printf "  ${BOLD}Notes:${NC}\n"
+printf "  Go stdlib:   encoding/hex (gc compiler, stdlib, native amd64)\n"
+printf "  SPMD scalar: TinyGo + LLVM, -simd=false\n"
+printf "  SPMD SSE:    TinyGo + LLVM, default SSE2 (4-wide i32)\n"
+printf "  SPMD SSSE3:  TinyGo + LLVM, +ssse3,+sse4.2 (4-wide, pshufb available)\n"
+printf "  SPMD AVX2:   TinyGo + LLVM, +avx2 (8-wide i32)\n"
+printf "  Throughput measured on 1024-byte fixed payload, min-time of 7 runs x 1000 iters\n"
+printf "  Speedup >1.0x means SPMD AVX2 is faster than Go stdlib.\n"
+echo ""
+
 # ========== Summary ==========
 printf "${BOLD}${BLUE}=== Notes ===${NC}\n"
 printf "  lo generic:  samber/lo pure Go generics, gc compiler (no SIMD)\n"
