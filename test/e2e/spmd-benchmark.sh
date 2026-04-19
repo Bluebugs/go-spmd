@@ -77,24 +77,79 @@ printf "${BOLD}--- Hex-Encode (1024 bytes, 1000 iterations) ---${NC}\n"
 compile "$INTEG/hex-encode/main.go" "$OUTDIR/hex-simd.wasm" "-scheduler=none" >/dev/null 2>&1
 compile "$INTEG/hex-encode/main.go" "$OUTDIR/hex-scalar.wasm" "-scheduler=none -simd=false" >/dev/null 2>&1
 
+# Go stdlib baseline (no GOEXPERIMENT, no -simd flag) — runs under the same
+# wasmtime runtime for apples-to-apples comparison.
+stdlib_hex_ok=true
+WASMOPT="$WASMOPT" GOROOT="$GOROOT_SPMD" \
+    "$TINYGO" build -target=wasi -scheduler=none \
+    -o "$OUTDIR/hex-stdlib.wasm" \
+    "$INTEG/hex-encode/bench-stdlib.go" >/dev/null 2>&1 || stdlib_hex_ok=false
+
 simd_out=$(run_wasm "$OUTDIR/hex-simd.wasm")
 scalar_out=$(run_wasm "$OUTDIR/hex-scalar.wasm")
-
-# Extract SPMD dst and src min times
-simd_dst=$(echo "$simd_out" | grep "SPMD (dst" | head -1)
-simd_src=$(echo "$simd_out" | grep "SPMD (src" | head -1)
-scalar_line=$(echo "$simd_out" | grep "^Scalar:" | head -1)
-scalar_scalar_line=$(echo "$scalar_out" | grep "^Scalar:" | head -1)
-
-# For scalar mode, the "SPMD" line IS the scalar fallback
-scalar_spmd_dst=$(echo "$scalar_out" | grep "SPMD (dst" | head -1)
-scalar_spmd_src=$(echo "$scalar_out" | grep "SPMD (src" | head -1)
+stdlib_hex_out=""
+if $stdlib_hex_ok; then
+    stdlib_hex_out=$(run_wasm "$OUTDIR/hex-stdlib.wasm")
+fi
 
 printf "  SIMD mode:\n"
 echo "$simd_out" | grep -E "^Scalar:|^SPMD" | sed 's/^/    /'
 printf "  Scalar mode:\n"
 echo "$scalar_out" | grep -E "^Scalar:|^SPMD" | sed 's/^/    /'
+if [ -n "$stdlib_hex_out" ]; then
+    printf "  Go stdlib:\n"
+    echo "$stdlib_hex_out" | grep -E "^Stdlib:" | sed 's/^/    /'
+else
+    printf "  ${YELLOW}Go stdlib compile failed — skipping stdlib comparison${NC}\n"
+fi
 printf "  Correctness: %s\n" "$(echo "$simd_out" | grep "Correctness")"
+echo ""
+
+# Summary table: min-time across all variants.
+# extract_min_us pulls the min=... value from a "Label: min=... avg=... max=..." line
+# and normalizes to microseconds.
+extract_min_us() {
+    local line="$1"
+    local tok
+    tok=$(echo "$line" | grep -oP 'min=\K[^ ]+' | head -1)
+    [ -z "$tok" ] && return
+    if echo "$tok" | grep -qP '[0-9.]+us$'; then
+        echo "$tok" | grep -oP '[0-9.]+'
+    elif echo "$tok" | grep -qP '[0-9.]+ms$'; then
+        local ms=$(echo "$tok" | grep -oP '[0-9.]+')
+        echo "$ms * 1000" | bc
+    elif echo "$tok" | grep -qP '[0-9.]+ns$'; then
+        local ns=$(echo "$tok" | grep -oP '[0-9.]+')
+        echo "scale=3; $ns / 1000" | bc
+    fi
+}
+
+stdlib_line=$(echo "$stdlib_hex_out" | grep "^Stdlib:" | head -1)
+scalar_dst_line=$(echo "$scalar_out" | grep "SPMD dst:" | head -1)
+simd_dst_line=$(echo "$simd_out" | grep "SPMD dst:" | head -1)
+simd_src_line=$(echo "$simd_out" | grep "SPMD src:" | head -1)
+
+stdlib_us=$(extract_min_us "$stdlib_line")
+scalar_us=$(extract_min_us "$scalar_dst_line")
+simd_dst_us=$(extract_min_us "$simd_dst_line")
+simd_src_us=$(extract_min_us "$simd_src_line")
+
+hex_speedup() {
+    local base="$1" target="$2"
+    if [ -n "$base" ] && [ -n "$target" ] && [ "$target" != "0" ]; then
+        printf "%.2fx" "$(echo "scale=3; $base / $target" | bc)"
+    else
+        echo "—"
+    fi
+}
+
+printf "  ${BOLD}Summary (min of 7 runs, lower is better):${NC}\n"
+printf "  %-14s %12s %12s\n" "Variant" "Time" "vs stdlib"
+printf "  %-14s %12s %12s\n" "────────────" "──────────" "──────────"
+printf "  %-14s %12s %12s\n" "Go stdlib"   "${stdlib_us:+${stdlib_us}us}"   "1.00x"
+printf "  %-14s %12s %12s\n" "SPMD scalar" "${scalar_us:+${scalar_us}us}"   "$(hex_speedup "${stdlib_us:-}" "${scalar_us:-}")"
+printf "  %-14s %12s %12s\n" "SPMD dst"    "${simd_dst_us:+${simd_dst_us}us}" "$(hex_speedup "${stdlib_us:-}" "${simd_dst_us:-}")"
+printf "  %-14s %12s %12s\n" "SPMD src"    "${simd_src_us:+${simd_src_us}us}" "$(hex_speedup "${stdlib_us:-}" "${simd_src_us:-}")"
 echo ""
 
 # ========== Benchmark 2: Mandelbrot ==========
@@ -263,12 +318,13 @@ echo ""
 printf "${BOLD}--- Binary Size Comparison ---${NC}\n"
 printf "  %-25s %10s %10s %10s\n" "Test" "SIMD" "Scalar" "Ratio"
 printf "  %-25s %10s %10s %10s\n" "----" "----" "------" "-----"
-for name in hex-encode mandelbrot simple-sum store-coalescing base64-mula-lemire; do
+for name in hex-encode hex-stdlib mandelbrot simple-sum store-coalescing base64-mula-lemire; do
     simd_file="$OUTDIR/${name%%-*}-simd.wasm"
     scalar_file="$OUTDIR/${name%%-*}-scalar.wasm"
     # Use the actual filenames
     case $name in
         hex-encode) simd_file="$OUTDIR/hex-simd.wasm"; scalar_file="$OUTDIR/hex-scalar.wasm" ;;
+        hex-stdlib) simd_file="$OUTDIR/hex-stdlib.wasm"; scalar_file="$OUTDIR/hex-stdlib.wasm" ;;
         mandelbrot) simd_file="$OUTDIR/mandel-simd.wasm"; scalar_file="$OUTDIR/mandel-scalar.wasm" ;;
         simple-sum) simd_file="$OUTDIR/sum-simd.wasm"; scalar_file="$OUTDIR/sum-scalar.wasm" ;;
         store-coalescing) simd_file="$OUTDIR/store-simd.wasm"; scalar_file="$OUTDIR/store-scalar.wasm" ;;
