@@ -217,6 +217,8 @@ Lexer, parser, type system with `lanes.Varying[T]`, full SPMD type checking (ISP
 - **Key Metrics** (base64 decode, SPMD, 100KB): SSSE3 **~8.5 GB/s**, AVX2 **~17 GB/s**, WASM **6004 MB/s**
 - **Key Metrics** (base64 decode, SPMD vs Go stdlib): AVX2 **~9x** faster than `encoding/base64` (~1.9 GB/s)
 - **Key Metrics** (base64 decode, SPMD vs simdutf C++): simdutf AVX2 ~22 GB/s vs SPMD AVX2 ~17 GB/s — **~77% of simdutf** (~23% gap)
+- **Key Metrics** (hex-encode vs Go stdlib `encoding/hex`, 1024 bytes): WASM dst **4.84x**, src **1.68x**; x86 AVX2 dst **13.01x**, src **1.31x**; x86 SSSE3 dst **7.77x**; x86 SSE no-pshufb dst **0.56x** (slower — decomposed path without LUT). Re-benchmarked 2026-04-18.
+- **Hex-encode key insight**: pshufb LUT path is the critical optimization; vector width is secondary. SSSE3 (98.9us) vs AVX2 (59us) for dst is only 1.67x ratio despite 2x width. Without pshufb (SSE2 only), dst is slower than scalar stdlib.
 - **Compiler optimizations** (2026-04-06): SwizzleWithin const-only, spmdSwizzleWithTable AVX2 fix, direct store on all-ones mask, vpmaddubsw/vpmaddwd pattern detection (x86+WASM), DotProductI8x16Add removed
 - **Compiler optimizations** (2026-04-09/10): x86 feature implication chain (+avx2 implies +ssse3), swizzle fallback lane count fix, constant-mask SPMDSelect fast-path, decomposed REM power-of-2 optimization, AVX2 cross-lane compaction fix
 - **Compiler optimizations** (2026-04-11/12): All-ones mask load fast-path, LICM for SPMD compilations, InterleaveStore detection fixes (NEQ masks, callee.Pkg nil, Indices mapping), byte-decomposition store (bitcast+pshufb+store for stride-S interleaved stores extracting bytes from wider types, SSE+AVX2+WASM)
