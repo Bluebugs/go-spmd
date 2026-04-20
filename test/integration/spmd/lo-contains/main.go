@@ -5,7 +5,6 @@ package main
 
 import (
 	"fmt"
-	"lanes"
 	"os"
 	"reduce"
 	"time"
@@ -68,11 +67,8 @@ func containsScalar(data []int32, target int32) bool {
 }
 
 func containsSPMD(data []int32, target int32) bool {
-	var found lanes.Varying[bool] = false
 	go for _, v := range data {
-		if v == target {
-			found = true
-		}
+		found := v == target
 		if reduce.Any(found) {
 			return true
 		}
