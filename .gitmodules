@@ -19,3 +19,6 @@
 [submodule "llvm-project"]
 	path = llvm-project
 	url = git@github.com:Bluebugs/llvm-project.git
+[submodule "tinybench"]
+	path = tinybench
+	url = git@github.com:Bluebugs/tinybench.git
