@@ -667,6 +667,12 @@ test_compile_and_run "integ_debug-varying" "$INTEG/debug-varying/main.go" \
 test_compile_and_run "integ_lanes-index-restrictions" "$INTEG/lanes-index-restrictions/main.go" \
     "contains:Lane [0 1 2 3] result: [0 11 22 33]|||Result from SPMD function: [50 51 52 53]|||All lanes.Index() restrictions demonstrated successfully" \
     "" "-scheduler=none"
+test_compile_and_run "integ_lanes-fp-math" "$INTEG/lanes-fp-math/main.go" \
+    "contains:Sqrt sum = 136.00|||Abs sum = 136.00|||FMA sum = 272.00|||Sqrt(Abs) sum = 136.00" \
+    "" "-scheduler=none"
+test_compile_and_run "integ_lanes-fp-math-float32" "$INTEG/lanes-fp-math-float32/main.go" \
+    "contains:Sqrt sum = 136.00|||Abs sum = 136.00|||FMA sum = 272.00|||Sqrt(Abs) sum = 136.00" \
+    "" "-scheduler=none"
 test_compile_and_run "integ_to-upper"      "$INTEG/to-upper/main.go" \
     "contains:'hello world' -> 'HELLO WORLD'|||'Hello World' -> 'HELLO WORLD'|||'hello123WORLD' -> 'HELLO123WORLD'" \
     "" "-scheduler=none"
