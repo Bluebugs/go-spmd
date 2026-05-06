@@ -696,7 +696,7 @@ test_compile_and_run "integ_defer-varying"       "$INTEG/defer-varying/main.go" 
 test_compile_and_run "integ_panic-recover-varying" "$INTEG/panic-recover-varying/main.go" \
     "contains:Processed: [5 10 15 25] -> [10 20 30 50]|||OK: [1 2 3 4]|||Done" \
     "" "-scheduler=none"
-test_compile_and_run "integ_bit-counting" "$INTEG/bit-counting/main.go" "Bit counts: 28" "" "-scheduler=none"
+test_compile_and_run "integ_bit-counting" "$INTEG/bit-counting/main.go" "Bit counts: 32" "" "-scheduler=none"
 test_compile_and_run "integ_lo-sum"      "$INTEG/lo-sum/main.go"      "contains:Correctness: PASS" "" "-scheduler=none"
 test_compile_and_run "integ_lo-mean"     "$INTEG/lo-mean/main.go"     "contains:Correctness: PASS" "" "-scheduler=none"
 test_compile_and_run "integ_lo-min"      "$INTEG/lo-min/main.go"      "contains:Correctness: PASS" "" "-scheduler=none"
