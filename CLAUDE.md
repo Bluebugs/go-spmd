@@ -63,7 +63,7 @@ lanes.ShiftRightWithin(val, cnt, n)  // Shift right within groups of n lanes
 
 Lexer, parser, type system with `lanes.Varying[T]` (compiler magic, not regular generics). 42 SPMD vector opcodes in `cmd/compile/internal/ssa`. Full type checking with ISPC-based return/break restrictions. All gated behind `GOEXPERIMENT=spmd`.
 
-### Phase 2: TinyGo LLVM Backend (IN PROGRESS -- 82 commits)
+### Phase 2: TinyGo LLVM Backend (IN PROGRESS -- 90+ commits)
 
 **Critical**: TinyGo uses `go/parser` + `go/types` + `golang.org/x/tools/go/ssa` (standard library), NOT `cmd/compile` internals. The 42 Phase 1 opcodes are invisible to TinyGo. Vectorization happens in the TinyGo compiler layer via direct LLVM IR generation.
 
@@ -183,7 +183,7 @@ All deferred work MUST be documented in the "Deferred Items Collection" section 
 
 ## Current Implementation Status
 
-**Phase Summary**: Phase 1 (Go frontend) complete, 53 commits; Phase 2 (TinyGo LLVM backend) in progress, 54 commits; Phase 3 (validation) not started. See PLAN.md for detailed task breakdown and deferred items.
+**Phase Summary**: Phase 1 (Go frontend) complete, 53 commits; Phase 2 (TinyGo LLVM backend) in progress, 90+ commits including v6→v6.1→v7→v8 width-typed Varying chain; Phase 3 (validation) ongoing — full e2e at **105/94/0/93/0/11** ("All tests passed!") + perf restored to or beyond pre-v6.1 baseline. See PLAN.md for detailed task breakdown and deferred items.
 
 ### Phase 1: Go Frontend (COMPLETED)
 
@@ -222,15 +222,39 @@ Lexer, parser, type system with `lanes.Varying[T]`, full SPMD type checking (ISP
 - **Compiler optimizations** (2026-04-06): SwizzleWithin const-only, spmdSwizzleWithTable AVX2 fix, direct store on all-ones mask, vpmaddubsw/vpmaddwd pattern detection (x86+WASM), DotProductI8x16Add removed
 - **Compiler optimizations** (2026-04-09/10): x86 feature implication chain (+avx2 implies +ssse3), swizzle fallback lane count fix, constant-mask SPMDSelect fast-path, decomposed REM power-of-2 optimization, AVX2 cross-lane compaction fix
 - **Compiler optimizations** (2026-04-11/12): All-ones mask load fast-path, LICM for SPMD compilations, InterleaveStore detection fixes (NEQ masks, callee.Pkg nil, Indices mapping), byte-decomposition store (bitcast+pshufb+store for stride-S interleaved stores extracting bytes from wider types, SSE+AVX2+WASM)
-- **E2E Results**: 90 run pass, 91 compile pass, 0 compile fail, 0 run fail, 11 reject OK (102 total)
+- **E2E Results** (post-v8): **105 total**, 93 run-pass, 94 compile-pass, 0 compile-fail, 0 run-fail, 11 reject-pass — "All tests passed!"
+
+### v6→v6.1→v7→v8 chain (2026-04-30 → 2026-05-07): width-typed Varying
+
+- **v6 Phase 1 Part A** (tinygo `d8f29a42`): defensive `createSPMDStore` lane-count reconciliation — emits `spmdReshapeVector` (shufflevector with last-element clamp) when val/addr vector widths differ.
+- **v6 Phase 2 Part B** (x-tools-spmd `2dd8d1357` / tinygo `dda72362`): SSA lift guard for `lanes.Varying[T]` allocas + `*types.SPMDType.Lanes()` field carrying width through the type system. Fixes n-body NaN (per-pair accumulators in tail iters were unmasked).
+- **v6.1** (x-tools-spmd `0d7838f11` then `b77d54398` "scope-based" classifier): Pass A loop-local discriminator scopes type width-fixing to allocas referenced in the loop's scope blocks. Plus phi-edge `*Const` retyping. Plus compound-boolean `findElseSubgraphPredOfThen` for `(A && B) || (C && D)` chains. Cascade fixes (multi-step): tinygo `7c339f21` (contiguous-via-SPMDLoad + write-time normalizations), `9f43228c` (swizzle-within Convert/SPMDLoad trace), `905a104a` (analyzeSPMDLoops Pass 1/2 structural IsRangeIndex matching). Bit-counting expected fixed (parent `c03105c9` → 32, was wrongly 28).
+- **v7 Phase 1** (tinygo `175a82ef`): `getLLVMType` for `*types.SPMDType` Struct/Array branch honors `typ.Lanes()` — fixes `Varying[[]int]` alloca size from `[1 x slice]` to `[N x slice]`. The actual array-counting failure was stack corruption from the undersized alloca, not divergent inner loop semantics. v7's broader divergent-inner-loop spec was unnecessary.
+- **v8 Phase 1** (x-tools-spmd `950eaa2b`): narrow lift guard to **non-vectorizable** Varying[T] only (slice/struct/array/interface). Vectorizable types (int, float, byte, pointer) lift back into SSA phi nodes for performance. Adds `spmdElemNonVectorizable` helper.
+- **v8 Phase 2** (x-tools-spmd `7920ef1a`): `spmdMaskTailBodyBackEdges` inserts `SPMDSelect(tail_mask, new_value, pre_body_value)` on tail-body loop-header phi back-edges. Inactive lanes preserve previous-iter phi value. Plus `spmdFixBlockPhiTypes` repair helper for trampoline/done block phis. Restores n-body correctness AFTER v8 Phase 1 narrowing.
+- **Parent submodule bump** (`d61874a`): incorporates v8 + spec/plan docs.
+
+### Performance — post-v8 vs pre-v6.1 baseline
+
+- **WASM SIMD128 (lo-* hot loops)**: lo-sum 277ns/2.37x (baseline 308ns/2.50x — 10% better), lo-mean 282ns/2.33x (baseline 332ns/2.19x — better), lo-min 277ns/2.38x (better), lo-max 278ns/2.38x (better), lo-clamp 6139ns/1.76x (better), lo-contains 125ns/5.25x (same).
+- **x86-64 AVX2 mandelbrot**: ~933µs / 6.5x — within 15% of pre-v6.1 baseline ~940µs.
+- **Base64 AVX2 (canonical input, no validation in bench)**: 17-18 GB/s consistently (was 11-18 with high variance pre-v6.1; baseline ratio: 1KB SPMD beats simdutf 1.40x; 100KB-1MB ~67-70% of simdutf).
+
+### Compiler quality validated
+
+Disasm comparison (perf-analyzer dispatched 2026-05-07): TinyGo SPMD AVX2 base64 kernel emits **38 instrs per 32 bytes (1.19 instrs/byte)** for the Mula-Lemire pipeline — same vector ops (vpmaddubsw + vpmaddwd + vpshufb + vpermd) as simdutf hand-tuned C++. Per-byte instruction count is **at parity with hand-tuned intrinsics**. Remaining throughput gap at large sizes is structural (function-call boundary preventing constant hoisting; 4-pass cascade vs simdutf's 2-phase classify+flush pipeline), not codegen quality.
+
+### Vectorized table lookup pattern
+
+A `[16]byte{...}` constant indexed by a varying byte compiles to **one shuffle instruction** — `vpshufb` (x86 SSSE3/AVX2), `i8x16.swizzle` (WASM SIMD128), `tbl` (ARM NEON). Paired LUTs (high nibble × low nibble, AND'd together) match simdutf's per-byte instruction count for byte classification (e.g., base64 char validity). Documented in `bluebugs.github.io/content/blogs/writing-spmd-go.md` "Vectorized table lookup" section. Verified via base64 validation experiment: SPMD inline 23 GB/s with paired-vpshufb validation vs simdutf 13-27 GB/s — beats simdutf at 1KB by 1.75x, near parity at 10KB, ~0.79x at 100KB-1MB.
 
 ### Phase 3: Validation (IN PROGRESS)
 
 Scalar fallback, dual-mode E2E, SIMD-vs-scalar benchmarking, x86-64 native (SSE + AVX2) all operational. Remaining: browser SIMD detection demo. See `docs/poc-testing-workflow.md`.
 
-**E2E Compile Failures** (0 remaining)
+**E2E Compile Failures** (0 remaining); **E2E Run Failures** (0 remaining).
 
-**Next Priority**: (1) Close remaining 9% gap to simdutf (function inlining, loop unrolling, decode phase optimization), (2) Browser SIMD detection demo, (3) Outer-SPMD batching for IPv4 parser
+**Next Priority**: (1) Compiler `inlinehint` tuning — function-call boundary on hot SPMD functions blocks constant hoisting; closing this could push base64 to ~33 GB/s with validation, beating simdutf at all sizes; (2) Browser SIMD detection demo; (3) Outer-SPMD batching for IPv4 parser; (4) `lanes.Swizzle`-friendly stdlib examples (already-supported pattern, just needs visibility).
 
 ## Debugging Tips
 
