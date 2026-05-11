@@ -22,3 +22,6 @@
 [submodule "tinybench"]
 	path = tinybench
 	url = git@github.com:Bluebugs/tinybench.git
+[submodule "playground"]
+	path = playground
+	url = git@github.com:Bluebugs/playground.git
