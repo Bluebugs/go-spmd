@@ -664,6 +664,9 @@ test_compile_and_run "integ_hex-encode"    "$INTEG/hex-encode/main.go"    "conta
 test_compile_and_run "integ_debug-varying" "$INTEG/debug-varying/main.go" \
     "contains:Doubled: [20 40 60 80]|||Big values: [_ _ 30 40]|||Total for this iteration: 200|||Total for this iteration: 520" \
     "" "-scheduler=none"
+test_compile_and_run "integ_printf-varying-index" "$INTEG/printf-varying-index/main.go" \
+    "contains:hi: [100|||lo: [_|||dst: deadbeefcafebabe" \
+    "" "-scheduler=none"
 test_compile_and_run "integ_lanes-index-restrictions" "$INTEG/lanes-index-restrictions/main.go" \
     "contains:Lane [0 1 2 3] result: [0 11 22 33]|||Result from SPMD function: [50 51 52 53]|||All lanes.Index() restrictions demonstrated successfully" \
     "" "-scheduler=none"
