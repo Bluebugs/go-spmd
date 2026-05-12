@@ -183,7 +183,7 @@ All deferred work MUST be documented in the "Deferred Items Collection" section 
 
 ## Current Implementation Status
 
-**Phase Summary**: Phase 1 (Go frontend) complete, 53 commits; Phase 2 (TinyGo LLVM backend) in progress, 90+ commits including v6→v6.1→v7→v8 width-typed Varying chain; Phase 3 (validation) ongoing — full e2e at **105/94/0/93/0/11** ("All tests passed!") + perf restored to or beyond pre-v6.1 baseline. See PLAN.md for detailed task breakdown and deferred items.
+**Phase Summary**: Phase 1 (Go frontend) complete, 53 commits; Phase 2 (TinyGo LLVM backend) in progress, 90+ commits including v6→v6.1→v7→v8 width-typed Varying chain; Phase 3 (validation) ongoing — full e2e at **106/95/0/94/0/11** ("All tests passed!") + perf restored to or beyond pre-v6.1 baseline. See PLAN.md for detailed task breakdown and deferred items.
 
 ### Phase 1: Go Frontend (COMPLETED)
 
@@ -222,7 +222,8 @@ Lexer, parser, type system with `lanes.Varying[T]`, full SPMD type checking (ISP
 - **Compiler optimizations** (2026-04-06): SwizzleWithin const-only, spmdSwizzleWithTable AVX2 fix, direct store on all-ones mask, vpmaddubsw/vpmaddwd pattern detection (x86+WASM), DotProductI8x16Add removed
 - **Compiler optimizations** (2026-04-09/10): x86 feature implication chain (+avx2 implies +ssse3), swizzle fallback lane count fix, constant-mask SPMDSelect fast-path, decomposed REM power-of-2 optimization, AVX2 cross-lane compaction fix
 - **Compiler optimizations** (2026-04-11/12): All-ones mask load fast-path, LICM for SPMD compilations, InterleaveStore detection fixes (NEQ masks, callee.Pkg nil, Indices mapping), byte-decomposition store (bitcast+pshufb+store for stride-S interleaved stores extracting bytes from wider types, SSE+AVX2+WASM)
-- **E2E Results** (post-v8): **105 total**, 93 run-pass, 94 compile-pass, 0 compile-fail, 0 run-fail, 11 reject-pass — "All tests passed!"
+- **E2E Results** (post-v8): **106 total**, 94 run-pass, 95 compile-pass, 0 compile-fail, 0 run-fail, 11 reject-pass — "All tests passed!"
+- **Varying-index MakeInterface fix** (2026-05-12): `fmt.Printf("%v", slice[varyingIdx])` now produces mask-aware `[v _ v _]` output. SSA builder addressable-load path dropped `Varying[T]` from `tv.Type` for IndexExpr; fix wraps with `ChangeType` in `x-tools-spmd/go/ssa/builder.go b.expr()` (commit `f3afc3fb`). Parent bump `47db08b` adds `integ_printf-varying-index` regression test.
 
 ### v6→v6.1→v7→v8 chain (2026-04-30 → 2026-05-07): width-typed Varying
 
