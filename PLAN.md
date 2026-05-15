@@ -1338,14 +1338,27 @@ Split `go for` loops into main phase (full vectors, ConstAllOnes mask, plain v12
   - TinyGo: per-lane len/cap/IndexAddr extraction from [N x sliceStruct], divergent inner loop detection (isDivergentInner), per-lane gather mask
   - Test: array-counting produces [3 3 4 18] on WASM and x86
 
-- [ ] **Option B: audit other Lanes()-ignoring callsites in interface.go** — NOT STARTED
+- [x] **Option B: audit other Lanes()-ignoring callsites in interface.go** — DONE (2026-05-14)
   - Task: After Option A (createMakeInterface honors `spmdType.Lanes()`) lands, audit the remaining `spmdEffectiveLaneCount` usages on the boxing / reflect / typecode paths for the same "ignore Lanes()" pattern.
   - Location: `tinygo/compiler/interface.go:613` (defensive fallback in `getTypeCode`), `tinygo/compiler/interface.go:1013` (type-assertion SPMD branch), and `tinygo/compiler/spmd.go:631` (`spmdBoxedVaryingGoType` itself).
-  - Status: Deferred. Tracked by spec `docs/superpowers/specs/2026-05-14-varying-iter-printf-lane-count-design.md` (Option B section) and plan `docs/superpowers/plans/2026-05-14-varying-iter-printf-lane-count.md` ("Out-of-scope" section).
+  - Status: DONE (2026-05-14)
   - Depends On: Option A landing first (so the analogous pattern is established and the regression test exercises one of the paths end-to-end).
   - Implementation: Apply the `Lanes() > 0 ? Lanes() : spmdEffectiveLaneCount(...)` rule (or a shared helper) at each callsite. May warrant introducing `spmdResolvedLaneCount(spmdType, elemLLVM)` to centralise the pattern.
   - Priority: Medium — Option A makes the user-visible bug go away; Option B closes the door on sibling bugs in less-exercised paths (deeper interface assertions, reflective unboxing).
   - Related: `f3afc3fb` (x-tools-spmd Varying[T] tag propagation through addressable IndexExpr load), `47db08b` (parent bump + `integ_printf-varying-index`).
+  - Outcome: The audit found that the candidates named in the
+    original Option A spec (`interface.go:613`, `:1013`,
+    `spmdBoxedVaryingGoType`) are not Lanes()-ignoring —
+    `interface.go:624` and `:1024` are defensive name-generation
+    fallbacks that don't compute lane counts, and
+    `spmdBoxedVaryingGoType` accepts laneCount as a parameter. The
+    actual symmetric callsite is `tinygo/compiler/spmd.go:9104-9106`
+    in `createTypeAssertSPMD`. Fixed by applying the same
+    `Lanes() > 0 ? Lanes() : spmdEffectiveLaneCount(...)` rule.
+    Forward-compatibility safety net; no observable behaviour change
+    today since nothing puts Lanes()>0 on TypeAssert.AssertedType.
+  - Spec: `docs/superpowers/specs/2026-05-14-varying-typeassert-lane-count-design.md`
+  - Plan: `docs/superpowers/plans/2026-05-14-varying-typeassert-lane-count.md`
 
 ### Phase 3 Deferred Subtask (DONE)
 
