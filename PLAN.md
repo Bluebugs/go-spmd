@@ -1338,6 +1338,15 @@ Split `go for` loops into main phase (full vectors, ConstAllOnes mask, plain v12
   - TinyGo: per-lane len/cap/IndexAddr extraction from [N x sliceStruct], divergent inner loop detection (isDivergentInner), per-lane gather mask
   - Test: array-counting produces [3 3 4 18] on WASM and x86
 
+- [ ] **Option B: audit other Lanes()-ignoring callsites in interface.go** — NOT STARTED
+  - Task: After Option A (createMakeInterface honors `spmdType.Lanes()`) lands, audit the remaining `spmdEffectiveLaneCount` usages on the boxing / reflect / typecode paths for the same "ignore Lanes()" pattern.
+  - Location: `tinygo/compiler/interface.go:613` (defensive fallback in `getTypeCode`), `tinygo/compiler/interface.go:1013` (type-assertion SPMD branch), and `tinygo/compiler/spmd.go:631` (`spmdBoxedVaryingGoType` itself).
+  - Status: Deferred. Tracked by spec `docs/superpowers/specs/2026-05-14-varying-iter-printf-lane-count-design.md` (Option B section) and plan `docs/superpowers/plans/2026-05-14-varying-iter-printf-lane-count.md` ("Out-of-scope" section).
+  - Depends On: Option A landing first (so the analogous pattern is established and the regression test exercises one of the paths end-to-end).
+  - Implementation: Apply the `Lanes() > 0 ? Lanes() : spmdEffectiveLaneCount(...)` rule (or a shared helper) at each callsite. May warrant introducing `spmdResolvedLaneCount(spmdType, elemLLVM)` to centralise the pattern.
+  - Priority: Medium — Option A makes the user-visible bug go away; Option B closes the door on sibling bugs in less-exercised paths (deeper interface assertions, reflective unboxing).
+  - Related: `f3afc3fb` (x-tools-spmd Varying[T] tag propagation through addressable IndexExpr load), `47db08b` (parent bump + `integ_printf-varying-index`).
+
 ### Phase 3 Deferred Subtask (DONE)
 
 All Phase 3 validation work is complete. The only remaining compile failure is `union-type-generics` (generic SPMD function calling another generic SPMD function).

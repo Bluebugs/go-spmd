@@ -667,6 +667,9 @@ test_compile_and_run "integ_debug-varying" "$INTEG/debug-varying/main.go" \
 test_compile_and_run "integ_printf-varying-index" "$INTEG/printf-varying-index/main.go" \
     "contains:hi: [100|||lo: [_|||dst: deadbeefcafebabe" \
     "" "-scheduler=none"
+test_compile_and_run "integ_printf-varying-iter" "$INTEG/printf-varying-iter/main.go" \
+    "contains:i=[0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15]" \
+    "" "-scheduler=none"
 test_compile_and_run "integ_lanes-index-restrictions" "$INTEG/lanes-index-restrictions/main.go" \
     "contains:Lane [0 1 2 3] result: [0 11 22 33]|||Result from SPMD function: [50 51 52 53]|||All lanes.Index() restrictions demonstrated successfully" \
     "" "-scheduler=none"
