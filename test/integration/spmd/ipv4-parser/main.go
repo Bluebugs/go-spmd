@@ -401,10 +401,16 @@ func parseIPv4Inner(s string) (ip [4]byte, errCode uint8, errAt int) {
 	}
 
 	// Decimal conversion: 100*hundreds + 10*tens + ones per field.
-	// Only 4 fields — scalar arithmetic is fine; the SIMD value is in the shuffle above.
+	// Ranging over [4]uint16 yields laneCount=4 on all platforms (compiler derives
+	// lane count from the uint16 element type, capped at the array length 4), so f
+	// is Varying[int] narrowed to i32. The h*100 + t*10 + o arithmetic vectorizes
+	// across the 4 lanes (gather from shuffled, vector mul+add, scatter into values)
+	// instead of 4 serialized scalar iterations. Note: this does NOT hit the
+	// vpmaddubsw/vpmaddwd fast path — that detector requires stride-2 byte pairs,
+	// and shuffled is indexed stride-4 here (f*4, f*4+1, f*4+2).
 	// Max value 999 fits in uint16.
 	var values [4]uint16
-	for f := 0; f < 4; f++ {
+	go for f := range values {
 		values[f] = uint16(shuffled[f*4])*100 + uint16(shuffled[f*4+1])*10 + uint16(shuffled[f*4+2])
 	}
 
