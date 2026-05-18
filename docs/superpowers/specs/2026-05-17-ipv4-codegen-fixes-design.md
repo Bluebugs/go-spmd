@@ -1,8 +1,18 @@
 # IPv4 Parser AVX2 Codegen Fixes (Bug 2.b + 2.c) — Design
 
 Date: 2026-05-17
-Status: Approved (design); pending implementation plan
-Scope: TinyGo backend only (`tinygo/compiler/`). No `x-tools-spmd` or Go-frontend changes.
+Status: REVISED — original root cause was mislocated; see "Corrected Root
+Cause" below. Scope: TinyGo backend only (`tinygo/compiler/`). No
+`x-tools-spmd` or Go-frontend changes.
+
+> **Revision note (2026-05-17, post-disasm-guard):** The original root-cause
+> analysis (the "Root Cause" / "Fixes" sections below) was implemented and
+> committed (tinygo `5c44de50` for 2.b, `03f76d91` for 2.c) and reviewed/
+> tested — those commits are CORRECT and retained — but the disasm guard
+> proved them INSUFFICIENT/MISDIRECTED for `parseIPv4Inner`. The authoritative
+> analysis is now the **"Corrected Root Cause"** section at the end of this
+> document. Read that section, not the original "Root Cause"/"Fixes", for what
+> actually needs doing. The original sections are kept for history.
 
 ## Background
 
@@ -146,3 +156,84 @@ Chosen: compiler unit tests **and** x86 E2E coverage (maximum confidence).
 
 Both deferred items should be recorded in PLAN.md's Deferred Items Collection
 per CLAUDE.md.
+
+---
+
+## Corrected Root Cause (2026-05-17, AUTHORITATIVE)
+
+A disasm guard (`test/e2e/ipv4-disasm-check.sh`) built after the two original
+commits showed `vpcmpeqq` and `vpextrb` still present in `parseIPv4Inner`
+despite correct results. A second perf-analyzer pass (grounded by building the
+AVX2 binary + IR dumps) found the original analysis mislocated both paths.
+
+### 2.b (the real one) — `spmdMaskedLoadNarrow`, `tinygo/compiler/spmd.go:4848`
+
+`flens[field]` / `values[field]` do **not** go through `spmdVectorIndexArray`
+(so commit `5c44de50` / `spmdSubVectorElemType` never runs for them). go/ssa
+predication turns them into a contiguous `*ssa.SPMDLoad`, dispatched via
+`createSPMDLoad` (~`spmd.go:8782`) → `spmdNarrowLoadElemBits(uint8, 4)` (~4806,
+gated only by `spmdUsesSIMD()`, not WASM) → `spmdMaskedLoadNarrow` (~4848).
+
+There, `wideElemType := b.spmdMaskElemType(laneCount)` is **i64** on AVX2 with
+`laneCount==4` (256/4 = 64). Each loaded byte is ZExt'd to i64, the result is
+`<4 x i64>`, and `flen == uint8(2)` becomes `icmp eq <4 x i64> ...` →
+`vpcmpeqq`. The broadened `<i64 2,...>` constant follows automatically from the
+`sext <4 x i1> → <4 x i64>` boolean-chain representation; capping the load
+element width makes the constants fold to the narrower width too — no separate
+comparison-site fix needed.
+
+**Fix (TinyGo only, `spmd.go:4848`):** cap `wideElemType` at i32 instead of
+`spmdMaskElemType(laneCount)`. The packed scalar for a `[4]uint8` load is i32
+(8*4), so i32 makes the existing trunc/zext at ~4860–4866 a no-op and yields
+`<4 x i32>` (→ `vpcmpeqd`/`vpcmpeqb` after LLVM combines). WASM is unaffected
+(`spmdMaskElemType(4)` is already i32 there). Blast radius: only
+`spmdMaskedLoadNarrow` (contiguous sub-128-bit array loads). E2E risk: low —
+load values unchanged, only vector element width narrows.
+
+Concrete shape (final wording at implementation time):
+
+```go
+// Cap at i32. spmdMaskElemType(laneCount) is i64 on AVX2 4-lane, which
+// forces vpcmpeqq for byte/half comparisons. i32 is sufficient on every
+// target (WASM already yields i32 here) and keeps trunc/zext a no-op.
+maskElemBits := b.spmdRegisterBytes() * 8 / laneCount
+if maskElemBits > 32 {
+    maskElemBits = 32
+}
+wideElemType := b.ctx.IntType(maskElemBits)
+```
+
+### 2.c — already fixed by `03f76d91`; the residual `vpextrb` is return ABI
+
+Commit `03f76d91` **did** fix the `ip[field]` scatter: it now compiles to a
+packed blend-store (`store i32 %_, ptr %spmd.contiguous.ptr...`), verified in
+IR — no scatter, no per-lane `vpextrb` for `ip[field]`. The `vpextrb` that
+remain are the System V AMD64 return-ABI decomposition of the `[4]byte` return
+value (after a `vpshufb` that extracts the low byte of each `values` uint16).
+They were present before AND after `03f76d91`. This is **not a compiler bug**;
+eliminating it would require changing `parseIPv4Inner`'s return to an output
+pointer (`*[4]byte`) — a source/ABI change, explicitly out of scope.
+
+**Therefore 2.c needs NO further compiler change.** The original disasm guard's
+blanket `vpextrb` assertion tests the wrong thing and must be corrected:
+
+- Keep/strengthen the `vpcmpeqq` assertion (real 2.b signal; must vanish after
+  the `spmdMaskedLoadNarrow` fix).
+- Replace the blanket `vpextrb` check with a **scatter** check: assert no
+  `vpscatter`/`vpgather` and no per-lane scatter in the SPMD loop body. A
+  practical proxy: assert `vpextrb` appears only in the function's return/exit
+  path (after the final `vpshufb`), not in the loop body — or simply drop the
+  `vpextrb` check and instead positively assert the IR/asm contains the packed
+  contiguous store. Implementation chooses the most robust available check.
+
+### Revised scope summary
+
+| Item | Status | Action |
+|---|---|---|
+| Original 2.b (`spmdSubVectorElemType`, `5c44de50`) | DONE, correct, retained | none (helps other paths) |
+| **Real 2.b (`spmdMaskedLoadNarrow` i32 cap)** | TODO | new implementation task |
+| 2.c (`03f76d91`) | DONE, correct, sufficient | none |
+| Disasm guard `vpextrb` criterion | wrong | revise to scatter/positive check |
+| Disasm guard `vpcmpeqq` criterion | correct | keep; must pass after real 2.b |
+
+x-tools-spmd untouched. Baseline to preserve: 106/95/0/94/0/11.
