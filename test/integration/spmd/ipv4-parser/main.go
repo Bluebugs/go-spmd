@@ -130,6 +130,17 @@ var testCases = []string{
 	"192.168.1.a",   // Invalid: non-digit
 }
 
+// benchCases contains only valid IPv4 addresses, isolating the SIMD success path.
+// The mixed set's error path causes heap allocations (fmt.Sprintf in buildParseError)
+// and early returns, which dilute the SIMD measurement. Timed loops use this slice.
+var benchCases = []string{
+	"192.168.1.1",
+	"10.0.0.1",
+	"255.255.255.255",
+	"0.0.0.0",
+	"127.0.0.1",
+}
+
 func main() {
 	for _, addr := range testCases {
 		ip, err := parseIPv4(addr)
@@ -145,7 +156,8 @@ func main() {
 
 func benchmark() {
 	fmt.Println("\n=== IPv4 Parser SPMD Benchmark ===")
-	fmt.Printf("Test cases: %d, Iterations: %d per run\n", len(testCases), iterations)
+	// Report benchCases count — that is what the timed loops actually iterate.
+	fmt.Printf("Test cases: %d, Iterations: %d per run\n", len(benchCases), iterations)
 	fmt.Printf("Warmup: %d runs, Bench: %d runs\n\n", WARMUP_RUNS, BENCH_RUNS)
 
 	// Correctness check: scalar and SPMD must agree on every test case.
@@ -170,12 +182,12 @@ func benchmark() {
 	fmt.Println("Warming up...")
 	for r := 0; r < WARMUP_RUNS; r++ {
 		for n := 0; n < iterations; n++ {
-			for _, addr := range testCases {
+			for _, addr := range benchCases {
 				parseIPv4Scalar(addr)
 			}
 		}
 		for n := 0; n < iterations; n++ {
-			for _, addr := range testCases {
+			for _, addr := range benchCases {
 				parseIPv4(addr)
 			}
 		}
@@ -187,7 +199,7 @@ func benchmark() {
 	for i := 0; i < BENCH_RUNS; i++ {
 		start := time.Now()
 		for n := 0; n < iterations; n++ {
-			for _, addr := range testCases {
+			for _, addr := range benchCases {
 				parseIPv4Scalar(addr)
 			}
 		}
@@ -200,7 +212,7 @@ func benchmark() {
 	for i := 0; i < BENCH_RUNS; i++ {
 		start := time.Now()
 		for n := 0; n < iterations; n++ {
-			for _, addr := range testCases {
+			for _, addr := range benchCases {
 				parseIPv4(addr)
 			}
 		}
