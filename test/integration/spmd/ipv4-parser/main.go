@@ -40,12 +40,15 @@ var lemireTable [2048]lemireEntry
 
 // shuffleTable holds all 81 complete 16-byte swizzle masks (27 l0/l1/l2
 // combinations × 3 l3 variants).  Index = code3*3 + (l3-1).
-var shuffleTable [81][16]byte
+// Sized to 128 (next power-of-two ≥ 81) so that indexing with code&127
+// lets the compiler eliminate the bounds check: code ≤ 80 < 128 == len.
+var shuffleTable [128][16]byte
 
 // flensTable holds all 81 precomputed [l0, l1, l2, l3] field-length arrays.
 // Index = code3*3 + (l3-1), same as shuffleTable.
 // Use uint8 so [4]uint8 is 4 bytes — compact storage; values are 1-3 only.
-var flensTable [81][4]uint8
+// Sized to 128 for the same bounds-check-elimination reason as shuffleTable.
+var flensTable [128][4]uint8
 
 func init() {
 	// Iterate all 81 combinations of (l0, l1, l2, l3) to precompute complete
@@ -365,12 +368,7 @@ func parseIPv4Inner(s string) (ip [4]byte, errCode uint8, errAt int) {
 		return [4]byte{}, 2, bits.TrailingZeros16(invalidMask)
 	}
 
-	// Count dots using popcount on the bitmask.
-	dotCount := bits.OnesCount16(dotBitmask)
-	if dotCount != 3 {
-		// errAt carries the actual count so the wrapper can format the message.
-		return [4]byte{}, 3, dotCount
-	}
+	// (dot-count validation is subsumed by the expectedMask check below.)
 
 	// Lemire compact hash: maps 16-bit dotBitmask → 11-bit index in [0,2047].
 	// Replaces 3× CTZ + dotCodeTable lookup with 2 bitops + 1 table lookup.
@@ -390,9 +388,12 @@ func parseIPv4Inner(s string) (ip [4]byte, errCode uint8, errAt int) {
 	// Look up the complete precomputed shuffle mask and field lengths for this
 	// (l0, l1, l2, l3) combination — no runtime patching needed.
 	// code3x3() already holds code3*3; add (l3-1) to get the final index.
+	// Invariant: code ≤ 80 (code3x3 ≤ 78 for max layout l0=l1=l2=3, l3-1 ≤ 2).
+	// Masking with &127 proves code < 128 == len(shuffleTable/flensTable) to the
+	// compiler, eliminating the bounds check; &127 == identity since code ≤ 80.
 	code := entry.code3x3() + (l3 - 1)
-	shuffleMask := shuffleTable[code]
-	flens := flensTable[code]
+	shuffleMask := shuffleTable[code&127]
+	flens := flensTable[code&127]
 
 	// Apply the swizzle: gather [h0,t0,o0,0, h1,t1,o1,0, h2,t2,o2,0, h3,t3,o3,0].
 	var shuffled [16]byte
@@ -455,8 +456,6 @@ func buildParseError(s string, code uint8, at int) error {
 		return parseAddrError{in: s, msg: "IPv4 address string too short or too long"}
 	case 2:
 		return parseAddrError{in: s, at: at, msg: "unexpected character"}
-	case 3:
-		return parseAddrError{in: s, msg: fmt.Sprintf("invalid dot count: %d", at)}
 	case 4:
 		return parseAddrError{in: s, msg: "invalid field length"}
 	case 5:
