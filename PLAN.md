@@ -1366,11 +1366,35 @@ All Phase 3 validation work is complete. The only remaining compile failure is `
 
 ---
 
+- [ ] **laneIndices strict-`>` narrowing in emitSPMDBodyPrologue**
+  - Location: `tinygo/compiler/spmd.go` `emitSPMDBodyPrologue` (~line 1789, `regBits := … ; … > regBits`)
+  - Status: DEFERRED (2026-05-18)
+  - Depends On: None
+  - Implementation: Change strict `>` to `>=` so AVX2 `[4]int` (4×64==256 bits) also narrows i64 lane indices to i32. Currently `256 > 256` is false so the narrowing is skipped; 64-bit GEP offsets work but the missed truncation is latent inconsistency with the 32-bit GEP path.
+  - Priority: LOW (indices are used only for GEP arithmetic which is correct at i64; no observed miscompilation today)
+  - Related: 2026-05-17 ipv4 codegen fixes (commits 5c44de50, 03f76d91, b7c89d8b)
+
+- [ ] **stride-2 `shuffled` layout for pmaddubsw decimal conversion in ipv4-parser**
+  - Location: `test/integration/spmd/ipv4-parser/main.go` decimal-conversion `go for` loop
+  - Status: DEFERRED (2026-05-18)
+  - Depends On: None (compiler-side `spmdExtractPmaddSide` already requires `pat.stride==2`)
+  - Implementation: Restructure the `shuffled` intermediate array to store byte pairs in stride-2 layout so the `spmdExtractPmaddSide` pattern detector fires and emits `vpmaddubsw` for the decimal field conversion, replacing the current sequential multiply-add chain.
+  - Priority: MEDIUM (would reduce instruction count in parseIPv4Inner hot path; benchmark currently 0.75–0.94x vs scalar due to function-call overhead)
+  - Related: 2026-05-17 ipv4 codegen fixes, `spmdExtractPmaddubswPattern` in `tinygo/compiler/spmd.go`
+
+- [ ] **parseIPv4Inner return-ABI vpextrb (documented non-bug)**
+  - Location: `test/integration/spmd/ipv4-parser/main.go` `parseIPv4Inner` signature / return type
+  - Status: DEFERRED (2026-05-18, documented non-bug)
+  - Depends On: None
+  - Implementation: The residual `vpextrb` instructions at the end of `parseIPv4Inner` are the System V ABI decomposition of the `[4]byte` return value into four separate byte registers (r8d/edi/esi/edx). They are NOT scatter — they appear strictly after the final `vpshufb` (verified by `ipv4-disasm-check.sh` Rule 3). Removable only by changing the return ABI to an out-parameter (`*[4]byte`), which requires source and call-site changes.
+  - Priority: LOW (no correctness impact; disasm guard confirms the ABI-only vpextrb; pure cosmetic/codegen-quality)
+  - Related: 2.c fix (commit 03f76d91), `test/e2e/ipv4-disasm-check.sh` Rule 3
+
 **Last Completed**: Base64 Mula-Lemire scalar-mode fix (2026-04-17) — `chunkSize := max(4, lanes.Count[byte](bv))` in `main.go`, `bench.go`, and `examples/base64-decoder/main.go`. In scalar mode `lanes.Count[byte]() = 1`, so the cascading byte→int16→int32 kernel computed `halfLen = 0` / `quarterLen = 0` and produced no output; only the '=' padding fallback emitted bytes. Added dual-mode Level 8 entry (`dual_base64-mula-lemire`) and Benchmark 6 in `spmd-benchmark.sh` (throughput + correctness parity). Observed ~11.5x speedup (chunkSize=16 SIMD vs chunkSize=4 scalar on wasmtime).
 
 **Previous**: Base64 Mula-Lemire v2 decoder (2026-04-12) — Cascading go-for loops (byte→int16→int32) trigger pmaddubsw/pmaddwd pattern detection + byte-decomposition store. AVX2 ~17 GB/s (~77% of simdutf C++), SSSE3 ~8.5 GB/s, WASM ~6 GB/s (varies by host). ~9x faster than Go stdlib.
 
-**Next Action**: ALL DEFERRED ITEMS RESOLVED. PLAN.md is COMPLETE.
+**Next Action**: 3 deferred items re-opened (2026-05-17, ipv4 AVX2 codegen work) — see Deferred Items Collection: laneIndices strict-`>` narrowing (LOW), stride-2 `shuffled` for pmaddubsw (MEDIUM), parseIPv4Inner return-ABI vpextrb documented non-bug (LOW).
 No remaining features. Project is fully feature-complete.
 
 ### Recent Major Achievements (Phase 1.5 Extensions)

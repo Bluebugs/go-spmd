@@ -865,6 +865,18 @@ test_x86_avx2 "avx2_mandelbrot" "$INTEG/mandelbrot/main.go"  "contains:Mandelbro
 test_x86_avx2 "avx2_ipv4-parser" "$INTEG/ipv4-parser/main.go" \
     "contains:'192.168.1.1' -> 192.168.1.1|||'127.0.0.1' -> 127.0.0.1|||'192.168.1.a' -> ERROR: parse 192.168.1.a at position 10: unexpected character|||'256.1.1.1' -> ERROR: parse 256.1.1.1 at position 0: IPv4 field has value >255|||'192.168.01.1' -> ERROR: parse 192.168.01.1 at position 0: IPv4 field has octet with leading zero"
 
+# ========== AVX2 ipv4 disasm guard ==========
+printf "\n${BLUE}--- AVX2 ipv4 disasm guard ---${NC}\n"
+TOTAL=$((TOTAL + 1))
+disasm_out=$(bash "$SPMD_ROOT/test/e2e/ipv4-disasm-check.sh" 2>&1)
+if [ $? -eq 0 ]; then
+    RUN_PASS=$((RUN_PASS + 1))
+    printf "${GREEN}PASS${NC}         %-40s %s\n" "avx2_ipv4-disasm" "(output verified)"
+else
+    RUN_FAIL=$((RUN_FAIL + 1))
+    printf "${RED}FAIL${NC}         %-40s %s\n" "avx2_ipv4-disasm" "$disasm_out"
+fi
+
 fi  # x86_64 check
 
 # ========== SUMMARY ==========
