@@ -844,6 +844,8 @@ test_x86 "x86_to-upper"    "$INTEG/to-upper/main.go"    "contains:'hello world' 
 test_x86 "x86_mandelbrot" "$INTEG/mandelbrot/main.go"  "contains:Mandelbrot SPMD example completed successfully"
 test_x86 "x86_simple-sum" "$INTEG/simple-sum/main.go"  "Sum: 136"
 test_x86 "x86_odd-even"   "$INTEG/odd-even/main.go"    "Result: Odd=4, Even=4"
+test_x86 "x86_ipv4-parser" "$INTEG/ipv4-parser/main.go" \
+    "contains:'192.168.1.1' -> 192.168.1.1|||'127.0.0.1' -> 127.0.0.1|||'192.168.1.a' -> ERROR: parse 192.168.1.a at position 10: unexpected character|||'256.1.1.1' -> ERROR: parse 256.1.1.1 at position 0: IPv4 field has value >255|||'192.168.01.1' -> ERROR: parse 192.168.01.1 at position 0: IPv4 field has octet with leading zero"
 # store-coalescing: lane-count-dependent interleaving, wrong output on x86 native (under investigation)
 # hex-encode: SIGSEGV on x86-64 native (known issue)
 
@@ -860,6 +862,8 @@ test_x86_avx2 "avx2_simple-sum"  "$INTEG/simple-sum/main.go"  "Sum: 136"
 test_x86_avx2 "avx2_odd-even"    "$INTEG/odd-even/main.go"    "Result: Odd=4, Even=4"
 test_x86_avx2 "avx2_to-upper"    "$INTEG/to-upper/main.go"    "contains:'hello world' -> 'HELLO WORLD'"
 test_x86_avx2 "avx2_mandelbrot" "$INTEG/mandelbrot/main.go"  "contains:Mandelbrot SPMD example completed successfully"
+test_x86_avx2 "avx2_ipv4-parser" "$INTEG/ipv4-parser/main.go" \
+    "contains:'192.168.1.1' -> 192.168.1.1|||'127.0.0.1' -> 127.0.0.1|||'192.168.1.a' -> ERROR: parse 192.168.1.a at position 10: unexpected character|||'256.1.1.1' -> ERROR: parse 256.1.1.1 at position 0: IPv4 field has value >255|||'192.168.01.1' -> ERROR: parse 192.168.01.1 at position 0: IPv4 field has octet with leading zero"
 
 fi  # x86_64 check
 
