@@ -877,6 +877,21 @@ else
     printf "${RED}FAIL${NC}         %-40s %s\n" "avx2_ipv4-disasm" "$disasm_out"
 fi
 
+# ========== AVX2 base64 disasm guard ==========
+# Guards the spmdExtractPmaddSide ChangeType regression: x-tools-spmd f3afc3fb
+# wraps SPMDLoad results with ChangeType; without the fix vpmaddubsw/vpmaddwd
+# are not emitted and base64 throughput drops ~20x (~0.8 GB/s vs ~17 GB/s).
+printf "\n${BLUE}--- AVX2 base64 disasm guard ---${NC}\n"
+TOTAL=$((TOTAL + 1))
+b64_disasm_out=$(bash "$SPMD_ROOT/test/e2e/base64-disasm-check.sh" 2>&1)
+if [ $? -eq 0 ]; then
+    RUN_PASS=$((RUN_PASS + 1))
+    printf "${GREEN}PASS${NC}         %-40s %s\n" "avx2_base64-disasm" "(output verified)"
+else
+    RUN_FAIL=$((RUN_FAIL + 1))
+    printf "${RED}FAIL${NC}         %-40s %s\n" "avx2_base64-disasm" "$b64_disasm_out"
+fi
+
 fi  # x86_64 check
 
 # ========== SUMMARY ==========
