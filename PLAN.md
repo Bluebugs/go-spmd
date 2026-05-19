@@ -1390,11 +1390,19 @@ All Phase 3 validation work is complete. The only remaining compile failure is `
   - Priority: LOW (no correctness impact; disasm guard confirms the ABI-only vpextrb; pure cosmetic/codegen-quality)
   - Related: 2.c fix (commit 03f76d91), `test/e2e/ipv4-disasm-check.sh` Rule 3
 
+- [ ] **spmdRangeIndexLaneCount Strategy 3 read/write lane-count inversion**
+  - Location: `tinygo/compiler/spmd.go` `spmdRangeIndexLaneCount` Strategy 3 (~lines 412–538)
+  - Status: DEFERRED (2026-05-19)
+  - Depends On: None
+  - Implementation: When a `go for` loop reads one array (e.g. `shuffled [16]byte` → laneCount 16) but writes another (e.g. `values [4]uint16` → laneCount 4), Strategy 3 currently derives the lane count from the first SPMDLoad source, picking 16 and inflating the masked store to `<16 x i16>` with only 4 active lanes (4× `vpextrw` in parseIPv4Inner loop 3). Fix: Strategy 3 should take the minimum derived lane count across BOTH SPMDLoad sources and SPMDStore addrs in the loop body.
+  - Priority: LOW (codegen-quality only; ~4 instrs in one loop; not on the dominant cost path — the stride-4 gathers and per-IP overhead dominate)
+  - Related: ipv4 AVX2 codegen 2026-05-17..19; Fix 1 `c9528b1e`; the real lever is outer-SPMD
+
 **Last Completed**: Base64 Mula-Lemire scalar-mode fix (2026-04-17) — `chunkSize := max(4, lanes.Count[byte](bv))` in `main.go`, `bench.go`, and `examples/base64-decoder/main.go`. In scalar mode `lanes.Count[byte]() = 1`, so the cascading byte→int16→int32 kernel computed `halfLen = 0` / `quarterLen = 0` and produced no output; only the '=' padding fallback emitted bytes. Added dual-mode Level 8 entry (`dual_base64-mula-lemire`) and Benchmark 6 in `spmd-benchmark.sh` (throughput + correctness parity). Observed ~11.5x speedup (chunkSize=16 SIMD vs chunkSize=4 scalar on wasmtime).
 
 **Previous**: Base64 Mula-Lemire v2 decoder (2026-04-12) — Cascading go-for loops (byte→int16→int32) trigger pmaddubsw/pmaddwd pattern detection + byte-decomposition store. AVX2 ~17 GB/s (~77% of simdutf C++), SSSE3 ~8.5 GB/s, WASM ~6 GB/s (varies by host). ~9x faster than Go stdlib.
 
-**Next Action**: 3 deferred items re-opened (2026-05-17, ipv4 AVX2 codegen work) — see Deferred Items Collection: laneIndices strict-`>` narrowing (LOW), stride-2 `shuffled` for pmaddubsw (MEDIUM), parseIPv4Inner return-ABI vpextrb documented non-bug (LOW).
+**Next Action**: Fix 1 (`c9528b1e` — cap SPMD mask element width at i32 on AVX2) landed in tinygo submodule; Fix 2 (spmdRangeIndexLaneCount Strategy 3 read/write lane-count inversion) deferred (2026-05-19, LOW priority). Parent submodule bump pending. 4 total deferred items in collection: laneIndices strict-`>` narrowing (LOW), stride-2 `shuffled` for pmaddubsw (MEDIUM), parseIPv4Inner return-ABI vpextrb (LOW), spmdRangeIndexLaneCount Strategy 3 min-laneCount (LOW).
 No remaining features. Project is fully feature-complete.
 
 ### Recent Major Achievements (Phase 1.5 Extensions)
